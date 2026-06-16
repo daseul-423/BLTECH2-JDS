@@ -35,8 +35,29 @@ async function initLocal() {
   LDB.seqs = LDB.seqs || { records: 1, sheets: 1, plans: 1, standards: 1 };
   COLLECTIONS.forEach((c) => { if (!LDB[c]) LDB[c] = []; });
   LDB.masters = LDB.masters || {};
+  if (cached) await healStandardImages();  // 옛 /uploads 경로 → 내장 사진(dataURL) 자동 교체
   if (!cached) saveLocal();
   LOCAL_MODE = true;
+}
+/* 배포 환경에서 서빙 불가한 /uploads 이미지 경로를 seed.json의 내장 dataURL로 치환 */
+async function healStandardImages() {
+  const stds = LDB.standards || [];
+  const hasStale = stds.some((s) => Object.values(s.images || {}).some((v) => typeof v === 'string' && v.startsWith('/uploads/')));
+  if (!hasStale) return;
+  let seedById = {};
+  try { (await (await fetch('seed.json')).json()).standards.forEach((s) => (seedById[s.id] = s)); } catch (e) { return; }
+  let changed = false;
+  stds.forEach((s) => {
+    const im = s.images || (s.images = {});
+    ['pouch', 'inBox', 'outBox'].forEach((k) => {
+      if (typeof im[k] === 'string' && im[k].startsWith('/uploads/')) {
+        const seeded = seedById[s.id] && seedById[s.id].images ? seedById[s.id].images[k] : '';
+        im[k] = (typeof seeded === 'string' && seeded.startsWith('data:')) ? seeded : '';
+        changed = true;
+      }
+    });
+  });
+  if (changed) saveLocal();
 }
 function localApi(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
@@ -523,11 +544,13 @@ $$('#standard-form .photo-slot').forEach((slot) => {
   const imgEl = slot.querySelector('img');
   const emptyEl = slot.querySelector('.photo-empty');
   const delBtn = slot.querySelector('.photo-del');
+  imgEl.onerror = () => { imgEl.hidden = true; emptyEl.hidden = false; emptyEl.textContent = '사진을 불러올 수 없음'; };
   const setUrl = (url) => {
     slot.dataset.url = url || '';
     imgEl.hidden = !url;
     if (url) imgEl.src = url;
     emptyEl.hidden = !!url;
+    emptyEl.textContent = '사진 없음';
     delBtn.hidden = !url;
   };
   slot._setUrl = setUrl;
