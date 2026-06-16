@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cast-mes",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["test1/server.js"],
+      "port": 3000
+    }
+  ]
+}

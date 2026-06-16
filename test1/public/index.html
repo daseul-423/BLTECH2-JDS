@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CAST 생산공정일지 관리 시스템</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">C</div>
+    <div>
+      <div class="logo-title">CAST 생산관리</div>
+      <div class="logo-sub">생산공정일지 시스템</div>
+    </div>
+  </div>
+  <nav>
+    <button class="nav-btn active" data-page="dashboard">📊 대시보드</button>
+    <button class="nav-btn" data-page="plans">🗓 생산계획표</button>
+    <button class="nav-btn" data-page="sheets">📝 일일 공정일지</button>
+    <button class="nav-btn" data-page="logs">📋 생산실적</button>
+    <button class="nav-btn" data-page="analysis">📈 실적·불량 분석</button>
+    <button class="nav-btn" data-page="standards">📦 제품표준서</button>
+    <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
+  </nav>
+  <div class="sidebar-foot">BL-TECH 생산1팀 · F-PD-003A(Rev.12)</div>
+</aside>
+
+<main class="main">
+  <!-- 대시보드 -->
+  <section id="page-dashboard" class="page">
+    <div class="page-head">
+      <h1>대시보드</h1>
+      <div class="head-actions">
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <input type="month" id="dash-month">
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpi-grid"></div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>일별 생산량 (정품)</h3>
+        <div id="chart-daily"></div>
+      </div>
+      <div class="card">
+        <h3>호기별 총로스율 (%)</h3>
+        <div id="chart-machine"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>최근 생산실적</h3>
+      <div class="table-wrap" id="dash-recent"></div>
+    </div>
+  </section>
+
+  <!-- 생산계획표 -->
+  <section id="page-plans" class="page" hidden>
+    <div class="page-head">
+      <h1>생산계획표</h1>
+      <div class="head-actions">
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <input type="date" id="p-from"> ~ <input type="date" id="p-to">
+        <select id="p-machine"><option value="">호기 전체</option></select>
+        <select id="p-status">
+          <option value="">상태 전체</option>
+          <option>계획</option><option>진행</option><option>완료</option><option>보류</option>
+        </select>
+        <button class="btn primary" id="btn-new-plan">＋ 계획 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">실적·달성률은 같은 날짜/호기/제품의 생산실적과 자동 매칭됩니다.</p>
+      <div class="table-wrap" id="plans-table"></div>
+    </div>
+  </section>
+
+  <!-- 일일 공정일지 -->
+  <section id="page-sheets" class="page" hidden>
+    <div class="page-head">
+      <h1>일일 공정일지 <span class="muted" style="font-size:13px;font-weight:400">CAST: F-PD-003A(Rev.12) · SPLINT: F-PD-003b(Rev.13)</span></h1>
+      <div class="head-actions">
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <input type="month" id="s-month">
+        <select id="s-machine"><option value="">호기 전체</option></select>
+        <button class="btn primary" id="btn-new-sheet">＋ 일지 작성</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">일지를 저장하면 생산 라인이 <b>생산실적</b>에 자동 반영됩니다.</p>
+      <div class="table-wrap" id="sheets-table"></div>
+    </div>
+  </section>
+
+  <!-- 생산실적 -->
+  <section id="page-logs" class="page" hidden>
+    <div class="page-head">
+      <h1>생산실적 <span class="muted" style="font-size:13px;font-weight:400">일일 공정일지 저장 시 자동 생성됩니다</span></h1>
+      <div class="head-actions">
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <button class="btn" id="btn-csv">⬇ CSV 내보내기</button>
+      </div>
+    </div>
+    <div class="card filter-bar">
+      <label>기간 <input type="date" id="f-from"> ~ <input type="date" id="f-to"></label>
+      <label>호기 <select id="f-machine"><option value="">전체</option></select></label>
+      <label>업체 <select id="f-customer"><option value="">전체</option></select></label>
+      <label>검색 <input type="text" id="f-search" placeholder="제품명, Lot, 작업자..."></label>
+      <button class="btn" id="btn-filter-reset">초기화</button>
+    </div>
+    <div class="card">
+      <div class="table-wrap" id="logs-table"></div>
+    </div>
+  </section>
+
+  <!-- 분석 -->
+  <section id="page-analysis" class="page" hidden>
+    <div class="page-head">
+      <h1>실적·불량 분석</h1>
+      <div class="head-actions">
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+      </div>
+    </div>
+    <div class="card filter-bar">
+      <label>기간 <input type="date" id="a-from"> ~ <input type="date" id="a-to"></label>
+      <label>호기 <select id="a-machine"><option value="">전체</option></select></label>
+      <label>업체 <select id="a-customer"><option value="">전체</option></select></label>
+      <label>제품 <select id="a-product"><option value="">전체</option></select></label>
+      <label>지표
+        <select id="a-metric">
+          <option value="totalLossRate">총로스율(%)</option>
+          <option value="processLossRate">공정로스율(%)</option>
+          <option value="prodLossRate">생산로스율(%)</option>
+          <option value="totalLoss">총로스(수량)</option>
+          <option value="processDefect">공정불량(수량)</option>
+          <option value="prodDefect">생산불량(수량)</option>
+          <option value="prodQty">생산수량(정품)</option>
+        </select>
+      </label>
+      <button class="btn" id="a-reset">초기화</button>
+      <span class="muted" id="a-count"></span>
+    </div>
+    <div class="card">
+      <div class="card-head-row">
+        <h3 id="a-chart-title">기준별 분석</h3>
+        <select id="a-group">
+          <option value="machine">호기별</option>
+          <option value="product">제품별</option>
+          <option value="customer">업체별</option>
+          <option value="date">일자별</option>
+          <option value="color">칼라별</option>
+          <option value="workers">작업조별</option>
+          <option value="worker">작업자(개인)별</option>
+        </select>
+      </div>
+      <div id="chart-analysis"></div>
+      <div class="table-wrap" id="analysis-table" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <div class="card-head-row">
+        <h3>교차 분석 (행 × 열)</h3>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select id="a-pivot-row">
+            <option value="machine">호기</option>
+            <option value="product">제품</option>
+            <option value="customer">업체</option>
+            <option value="date">일자</option>
+            <option value="color">칼라</option>
+            <option value="workers">작업조</option>
+            <option value="worker">작업자(개인)</option>
+          </select>
+          <span>×</span>
+          <select id="a-pivot-col">
+            <option value="product">제품</option>
+            <option value="machine">호기</option>
+            <option value="customer">업체</option>
+            <option value="date">일자</option>
+            <option value="color">칼라</option>
+            <option value="workers">작업조</option>
+            <option value="worker">작업자(개인)</option>
+          </select>
+        </div>
+      </div>
+      <p class="muted" style="margin-bottom:8px">선택한 지표 기준으로 두 변수를 교차해 보여줍니다. 로스율이 높을수록 붉게 표시됩니다.</p>
+      <div class="table-wrap" id="pivot-table"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <h3>불량 구성 (공정 vs 생산)</h3>
+        <div id="chart-defect-split"></div>
+      </div>
+      <div class="card">
+        <h3>불량 세부유형 분포</h3>
+        <p class="muted" style="margin-bottom:6px" id="defect-detail-note"></p>
+        <div id="chart-defect-detail"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 제품표준서 -->
+  <section id="page-standards" class="page" hidden>
+    <div class="page-head">
+      <h1>제품표준서</h1>
+      <div class="head-actions">
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <input type="text" id="st-search" placeholder="제품명, 제품코드, 업체 검색">
+        <button class="btn primary" id="btn-new-standard">＋ 표준서 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">제품별 기재·수지·토너·라벨·파우치·박스 기준입니다. 작업지시서 발행 시 자동으로 참조됩니다.</p>
+      <div id="standards-list" class="standard-grid"></div>
+    </div>
+  </section>
+
+  <!-- 기준정보 -->
+  <section id="page-masters" class="page" hidden>
+    <div class="page-head">
+      <h1>기준정보 관리</h1>
+      <p class="muted">입력 화면의 선택 목록으로 사용됩니다. 항목은 쉼표(,)로 구분해 수정하세요.</p>
+    </div>
+    <div class="card" id="masters-form"></div>
+  </section>
+</main>
+
+<!-- 생산실적 입력/수정 모달 -->
+<div class="modal-back" id="modal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modal-title">생산실적 입력</h2>
+      <button class="btn icon" id="modal-close">✕</button>
+    </div>
+    <form id="log-form">
+      <fieldset>
+        <legend>생산 정보</legend>
+        <div class="form-grid">
+          <label>생산일 *<input type="date" name="date" required></label>
+          <label>호기 *<select name="machine" required data-master="machines"></select></label>
+          <label>Lot No<input type="text" name="lotNo"></label>
+          <label>EXP (유효기한)<input type="date" name="exp"></label>
+          <label>실링기<input type="number" name="sealer"></label>
+          <label>밴드 교체일<input type="date" name="bandDate"></label>
+          <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
+          <label>주문 차수<input type="number" name="orderNo"></label>
+          <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
+          <label>칼라<input type="text" name="color" list="dl-colors"></label>
+          <label>길이(m)<input type="number" step="0.1" name="length"></label>
+          <label>코팅량<input type="number" step="0.01" name="coating"></label>
+          <label>무게(g)<input type="number" step="0.1" name="weight"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>생산 실적 · LOSS <span class="auto-tag">파란 항목은 자동계산</span></legend>
+        <div class="form-grid">
+          <label>계획 수량<input type="number" name="planQty"></label>
+          <label>재파우치<input type="number" name="repouch"></label>
+          <label>생산수량(정품) *<input type="number" name="prodQty" required></label>
+          <label>잔량<input type="number" name="remainQty"></label>
+          <label>공정불량<input type="number" name="processDefect"></label>
+          <label>생산불량<input type="number" name="prodDefect"></label>
+          <label class="calc">총생산량<input type="number" name="totalProd" readonly tabindex="-1"></label>
+          <label class="calc">총로스<input type="number" name="totalLoss" readonly tabindex="-1"></label>
+          <label class="calc">총생산량(loss포함)<input type="number" name="totalProdLoss" readonly tabindex="-1"></label>
+          <label class="calc">공정 로스율(%)<input type="text" name="processLossRate" readonly tabindex="-1"></label>
+          <label class="calc">생산 로스율(%)<input type="text" name="prodLossRate" readonly tabindex="-1"></label>
+          <label class="calc">총 로스율(%)<input type="text" name="totalLossRate" readonly tabindex="-1"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>불량 세부 유형 <span class="auto-tag">입력 시 공정불량·생산불량 합계가 자동 반영됩니다</span></legend>
+        <div class="form-grid">
+          <label>이음매<input type="number" name="pdJoint" class="defect-detail" data-sum="process"></label>
+          <label>중간매듭<input type="number" name="pdKnot" class="defect-detail" data-sum="process"></label>
+          <label>기재불량<input type="number" name="pdBase" class="defect-detail" data-sum="process"></label>
+          <label>셋팅<input type="number" name="gdSet" class="defect-detail" data-sum="prod"></label>
+          <label>말림<input type="number" name="gdCurl" class="defect-detail" data-sum="prod"></label>
+          <label>줄감<input type="number" name="gdRoll" class="defect-detail" data-sum="prod"></label>
+          <label>길이<input type="number" name="gdLen" class="defect-detail" data-sum="prod"></label>
+          <label>오염<input type="number" name="gdStain" class="defect-detail" data-sum="prod"></label>
+          <label>기타<input type="number" name="gdEtc" class="defect-detail" data-sum="prod"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>기재</legend>
+        <div class="form-grid">
+          <label>제품코드<input type="text" name="productCode" list="dl-productCodes"></label>
+          <label>기재 타입<input type="text" name="baseType" list="dl-baseTypes"></label>
+          <label>사이즈(인치)<input type="number" name="size"></label>
+          <label>기재 길이(m)<input type="number" name="baseLength"></label>
+          <label>기재타입/길이<input type="text" name="baseTypeLen"></label>
+          <label>1롤 생산량<input type="number" name="rollProd"></label>
+          <label class="calc">투입기재(m)<input type="text" name="inputBase" readonly tabindex="-1"></label>
+          <label class="calc">총 사용량(롤)<input type="text" name="rollUsage" readonly tabindex="-1"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>수지 · 파우치 · 포장</legend>
+        <div class="form-grid">
+          <label>수지 종류<input type="text" name="resinType" list="dl-resins"></label>
+          <label>투입량 1ea(g)<input type="number" step="0.001" name="resinPerEa"></label>
+          <label class="calc">총투입량(kg)<input type="text" name="resinTotal" readonly tabindex="-1"></label>
+          <label>파우치 종류<input type="text" name="pouchType" list="dl-pouches"></label>
+          <label>파우치 추가<input type="number" name="pouchExtra"></label>
+          <label class="calc">파우치 총수량<input type="number" name="pouchTotal" readonly tabindex="-1"></label>
+          <label>In Box<input type="text" name="inBox"></label>
+          <label>Out Box<input type="text" name="outBox"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>작업자 · 비고</legend>
+        <div class="form-grid">
+          <label>작업자<input type="text" name="workers" list="dl-workers" placeholder="예: 김선희/최명춘"></label>
+          <label>조출수량<input type="number" name="earlyQty"></label>
+          <label>조출자<input type="text" name="earlyWorker"></label>
+          <label class="wide">특이사항<input type="text" name="remarks"></label>
+        </div>
+      </fieldset>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="btn-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="btn-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- SPLINT 생산실적 입력/수정 모달 -->
+<div class="modal-back" id="splint-modal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="splint-modal-title">SPLINT 실적 입력</h2>
+      <button class="btn icon" id="splint-modal-close">✕</button>
+    </div>
+    <form id="splint-form">
+      <fieldset>
+        <legend>생산 정보</legend>
+        <div class="form-grid">
+          <label>생산일 *<input type="date" name="date" required></label>
+          <label>호기 *<select name="machine" required></select></label>
+          <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
+          <label>주문 차수<input type="number" name="orderNo"></label>
+          <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
+          <label>인치<input type="number" name="size"></label>
+          <label>기재 타입<input type="text" name="baseType" list="dl-baseTypes" placeholder="SP/FG/NW"></label>
+          <label>제품무게 1개(g)<input type="number" step="1" name="weight"></label>
+          <label>1롤 길이(m)<input type="number" step="0.01" name="rollLen" value="4.55"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>제품무게 측정 기록 (생산자 작성) <span class="auto-tag">측정값을 추가하면 평균·최소·최대가 자동 계산됩니다</span></legend>
+        <div id="weight-rows" class="dyn-rows"></div>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <button type="button" class="btn small" data-add="weight">＋ 측정 추가</button>
+          <button type="button" class="btn small" id="btn-apply-weight">↥ 평균을 제품무게 1개(g)에 적용</button>
+        </div>
+        <div class="form-grid" style="margin-top:10px">
+          <label class="calc">측정 횟수<input type="text" name="weightCount" readonly tabindex="-1"></label>
+          <label class="calc">평균(g)<input type="text" name="weightAvg" readonly tabindex="-1"></label>
+          <label class="calc">최소(g)<input type="text" name="weightMin" readonly tabindex="-1"></label>
+          <label class="calc">최대(g)<input type="text" name="weightMax" readonly tabindex="-1"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>생산 수량 (roll·m) <span class="auto-tag">파란 항목은 자동계산</span></legend>
+        <div class="form-grid">
+          <label>SP 내수(roll)<input type="number" step="1" name="spDom"></label>
+          <label>SP 해외(roll)<input type="number" step="1" name="spOvs"></label>
+          <label>SP(m)<input type="number" step="0.01" name="spM"></label>
+          <label>PR(m)<input type="number" step="0.01" name="prM"></label>
+          <label class="calc">PR(roll)<input type="text" name="prRoll" readonly tabindex="-1"></label>
+          <label class="calc">총수량(m)<input type="text" name="totalM" readonly tabindex="-1"></label>
+          <label class="calc">총수량(roll)<input type="text" name="totalRoll" readonly tabindex="-1"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>기재 투입 · LOSS</legend>
+        <div class="form-grid">
+          <label>중피(m)<input type="number" step="0.1" name="baseMid"></label>
+          <label>상지(m)<input type="number" step="0.01" name="baseUp"></label>
+          <label>하지(m)<input type="number" step="0.01" name="baseDown"></label>
+          <label class="calc">이론총수량(roll)<input type="text" name="theoRoll" readonly tabindex="-1"></label>
+          <label>총로스(g)<input type="number" step="1" name="lossG"></label>
+          <label>공정불량(roll)<input type="number" step="0.01" name="processDefect"></label>
+          <label class="calc">총로스(roll)<input type="text" name="totalLossRoll" readonly tabindex="-1"></label>
+          <label class="calc">생산불량(roll)<input type="text" name="prodDefect" readonly tabindex="-1"></label>
+          <label class="calc">이론로스(roll)<input type="text" name="theoLoss" readonly tabindex="-1"></label>
+          <label class="calc">생산량+로스량<input type="text" name="prodPlusLoss" readonly tabindex="-1"></label>
+          <label class="calc">공정 로스율(%)<input type="text" name="processLossRate" readonly tabindex="-1"></label>
+          <label class="calc">생산 로스율(%)<input type="text" name="prodLossRate" readonly tabindex="-1"></label>
+          <label class="calc">생산총 로스율(%)<input type="text" name="totalLossRate" readonly tabindex="-1"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>수지 · 파우치 · 포장</legend>
+        <div class="form-grid">
+          <label>수지 종류<input type="text" name="resinType" list="dl-resins"></label>
+          <label>원료<input type="text" name="rawMaterial"></label>
+          <label>투입량(kg)<input type="number" step="0.1" name="resinInput"></label>
+          <label>파우치 종류<input type="text" name="pouchType" list="dl-pouches"></label>
+          <label>파우치 SP<input type="number" step="1" name="pouchSP"></label>
+          <label class="calc">파우치 PR<input type="text" name="pouchPR" readonly tabindex="-1"></label>
+          <label>파우치 총수량<input type="number" step="1" name="pouchTotal"></label>
+          <label class="calc">파우치 LOSS<input type="text" name="pouchLoss" readonly tabindex="-1"></label>
+          <label>In Box<input type="number" step="1" name="inBox"></label>
+          <label>Out Box<input type="number" step="0.01" name="outBox"></label>
+          <label>Brown<input type="number" step="1" name="brown"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>작업자 · 비고</legend>
+        <div class="form-grid">
+          <label class="wide">작업자<input type="text" name="workers" list="dl-workers" placeholder="예: 황은아/문용맹/유추이/주추향"></label>
+          <label class="wide">특이사항<input type="text" name="remarks"></label>
+        </div>
+      </fieldset>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="splint-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="splint-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 생산계획 입력/수정 모달 -->
+<div class="modal-back" id="plan-modal" hidden>
+  <div class="modal" style="max-width:640px">
+    <div class="modal-head">
+      <h2 id="plan-modal-title">생산계획 등록</h2>
+      <button class="btn icon" id="plan-modal-close">✕</button>
+    </div>
+    <form id="plan-form">
+      <div class="form-grid">
+        <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
+        <label>생산일 *<input type="date" name="date" required></label>
+        <label>호기 *<select name="machine" required></select></label>
+        <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
+        <label>주문 차수<input type="number" name="orderNo"></label>
+        <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
+        <label>칼라<input type="text" name="color" list="dl-colors"></label>
+        <label>길이(m)<input type="number" step="0.1" name="length"></label>
+        <label>계획수량 *<input type="number" name="planQty" required></label>
+        <label>상태<select name="status"><option>계획</option><option>진행</option><option>완료</option><option>보류</option></select></label>
+        <label class="wide">비고<input type="text" name="note"></label>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="plan-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="plan-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 일일 공정일지 워크스페이스 (탭 누적 입력 -> 자동 완성) -->
+<div class="ws-overlay" id="sheet-workspace" hidden>
+  <div class="ws-card">
+    <header class="ws-header">
+      <div class="ws-head-left">
+        <span class="ws-part-badge" id="ws-part-badge">CAST</span>
+        <div>
+          <div class="ws-title">공정일지 <span class="muted" id="ws-formno"></span></div>
+          <div class="ws-summary" id="ws-summary"></div>
+        </div>
+      </div>
+      <div class="ws-head-right">
+        <span class="ws-save" id="ws-save-status"></span>
+        <span id="ws-status-badge"></span>
+        <button class="btn danger" id="ws-delete">삭제</button>
+        <button class="btn" id="ws-close">닫기</button>
+      </div>
+    </header>
+    <nav class="ws-tabs" id="ws-tabs"></nav>
+    <div class="ws-panel" id="ws-panel"></div>
+  </div>
+</div>
+
+<!-- 제품표준서 등록/수정 모달 -->
+<div class="modal-back" id="standard-modal" hidden>
+  <div class="modal" style="max-width:900px">
+    <div class="modal-head">
+      <h2 id="standard-modal-title">제품표준서 등록</h2>
+      <button class="btn icon" id="standard-modal-close">✕</button>
+    </div>
+    <form id="standard-form">
+      <fieldset>
+        <legend>제품 정보</legend>
+        <div class="form-grid">
+          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
+          <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
+          <label>제품코드<input type="text" name="productCode" placeholder="예: NHC-3F-BK"></label>
+          <label>칼라<input type="text" name="color" list="dl-colors"></label>
+          <label>업체명<input type="text" name="customer" list="dl-customers" placeholder="비우면 공용"></label>
+          <label>브랜드<input type="text" name="brand" placeholder="예: NEAL CAST PLUS"></label>
+          <label class="wide">규격<input type="text" name="sizeSpec" placeholder="예: 3inch x 4.4yds (7.5cm x 4.0m)"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>자재 기준 · 코팅량 규격</legend>
+        <div class="form-grid">
+          <label>품목<input type="text" name="category" placeholder="CAST / SMILE CAST"></label>
+          <label>기재 종류<input type="text" name="baseType" list="dl-baseTypes"></label>
+          <label>수지 종류<input type="text" name="resinType" list="dl-resins"></label>
+          <label>촉매<input type="text" name="catalyst" placeholder="예: 1.6%"></label>
+          <label>코어 종류<input type="text" name="core" list="dl-cores"></label>
+          <label>토너 종류<input type="text" name="toner" list="dl-toners"></label>
+          <label>파우치 종류<input type="text" name="pouchType" list="dl-pouches"></label>
+          <label>코팅량 규격(하)<input type="number" step="0.1" name="coatingMin"></label>
+          <label>코팅량 규격(중심)<input type="number" step="0.1" name="coatingMid"></label>
+          <label>코팅량 규격(상)<input type="number" step="0.1" name="coatingMax"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>포장 기준 · 사진</legend>
+        <div class="photo-grid">
+          <div class="photo-slot" data-img="pouch">
+            <div class="photo-head">라벨 · 파우치</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" hidden>
+          </div>
+          <div class="photo-slot" data-img="inBox">
+            <div class="photo-head">In Box (내박스)</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" hidden>
+          </div>
+          <div class="photo-slot" data-img="outBox">
+            <div class="photo-head">Out Box (외박스)</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" hidden>
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top:12px">
+          <label class="wide">라벨 표기사항<input type="text" name="labelSpec" placeholder="LOT/EXP/Model 표기 규칙 등"></label>
+          <label class="wide">In Box 기준<input type="text" name="inBoxSpec" placeholder="예: 10 ROLL, 라벨 표기사항"></label>
+          <label class="wide">Out Box 기준<input type="text" name="outBoxSpec" placeholder="예: 10ROLLS/BOX"></label>
+          <label class="wide">비고<input type="text" name="note"></label>
+        </div>
+      </fieldset>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="standard-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="standard-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 작업지시서 모달 -->
+<div class="modal-back" id="order-modal" hidden>
+  <div class="modal" style="max-width:860px">
+    <div class="modal-head no-print">
+      <h2>작업지시서</h2>
+      <div style="display:flex;gap:8px">
+        <button class="btn primary" id="order-print">🖨 인쇄</button>
+        <button class="btn icon" id="order-close">✕</button>
+      </div>
+    </div>
+    <div id="order-body"></div>
+  </div>
+</div>
+
+<datalist id="dl-customers"></datalist>
+<datalist id="dl-products"></datalist>
+<datalist id="dl-colors"></datalist>
+<datalist id="dl-productCodes"></datalist>
+<datalist id="dl-baseTypes"></datalist>
+<datalist id="dl-resins"></datalist>
+<datalist id="dl-pouches"></datalist>
+<datalist id="dl-workers"></datalist>
+<datalist id="dl-toners"></datalist>
+<datalist id="dl-cores"></datalist>
+<datalist id="dl-lossTypes"></datalist>
+<datalist id="dl-qcItems"></datalist>
+
+<script src="app.js"></script>
+</body>
+</html>

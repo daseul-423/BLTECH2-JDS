@@ -1,0 +1,11 @@
+# 업로드 이미지(제품표준서 사진 등) — 용량/개인자료
+test1/public/uploads/
+
+# 의존성/빌드
+node_modules/
+
+# OS·에디터 임시파일
+.DS_Store
+Thumbs.db
+*~
+ZSLCO.DOCX
