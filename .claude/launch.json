@@ -6,6 +6,12 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["test1/server.js"],
       "port": 3000
+    },
+    {
+      "name": "cast-static",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["-y", "serve", "test1/public", "-l", "4000"],
+      "port": 4000
     }
   ]
 }
