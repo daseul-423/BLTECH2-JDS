@@ -416,7 +416,7 @@ const coatingSpec = (s) => (s.coatingMid != null && s.coatingMid !== '')
 function orderPhoto(label, url) {
   return `<div class="order-photo">
     <div class="order-photo-label">${esc(label)}</div>
-    ${url ? `<img src="${esc(url)}" alt="${esc(label)}">` : '<div class="order-photo-empty">사진 미등록</div>'}
+    ${url ? `<img src="${esc(url)}" alt="${esc(label)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'order-photo-empty',textContent:'사진 없음'}))">` : '<div class="order-photo-empty">사진 미등록</div>'}
   </div>`;
 }
 
@@ -499,7 +499,7 @@ function renderStandards() {
     const img = s.images || {};
     const thumb = img.pouch || img.inBox || img.outBox;
     return `<div class="standard-card" data-standard-id="${s.id}">
-      <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}">` : '<span>📦</span>'}</div>
+      <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'📦'}))">` : '<span>📦</span>'}</div>
       <div class="standard-info">
         <div class="standard-name"><b>${esc(s.product)}</b> ${esc(s.color ?? '')} <span class="muted">${esc(s.productCode ?? '')}</span></div>
         <div class="muted">${esc(s.category || 'CAST')} · ${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}</div>
