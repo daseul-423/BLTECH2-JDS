@@ -9,3 +9,6 @@ node_modules/
 Thumbs.db
 *~
 ZSLCO.DOCX
+
+# Claude Code 로컬 설정 (개인/머신 한정)
+.claude/settings.local.json

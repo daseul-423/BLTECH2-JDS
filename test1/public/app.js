@@ -1844,11 +1844,58 @@ function renderAnalysis() {
     ? `<table><thead><tr>${headCols}</tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">데이터가 없습니다.</div>';
 
-  /* --- 2) 교차 분석 (피벗) --- */
+  /* --- 2) 작업자별 불량률 비교 --- */
+  renderWorkerComparison(recs);
+
+  /* --- 3) 교차 분석 (피벗) --- */
   renderPivot(recs, metric, isRate);
 
-  /* --- 3) 불량 구성 --- */
+  /* --- 4) 불량 구성 --- */
   renderDefectCharts(recs);
+}
+
+/* 작업자(개인)별 불량률 비교 — 공동작업은 조원 전원에게 집계, 총로스율 높은 순 정렬 */
+function renderWorkerComparison(recs) {
+  const groups = {};
+  recs.forEach((r) => {
+    dimKeys(r, 'worker').forEach((k) => {
+      accumulate(groups[k] = groups[k] || newAgg(), r);
+    });
+  });
+  const keys = Object.keys(groups);
+  if (!keys.length) {
+    $('#chart-worker').innerHTML = '<div class="empty">데이터가 없습니다.</div>';
+    $('#worker-table').innerHTML = '';
+    return;
+  }
+  const rateOf = (g) => metricOf(g, 'totalLossRate');
+  keys.sort((a, b) => rateOf(groups[b]) - rateOf(groups[a]) || groups[b].count - groups[a].count);
+
+  $('#chart-worker').innerHTML = barChart(keys.map((k) => ({
+    label: k, value: rateOf(groups[k]),
+  })), { red: true, suffix: '%' });
+
+  const unit = PART === 'SPLINT' ? 'roll' : '수량';
+  const dec = PART === 'SPLINT' ? 2 : 0;
+  const rows = keys.map((k, i) => {
+    const g = groups[k];
+    const totalLoss = PART === 'SPLINT' ? +(g.processDefect + g.prodDefect).toFixed(2) : g.totalLoss;
+    return `<tr class="no-click">
+      <td class="num">${i + 1}</td>
+      <td><b>${esc(k)}</b></td>
+      <td class="num">${g.count}</td>
+      <td class="num">${fmt(g.processDefect, dec)}</td>
+      <td class="num">${fmt(g.prodDefect, dec)}</td>
+      <td class="num">${fmt(totalLoss, dec)}</td>
+      <td class="num">${metricOf(g, 'processLossRate').toFixed(2)}%</td>
+      <td class="num">${metricOf(g, 'prodLossRate').toFixed(2)}%</td>
+      <td>${lossBadge(metricOf(g, 'totalLossRate'))}</td>
+    </tr>`;
+  }).join('');
+  const head = `<th class="num">순위</th><th>작업자</th><th class="num">작업건수</th>
+    <th class="num">공정불량(${unit})</th><th class="num">생산불량(${unit})</th><th class="num">총로스(${unit})</th>
+    <th class="num">공정로스율</th><th class="num">생산로스율</th><th>총로스율</th>`;
+  $('#worker-table').innerHTML = `<table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderPivot(recs, metric, isRate) {
