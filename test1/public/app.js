@@ -1871,7 +1871,7 @@ function renderWorkerComparison(recs) {
   const rateOf = (g) => metricOf(g, 'totalLossRate');
   keys.sort((a, b) => rateOf(groups[b]) - rateOf(groups[a]) || groups[b].count - groups[a].count);
 
-  $('#chart-worker').innerHTML = barChart(keys.map((k) => ({
+  $('#chart-worker').innerHTML = lineChart(keys.map((k) => ({
     label: k, value: rateOf(groups[k]),
   })), { red: true, suffix: '%' });
 
@@ -1996,6 +1996,30 @@ function barChart(data, opts = {}) {
   }).join('');
   return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
     <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#e3e8f0"/>${bars}</svg>`;
+}
+
+/* ===================== SVG 꺾은선 차트 (작업자별 비교 등, 컴팩트) ===================== */
+function lineChart(data, opts = {}) {
+  if (!data.length) return '<div class="empty">데이터가 없습니다.</div>';
+  const W = 600, H = 170, padB = 28, padT = 24, padL = 16, padR = 16;
+  const innerW = W - padL - padR, innerH = H - padT - padB;
+  const max = Math.max(...data.map((d) => d.value), 0.001);
+  const n = data.length;
+  const xOf = (i) => padL + (n === 1 ? innerW / 2 : innerW * i / (n - 1));
+  const yOf = (v) => padT + innerH - (v / max) * innerH;
+  const color = opts.red ? '#ff6b6b' : 'var(--brand)';
+  const pts = data.map((d, i) => [xOf(i), yOf(d.value)]);
+  const poly = pts.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const dots = data.map((d, i) => {
+    const [x, y] = pts[i];
+    const val = opts.suffix === '%' ? d.value.toFixed(2) : fmt(d.value);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${color}"></circle>
+      <text class="bar-value" x="${x.toFixed(1)}" y="${(y - 7).toFixed(1)}" text-anchor="middle">${val}${opts.suffix || ''}</text>
+      <text class="axis-label" x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(d.label)}</text>`;
+  }).join('');
+  return `<svg class="chart-svg" style="max-width:760px" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+    <line x1="${padL}" y1="${H - padB}" x2="${W - padR}" y2="${H - padB}" stroke="#e3e8f0"/>
+    <polyline fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" points="${poly}"/>${dots}</svg>`;
 }
 
 /* ===================== 생산실적 입력 모달 ===================== */
