@@ -1,0 +1,3 @@
+# git 훅(셸 스크립트)은 항상 LF 유지 — CRLF면 Windows에서 sh 실행이 깨짐
+.githooks/* text eol=lf
+*.sh text eol=lf
