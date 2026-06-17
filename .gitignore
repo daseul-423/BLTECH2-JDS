@@ -23,3 +23,6 @@ ZSLCO.DOCX
 test1/data/db.json
 # 원본 엑셀 등 원천 자료 보관 폴더
 test1/data/source/
+# 실데이터가 내장된 1회성 마이그레이션/시드 스크립트 (로컬: test1/data/source/ 에 보관)
+test1/migrate-*.js
+test1/seed-examples.js
