@@ -509,6 +509,45 @@ document.addEventListener('click', (e) => {
   if (b) openOrderForProduct(b.dataset.product);
 });
 
+/* 일일 공정일지(목록) → 해당 일지에 들어간 제품의 작업지시서 보기 */
+function sheetOrderItems(sheet) {
+  const lines = (sheet.lines || []).filter((l) => l.product || l.productCode);
+  if (lines.length) return lines;
+  return (sheet.productInfos || []).filter((p) => p.product || p.productCode);
+}
+function buildPlanFromSheetItem(sheet, it) {
+  return {
+    part: sheet.part || 'CAST', date: sheet.date, machine: sheet.machine,
+    customer: it.customer, product: it.product || it.productCode, color: it.color,
+    orderNo: it.orderNo ?? null, size: it.size,
+    length: it.length ?? it.size ?? null,
+    planQty: it.planQty ?? it.qty ?? it.prodQty ?? null, note: '',
+  };
+}
+function openOrderForSheet(sheetId, idx = 0) {
+  const sheet = SHEETS.find((x) => x.id === sheetId);
+  if (!sheet) return;
+  const items = sheetOrderItems(sheet);
+  if (!items.length) { alert('이 일지에는 작업지시서를 만들 제품 정보가 없습니다.'); return; }
+  const i = Math.min(Math.max(idx, 0), items.length - 1);
+  const it = items[i];
+  const prod = it.product || it.productCode;
+  openOrderDoc(buildPlanFromSheetItem(sheet, it),
+    `WO-${esc(sheet.date ?? '').replace(/-/g, '')}-${esc(sheet.machine ?? '')}-${esc(prod)}`);
+  if (items.length > 1) {
+    const tabs = items.map((x, j) => {
+      const name = x.product || x.productCode;
+      return `<button type="button" class="btn small ${j === i ? 'primary' : ''} sheet-order-tab" data-sheet-id="${sheetId}" data-idx="${j}">${esc(name)}</button>`;
+    }).join('');
+    $('#order-body').insertAdjacentHTML('afterbegin',
+      `<div class="no-print" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><span class="muted">제품 선택:</span>${tabs}</div>`);
+  }
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('.sheet-order-tab');
+  if (t) openOrderForSheet(Number(t.dataset.sheetId), Number(t.dataset.idx));
+});
+
 /* ===================== 제품표준서 ===================== */
 function renderStandards() {
   const q = $('#st-search').value.trim().toLowerCase();
@@ -645,10 +684,11 @@ function renderSheets() {
       <td>${esc(items) || '-'}</td><td class="num">${lines.length}</td><td class="num"><b>${fmt(prodSum)}</b></td>
       <td>${esc(s.startTime ?? '')}~${esc(s.endTime ?? '')}</td>
       <td><span class="badge ${stCls}">${esc(st)}</span></td><td>${esc(s.remarks ?? '')}</td>
+      <td><button type="button" class="btn small sheet-order-btn" data-sheet-id="${s.id}">🖨 작업지시서</button></td>
     </tr>`;
   }).join('');
   $('#sheets-table').innerHTML = `<table><thead><tr>
-    <th>생산일</th><th>호기</th><th>작업자</th><th>생산 품목</th><th class="num">라인</th><th class="num">생산합계</th><th>작업시간</th><th>상태</th><th>특이사항</th>
+    <th>생산일</th><th>호기</th><th>작업자</th><th>생산 품목</th><th class="num">라인</th><th class="num">생산합계</th><th>작업시간</th><th>상태</th><th>특이사항</th><th>작업지시서</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
 
@@ -1545,6 +1585,8 @@ $('#ws-panel').addEventListener('change', () => { if (WS) { harvestWs(); schedul
 /* 신규/행 클릭 → 워크스페이스 */
 $('#btn-new-sheet').addEventListener('click', () => openWorkspace(PART));
 document.addEventListener('click', (e) => {
+  const ob = e.target.closest('.sheet-order-btn');
+  if (ob) { openOrderForSheet(Number(ob.dataset.sheetId)); return; }
   const tr = e.target.closest('tr[data-sheet-id]');
   if (!tr) return;
   const s = SHEETS.find((x) => x.id === Number(tr.dataset.sheetId));
