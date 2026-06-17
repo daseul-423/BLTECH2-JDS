@@ -1,0 +1,21 @@
+#!/bin/sh
+# 원천 데이터/엑셀 파일 커밋 차단 (정책: raw 데이터는 git에 올리지 않는다)
+# git add -f 등으로 .gitignore를 우회해 스테이징한 경우까지 막는 안전장치.
+
+blocked=$(git diff --cached --name-only --diff-filter=AC \
+  | grep -iE '\.(xlsx|xls|xlsm|csv)$|(^|/)db\.json$' || true)
+
+if [ -n "$blocked" ]; then
+  echo "──────────────────────────────────────────────"
+  echo "✋ 커밋이 거부되었습니다 (보안 정책)"
+  echo "   엑셀(.xlsx/.xls/.xlsm/.csv) 및 운영 데이터(db.json)는 커밋할 수 없습니다."
+  echo "   이 파일들은 서버단·로컬에서만 관리합니다."
+  echo ""
+  echo "   문제 파일:"
+  echo "$blocked" | sed 's/^/     - /'
+  echo ""
+  echo "   꼭 커밋해야 한다면 정책을 검토한 뒤 이 훅을 임시 해제하세요."
+  echo "──────────────────────────────────────────────"
+  exit 1
+fi
+exit 0

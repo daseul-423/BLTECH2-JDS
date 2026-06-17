@@ -12,3 +12,14 @@ ZSLCO.DOCX
 
 # Claude Code 로컬 설정 (개인/머신 한정)
 .claude/settings.local.json
+
+# ===== 원천 데이터 — 절대 커밋/배포 금지 (서버단·로컬에서만 관리) =====
+# 엑셀 등 raw 데이터 파일
+*.xlsx
+*.xls
+*.xlsm
+*.csv
+# 운영 데이터 DB (서버가 보유, git 미포함)
+test1/data/db.json
+# 원본 엑셀 등 원천 자료 보관 폴더
+test1/data/source/

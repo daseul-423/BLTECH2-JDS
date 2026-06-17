@@ -6,6 +6,8 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const SEED_PATH = path.join(__dirname, 'public', 'seed.json');
+const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1 } };
 const COLLECTIONS = ['records', 'sheets', 'plans', 'standards'];
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -21,6 +23,14 @@ const MIME = {
 };
 
 function loadDB() {
+  // db.json은 git에 포함되지 않음(원천 데이터 보호). 없으면 자동 생성:
+  //  - public/seed.json(빈 템플릿)이 있으면 그것으로, 없으면 빈 구조로 시작.
+  if (!fs.existsSync(DB_PATH)) {
+    let init = EMPTY_DB;
+    try { if (fs.existsSync(SEED_PATH)) init = JSON.parse(fs.readFileSync(SEED_PATH, 'utf-8')); } catch (e) { /* fallback to EMPTY_DB */ }
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+    fs.writeFileSync(DB_PATH, JSON.stringify(init, null, 2), 'utf-8');
+  }
   return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
 }
 function saveDB(db) {
