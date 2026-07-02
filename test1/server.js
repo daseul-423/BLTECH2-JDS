@@ -7,8 +7,8 @@ const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SEED_PATH = path.join(__dirname, 'public', 'seed.json');
-const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1 } };
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards'];
+const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1 } };
+const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs'];
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 

@@ -5,6 +5,7 @@ let RECORDS = [];
 let SHEETS = [];
 let PLANS = [];
 let STANDARDS = [];
+let CUSTSPECS = [];         // 고객사별 생산사양 (NEAL / OEM)
 let MASTERS = {};
 let editingStandardId = null;
 let PART = 'CAST';          // 공정 구분 (CAST / SPLINT)
@@ -26,13 +27,14 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
    - 정적 배포(Vercel 등 API 없음): 자동으로 브라우저 localStorage 사용, seed.json으로 최초 시드 */
 let LOCAL_MODE = false, LDB = null, _localInit = null;
 const LKEY = 'cast-mes-db-v1';
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards'];
+const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs'];
 const saveLocal = () => { try { localStorage.setItem(LKEY, JSON.stringify(LDB)); } catch (e) { /* quota */ } };
 async function initLocal() {
   const cached = localStorage.getItem(LKEY);
   if (cached) { LDB = JSON.parse(cached); }
   else { LDB = await (await fetch('seed.json')).json(); }
-  LDB.seqs = LDB.seqs || { records: 1, sheets: 1, plans: 1, standards: 1 };
+  LDB.seqs = LDB.seqs || { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1 };
+  if (LDB.seqs.custspecs == null) LDB.seqs.custspecs = 1;
   COLLECTIONS.forEach((c) => { if (!LDB[c]) LDB[c] = []; });
   LDB.masters = LDB.masters || {};
   if (cached) await healStandardImages();  // 옛 /uploads 경로 → 내장 사진(dataURL) 자동 교체
@@ -107,6 +109,7 @@ const loadRecords = async () => { RECORDS = await api('/api/records'); };
 const loadSheets = async () => { SHEETS = await api('/api/sheets'); };
 const loadPlans = async () => { PLANS = await api('/api/plans'); };
 const loadStandards = async () => { STANDARDS = await api('/api/standards'); };
+const loadCustSpecs = async () => { CUSTSPECS = await api('/api/custspecs'); };
 const loadMasters = async () => { MASTERS = await api('/api/masters'); };
 
 /* ===================== 자동계산 (엑셀 수식 동일) ===================== */
@@ -234,15 +237,43 @@ function splintWsCalc(r) {
 
 /* ===================== 네비게이션 ===================== */
 $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
+const ADMIN_PAGES = ['standards', 'custspecs', 'masters'];
 function showPage(page) {
+  if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) page = 'dashboard';  // 잠금 시 관리자 페이지 차단
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, standards: renderStandards, masters: renderMasters }[page];
+  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, standards: renderStandards, custspecs: renderCustSpecs, masters: renderMasters }[page];
   if (render) render();
 }
 function refreshCurrentPage() {
   showPage($('.nav-btn.active').dataset.page);
 }
+
+/* ===================== 관리자 모드 (PIN, 소프트 가드) ===================== */
+const ADMIN_DEFAULT_PIN = '1234';
+function isAdminUnlocked() { return sessionStorage.getItem('adminUnlocked') === '1'; }
+function applyAdminMode() {
+  const on = isAdminUnlocked();
+  $('#admin-nav').hidden = !on;
+  const btn = $('#admin-toggle');
+  btn.textContent = on ? '🔓 관리자 모드 해제' : '🔒 관리자 모드';
+  btn.classList.toggle('primary', on);
+}
+$('#admin-toggle').addEventListener('click', () => {
+  if (isAdminUnlocked()) {
+    sessionStorage.removeItem('adminUnlocked');
+    applyAdminMode();
+    const cur = $('.nav-btn.active');
+    if (cur && ADMIN_PAGES.includes(cur.dataset.page)) showPage('dashboard');
+    return;
+  }
+  const input = prompt('관리자 PIN을 입력하세요');
+  if (input == null) return;
+  if (String(input).trim() === String(MASTERS.adminPin || ADMIN_DEFAULT_PIN)) {
+    sessionStorage.setItem('adminUnlocked', '1');
+    applyAdminMode();
+  } else { alert('PIN이 올바르지 않습니다.'); }
+});
 
 /* ===================== 대시보드 ===================== */
 function renderDashboard() {
@@ -434,6 +465,49 @@ const coatingSpec = (s) => (s.coatingMid != null && s.coatingMid !== '')
   ? `하 ${s.coatingMin ?? '-'} / 중심 ${s.coatingMid} / 상 ${s.coatingMax ?? '-'}`
   : '';
 
+/* 고객사 사양 구분 (기준정보 masters.customerTypes) — 미지정 시 NEAL. 고객사명 포함관계도 허용 */
+function customerSpecType(customer) {
+  const t = MASTERS.customerTypes || {};
+  const c = String(customer ?? '').trim();
+  if (!c) return 'NEAL';
+  if (t[c]) return t[c];
+  for (const k of Object.keys(t)) { if (k && (c.includes(k) || k.includes(c))) return t[k]; }
+  return 'NEAL';
+}
+
+/* 고객사별 생산사양 조회: 고객사 타입(NEAL/OEM)에 맞는 사양을 제품명·색상으로 매칭.
+   OEM인데 해당 사양이 없으면 기본 NEAL 사양으로 폴백(fellBack=true). */
+function findCustSpec(p) {
+  const part = p.part || 'CAST';
+  const prod = String(p.product || '').trim();
+  const fam = familyOf(prod);
+  const type = customerSpecType(p.customer);
+  const custMatch = (sc) => {
+    const a = String(sc || '').trim(), b = String(p.customer || '').trim();
+    return a === b || (!!a && !!b && (a.includes(b) || b.includes(a)));
+  };
+  const pick = (specType) => {
+    let best = null, bestScore = -1;
+    for (const s of CUSTSPECS) {
+      if ((s.part || 'CAST') !== part) continue;
+      if ((s.specType || 'NEAL') !== specType) continue;
+      if (specType === 'OEM' && !custMatch(s.customer)) continue;
+      const sp = String(s.product || '').trim();
+      let score;
+      if (sp === prod) score = 10;
+      else if (sp === fam || familyOf(sp) === fam) score = 5;
+      else continue;
+      if (s.color && p.color && String(s.color).toUpperCase() === String(p.color).toUpperCase()) score += 2;
+      else if (s.color && p.color) score -= 1;
+      if (score > bestScore) { bestScore = score; best = s; }
+    }
+    return best;
+  };
+  let spec = pick(type), fellBack = false;
+  if (!spec && type === 'OEM') { spec = pick('NEAL'); fellBack = !!spec; }
+  return { spec: spec || null, type, fellBack };
+}
+
 function orderPhoto(label, url) {
   return `<div class="order-photo">
     <div class="order-photo-label">${esc(label)}</div>
@@ -445,11 +519,17 @@ function openOrderModal(planId) {
   const p = PLANS.find((x) => x.id === planId);
   if (p) openOrderDoc(p, `WO-${esc(p.date ?? '').replace(/-/g, '')}-${p.id}`);
 }
-/* 작업지시서 문서 렌더 — p는 계획 또는 제품정보 기반 plan-like 객체 */
+/* 작업지시서 문서 렌더 — p는 계획 또는 제품정보 기반 plan-like 객체.
+   자재기준=제품표준서(standards), 생산/포장 사양=고객사별 생산사양(custspecs), 예외=p.orderException */
 function openOrderDoc(p, docNo) {
   const s = findStandard(p) || {};
-  const img = s.images || {};
+  const { spec, type, fellBack } = findCustSpec(p);
+  const cs = spec || {};
+  const img = cs.images || {};
   const row = (label, v) => `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}</td></tr>`;
+  const badge = type === 'OEM'
+    ? `<span class="order-badge oem">고객사 OEM 사양</span>${fellBack ? ' <span class="badge warn">OEM 사양 미등록 → 기본 NEAL 대체</span>' : ''}`
+    : '<span class="order-badge neal">기본 NEAL 사양</span>';
 
   $('#order-body').innerHTML = `
     <div class="order-doc">
@@ -458,30 +538,58 @@ function openOrderDoc(p, docNo) {
         <table class="order-sign"><tr><th>작성</th><th>검토</th><th>승인</th></tr><tr><td></td><td></td><td></td></tr></table>
       </div>
       <div class="order-meta">발행일: ${todayStr()} · 문서번호: ${esc(docNo || '')}</div>
+      <div style="margin:10px 0">${badge}</div>
       <h4>1. 생산 계획</h4>
       <table class="order-table">
         ${row('생산일', p.date)}${row('호기', p.machine)}${row('업체명', p.customer)}${row('주문 차수', p.orderNo)}
         ${row('제품명', `${p.product ?? ''} ${p.color ?? ''}`)}${row('제품코드', s.productCode)}${row('브랜드', s.brand)}
         ${row('규격', s.sizeSpec || (p.length ? p.length + 'm' : ''))}${row('계획수량', p.planQty != null ? fmt(p.planQty) + ' EA' : '')}${row('비고', p.note)}
       </table>
-      <h4>2. 자재 기준 ${s.id ? `<span class="muted" style="font-weight:400">— 표준서: ${esc(s.product)}${s.note ? ' (' + esc(s.note) + ')' : ''}</span>` : '<span class="badge bad">제품표준서 미등록 — 제품표준서 탭에서 등록하세요</span>'}</h4>
+      <h4>2. 자재 기준 ${s.id ? `<span class="muted" style="font-weight:400">— 제품표준서: ${esc(s.product)}</span>` : '<span class="badge bad">제품표준서 미등록</span>'}</h4>
       <table class="order-table">
-        ${row('기재 종류', s.baseType)}${row('수지 종류', s.resinType)}${row('촉매', s.catalyst)}
-        ${row('코팅량 규격', coatingSpec(s))}${row('코어 종류', s.core)}
-        ${row('토너 종류', s.toner)}${row('파우치 종류', s.pouchType)}
+        ${row('기재 종류', s.baseType)}${row('수지 종류', s.resinType)}${row('촉매', s.catalyst)}${row('코어 종류', s.core)}
       </table>
-      <h4>3. 포장 기준 (제품표준서)</h4>
+      <h4>3. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${type === 'OEM' && !fellBack ? 'OEM: ' + esc(cs.customer || '') : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 고객사별 생산사양에서 등록</span>'}</h4>
       <table class="order-table">
-        ${row('라벨 표기', s.labelSpec)}${row('In Box', s.inBoxSpec)}${row('Out Box', s.outBoxSpec)}
+        ${row('코팅량 규격', coatingSpec(cs))}${row('토너', cs.toner)}
+      </table>
+      <h4>4. 포장 사양</h4>
+      <table class="order-table">
+        ${row('라벨 표기', cs.labelSpec)}${row('파우치', cs.pouchType)}${row('In Box', cs.inBoxSpec)}${row('Out Box', cs.outBoxSpec)}
+        ${row('설명서', cs.manualSpec)}${row('동봉품', cs.enclosures)}${row('포장 주의사항', cs.packingNote)}
       </table>
       <div class="order-photos">
         ${orderPhoto('라벨 · 파우치', img.pouch)}
         ${orderPhoto('In Box (내박스)', img.inBox)}
         ${orderPhoto('Out Box (외박스)', img.outBox)}
       </div>
-      ${s.note ? `<h4>4. 표준서 비고</h4><p class="order-note">${esc(s.note)}</p>` : ''}
+      ${p.orderException ? `<h4>5. 수주별 예외사항</h4><div class="order-exception">${esc(p.orderException)}</div>` : ''}
+      <div class="no-print" style="margin-top:16px;text-align:center">
+        <button class="btn primary" id="order-start-record">▶ 이 제품으로 공정기록 · 실적 입력</button>
+      </div>
     </div>`;
+  const startBtn = $('#order-start-record');
+  if (startBtn) startBtn.addEventListener('click', () => startRecordingFrom(p));
   $('#order-modal').hidden = false;
+}
+
+/* 작업지시 → 공정기록·실적 입력: 같은 날짜/호기 일지가 있으면 열고, 없으면 새로 만들어 제품 프리필 */
+async function startRecordingFrom(p) {
+  const part = p.part || 'CAST';
+  $('#order-modal').hidden = true;
+  const existing = SHEETS.find((x) => (x.part || 'CAST') === part && x.date === p.date && x.machine === p.machine);
+  if (existing) { openWorkspace(part, existing.id); return; }
+  try {
+    await openWorkspace(part);
+    if (WS) {
+      if (p.date) WS.date = p.date;
+      if (p.machine) WS.machine = p.machine;
+      WS.productInfos = WS.productInfos || [];
+      WS.productInfos.push({ product: p.product || '', customer: p.customer || '', color: p.color || '', lotNo: '', size: p.size ?? '' });
+      renderWorkspace();
+      scheduleWsSave();
+    }
+  } catch (e) { /* 프리필 실패해도 워크스페이스는 열림 */ }
 }
 $('#order-close').addEventListener('click', () => ($('#order-modal').hidden = true));
 $('#order-modal').addEventListener('click', (e) => { if (e.target === $('#order-modal')) $('#order-modal').hidden = true; });
@@ -578,7 +686,7 @@ document.addEventListener('click', (e) => {
 const standardForm = $('#standard-form');
 
 /* 사진 슬롯: 선택 → 리사이즈 → 업로드 → 미리보기 (URL은 slot.dataset.url에 보관) */
-$$('#standard-form .photo-slot').forEach((slot) => {
+function initPhotoSlot(slot) {
   const file = slot.querySelector('input[type="file"]');
   const imgEl = slot.querySelector('img');
   const emptyEl = slot.querySelector('.photo-empty');
@@ -603,7 +711,9 @@ $$('#standard-form .photo-slot').forEach((slot) => {
     } catch (err) { alert('업로드 실패: ' + err.message); }
     file.value = '';
   });
-});
+}
+$$('#standard-form .photo-slot').forEach(initPhotoSlot);
+$$('#custspec-form .photo-slot').forEach(initPhotoSlot);
 
 async function uploadImage(f) {
   // 큰 사진은 1280px로 줄여 저장 (db 용량·인쇄 속도 보호)
@@ -659,6 +769,100 @@ $('#standard-delete').addEventListener('click', async () => {
   await api('/api/standards/' + editingStandardId, { method: 'DELETE' });
   await loadStandards();
   $('#standard-modal').hidden = true;
+  refreshCurrentPage();
+});
+
+/* ===================== 고객사별 생산사양 (custspecs) ===================== */
+let editingCustSpecId = null;
+const custspecForm = $('#custspec-form');
+
+function specBadge(type) {
+  return type === 'OEM'
+    ? '<span class="badge oem">고객사 OEM</span>'
+    : '<span class="badge neal">기본 NEAL</span>';
+}
+
+function renderCustSpecs() {
+  const q = $('#cs-search').value.trim().toLowerCase();
+  let items = CUSTSPECS.filter((s) => (s.part || 'CAST') === PART);
+  if (q) items = items.filter((s) => [s.product, s.customer, s.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
+  items = items.slice().sort((a, b) =>
+    (a.product || '').localeCompare(b.product || '')
+    || (a.specType === b.specType ? String(a.customer || '').localeCompare(String(b.customer || '')) : (a.specType === 'NEAL' ? -1 : 1)));
+  if (!items.length) { $('#custspecs-list').innerHTML = '<div class="empty">등록된 생산사양이 없습니다. [＋ 사양 등록]으로 추가하세요.</div>'; return; }
+  $('#custspecs-list').innerHTML = items.map((s) => {
+    const img = s.images || {};
+    const thumb = img.pouch || img.inBox || img.outBox;
+    const coat = (s.coatingMid != null && s.coatingMid !== '') ? `${esc(s.coatingMin)}~${esc(s.coatingMax)} (중심 ${esc(s.coatingMid)})` : '-';
+    return `<div class="standard-card" data-custspec-id="${s.id}">
+      <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🏷'}))">` : '<span>🏷</span>'}</div>
+      <div class="standard-info">
+        <div class="standard-name"><b>${esc(s.product)}</b> ${esc(s.color ?? '')} ${specBadge(s.specType)}</div>
+        <div class="muted">${s.specType === 'OEM' ? esc(s.customer || '(고객사 미지정)') : '제품 공통'}</div>
+        <div class="standard-mats">코팅 ${coat} · 토너 ${esc(s.toner ?? '-')} · 파우치 ${esc(s.pouchType ?? '-')}</div>
+        <div class="standard-mats">라벨 ${s.labelSpec ? '있음' : '-'} · 설명서 ${s.manualSpec ? '있음' : '-'} · 동봉품 ${s.enclosures ? '있음' : '-'}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+$('#cs-search').addEventListener('input', renderCustSpecs);
+document.addEventListener('click', (e) => {
+  const card = e.target.closest('.standard-card[data-custspec-id]');
+  if (card) openCustSpecModal(Number(card.dataset.custspecId));
+});
+
+function csToggleOem() {
+  const oemOnly = custspecForm.querySelector('.cs-oem-only');
+  if (oemOnly) oemOnly.style.display = custspecForm.elements.specType.value === 'OEM' ? '' : 'none';
+}
+custspecForm.elements.specType.addEventListener('change', csToggleOem);
+
+function openCustSpecModal(id = null) {
+  editingCustSpecId = id;
+  custspecForm.reset();
+  $('#custspec-modal-title').textContent = id ? '생산사양 수정' : '생산사양 등록';
+  $('#custspec-delete').hidden = !id;
+  const s = id ? CUSTSPECS.find((x) => x.id === id) : null;
+  if (s) {
+    [...custspecForm.elements].forEach((el) => { if (el.name && s[el.name] != null && typeof s[el.name] !== 'object') el.value = s[el.name]; });
+    custspecForm.elements.part.value = s.part || 'CAST';
+    custspecForm.elements.specType.value = s.specType || 'NEAL';
+  } else {
+    custspecForm.elements.part.value = PART;
+    custspecForm.elements.specType.value = 'NEAL';
+  }
+  csToggleOem();
+  $$('#custspec-form .photo-slot').forEach((slot) => slot._setUrl((s && s.images && s.images[slot.dataset.img]) || ''));
+  $('#custspec-modal').hidden = false;
+}
+$('#btn-new-custspec').addEventListener('click', () => openCustSpecModal());
+$('#custspec-modal-close').addEventListener('click', () => ($('#custspec-modal').hidden = true));
+$('#custspec-cancel').addEventListener('click', () => ($('#custspec-modal').hidden = true));
+
+custspecForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const s = {};
+  [...custspecForm.elements].forEach((el) => {
+    if (!el.name) return;
+    s[el.name] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
+  });
+  if (s.specType === 'NEAL') s.customer = null;
+  if (s.specType === 'OEM' && !s.customer) { alert('OEM 사양은 고객사명을 입력하세요.'); return; }
+  s.images = {};
+  $$('#custspec-form .photo-slot').forEach((slot) => (s.images[slot.dataset.img] = slot.dataset.url || ''));
+  try {
+    if (editingCustSpecId) await post('/api/custspecs/' + editingCustSpecId, s, 'PUT');
+    else await post('/api/custspecs', s);
+    await loadCustSpecs();
+    $('#custspec-modal').hidden = true;
+    refreshCurrentPage();
+  } catch (err) { alert('저장 실패: ' + err.message); }
+});
+$('#custspec-delete').addEventListener('click', async () => {
+  if (!editingCustSpecId || !confirm('이 생산사양을 삭제하시겠습니까?')) return;
+  await api('/api/custspecs/' + editingCustSpecId, { method: 'DELETE' });
+  await loadCustSpecs();
+  $('#custspec-modal').hidden = true;
   refreshCurrentPage();
 });
 
@@ -2154,18 +2358,42 @@ const MASTER_LABELS = {
   pouches: '파우치 종류', workers: '작업자', qcItems: '자체품질체크 품목', toners: '토너 종류', cores: '코어 종류', lossTypes: 'SPLINT 로스 항목',
 };
 function renderMasters() {
-  $('#masters-form').innerHTML = Object.keys(MASTER_LABELS).map((k) => `
+  const custTypes = MASTERS.customerTypes || {};
+  const custRows = (MASTERS.customers || []).map((c) => `
+    <div class="m-row">
+      <label>${esc(c)}</label>
+      <select data-custtype="${esc(c)}">
+        <option value="NEAL"${(custTypes[c] || 'NEAL') === 'NEAL' ? ' selected' : ''}>기본 NEAL</option>
+        <option value="OEM"${custTypes[c] === 'OEM' ? ' selected' : ''}>고객사 OEM</option>
+      </select>
+    </div>`).join('') || '<p class="muted">등록된 고객사가 없습니다.</p>';
+  $('#masters-form').innerHTML =
+    '<h3 style="margin:0 0 10px">목록 관리 <span class="muted" style="font-size:13px;font-weight:400">쉼표(,)로 구분</span></h3>' +
+    Object.keys(MASTER_LABELS).map((k) => `
     <div class="m-row">
       <label>${MASTER_LABELS[k]}</label>
       <input type="text" data-key="${k}" value="${esc((MASTERS[k] || []).join(', '))}">
-    </div>`).join('') + '<button class="btn primary" id="btn-save-masters">기준정보 저장</button>';
+    </div>`).join('') +
+    '<h3 style="margin:20px 0 6px">고객사 사양 구분 (NEAL / OEM)</h3>' +
+    '<p class="muted" style="margin-bottom:10px">작업지시에서 이 설정에 따라 <b>기본 NEAL 사양</b> 또는 <b>고객사 OEM 사양</b>을 적용합니다.</p>' +
+    custRows +
+    '<h3 style="margin:20px 0 6px">관리자 PIN</h3>' +
+    '<p class="muted" style="margin-bottom:10px">관리자 모드 진입 PIN입니다. 비우면 기본값(1234).</p>' +
+    `<div class="m-row"><label>관리자 PIN</label><input type="text" id="admin-pin-input" value="${esc(MASTERS.adminPin || '')}" placeholder="기본 1234"></div>` +
+    '<div style="margin-top:16px"><button class="btn primary" id="btn-save-masters">기준정보 저장</button></div>';
   $('#btn-save-masters').addEventListener('click', async () => {
     const next = { ...MASTERS };
     $$('#masters-form input[data-key]').forEach((el) => {
       next[el.dataset.key] = el.value.split(',').map((s) => s.trim()).filter(Boolean);
     });
+    const types = {};
+    $$('#masters-form select[data-custtype]').forEach((el) => { if (el.value === 'OEM') types[el.dataset.custtype] = 'OEM'; });
+    next.customerTypes = types;
+    const pinv = $('#admin-pin-input').value.trim();
+    if (pinv) next.adminPin = pinv; else delete next.adminPin;
     MASTERS = await post('/api/masters', next, 'PUT');
     fillMasterInputs();
+    renderMasters();
     alert('저장되었습니다.');
   });
 }
@@ -2248,9 +2476,10 @@ $('#a-reset').addEventListener('click', () => {
 
 /* ===================== 초기화 ===================== */
 (async function init() {
-  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadMasters()]);
+  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadMasters()]);
   fillMasterInputs();
   updateMetricLabels();
+  applyAdminMode();
   const latest = RECORDS.length ? RECORDS[0].date : todayStr();
   $('#dash-month').value = latest.slice(0, 7);
   $('#s-month').value = latest.slice(0, 7);

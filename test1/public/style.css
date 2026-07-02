@@ -167,6 +167,16 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .btn.small { padding: 5px 10px; font-size: 12px; }
 
 .badge.plain { background: #eef1f6; color: var(--muted); }
+.badge.neal { background: #e8efff; color: var(--brand); }
+.badge.oem { background: #f3e8ff; color: #8b3ff0; }
+/* 사이드바 메뉴 그룹 */
+.nav-group { margin-bottom: 4px; }
+.nav-group-label { font-size: 10.5px; color: rgba(255,255,255,.4); padding: 10px 14px 3px; letter-spacing: .05em; font-weight: 600; }
+/* 작업지시 배지(크게) · 예외/사양 섹션 */
+.order-badge { display: inline-block; padding: 4px 12px; border-radius: 8px; font-size: 13px; font-weight: 700; }
+.order-badge.neal { background: #e8efff; color: var(--brand); }
+.order-badge.oem { background: #f3e8ff; color: #8b3ff0; }
+.order-exception { border: 1px solid var(--warn); background: #fff8e8; border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
 
 /* ---- SPLINT 일지 체크박스 행 ---- */
 .chk-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }

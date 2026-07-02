@@ -16,14 +16,22 @@
     </div>
   </div>
   <nav>
-    <button class="nav-btn active" data-page="dashboard">📊 대시보드</button>
-    <button class="nav-btn" data-page="plans">🗓 생산계획표</button>
-    <button class="nav-btn" data-page="sheets">📝 일일 공정일지</button>
-    <button class="nav-btn" data-page="logs">📋 생산실적</button>
-    <button class="nav-btn" data-page="analysis">📈 실적·불량 분석</button>
-    <button class="nav-btn" data-page="standards">📦 제품표준서</button>
-    <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
+    <div class="nav-group">
+      <div class="nav-group-label">작업자</div>
+      <button class="nav-btn active" data-page="dashboard">📊 대시보드</button>
+      <button class="nav-btn" data-page="plans">🗓 생산계획 · 작업지시</button>
+      <button class="nav-btn" data-page="sheets">📝 공정기록 · 실적입력</button>
+      <button class="nav-btn" data-page="logs">📋 생산실적</button>
+      <button class="nav-btn" data-page="analysis">📈 실적·불량 분석</button>
+    </div>
+    <div class="nav-group" id="admin-nav" hidden>
+      <div class="nav-group-label">관리자</div>
+      <button class="nav-btn" data-page="standards">📦 제품표준서</button>
+      <button class="nav-btn" data-page="custspecs">🏷 고객사별 생산사양</button>
+      <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
+    </div>
   </nav>
+  <button class="btn small" id="admin-toggle" style="margin:10px">🔒 관리자 모드</button>
   <div class="sidebar-foot">BL-TECH 생산1팀</div>
 </aside>
 
@@ -216,8 +224,24 @@
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">제품별 기재·수지·토너·라벨·파우치·박스 기준입니다. 작업지시서 발행 시 자동으로 참조됩니다.</p>
+      <p class="muted" style="margin-bottom:10px">제품 자체의 기준(기재·수지·촉매·코어·규격)입니다. 코팅·토너·포장 등 고객별 사양은 <b>고객사별 생산사양</b>에서 관리합니다.</p>
       <div id="standards-list" class="standard-grid"></div>
+    </div>
+  </section>
+
+  <!-- 고객사별 생산사양 -->
+  <section id="page-custspecs" class="page" hidden>
+    <div class="page-head">
+      <h1>고객사별 생산사양</h1>
+      <div class="head-actions">
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <input type="text" id="cs-search" placeholder="제품명, 고객사 검색">
+        <button class="btn primary" id="btn-new-custspec">＋ 사양 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">기본 <b>NEAL 사양</b>과 <b>고객사 OEM 사양</b>으로 구분합니다. 코팅·토너·라벨·파우치·박스·설명서·동봉품·포장주의사항을 관리하며, 작업지시에서 고객사 지정(기준정보)에 따라 자동 선택됩니다.</p>
+      <div id="custspecs-list" class="standard-grid"></div>
     </div>
   </section>
 
@@ -452,6 +476,7 @@
         <label>계획수량 *<input type="number" name="planQty" required></label>
         <label>상태<select name="status"><option>계획</option><option>진행</option><option>완료</option><option>보류</option></select></label>
         <label class="wide">비고<input type="text" name="note"></label>
+        <label class="wide">수주별 예외사항<input type="text" name="orderException" placeholder="이 수주에만 적용되는 특이 요구(포장/사양 변경 등)"></label>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="plan-delete" hidden>삭제</button>
@@ -507,22 +532,57 @@
         </div>
       </fieldset>
       <fieldset>
-        <legend>자재 기준 · 코팅량 규격</legend>
+        <legend>자재 기준 (제품 자체 기준)</legend>
         <div class="form-grid">
           <label>품목<input type="text" name="category" placeholder="CAST / SMILE CAST"></label>
           <label>기재 종류<input type="text" name="baseType" list="dl-baseTypes"></label>
           <label>수지 종류<input type="text" name="resinType" list="dl-resins"></label>
           <label>촉매<input type="text" name="catalyst" placeholder="예: 1.6%"></label>
           <label>코어 종류<input type="text" name="core" list="dl-cores"></label>
-          <label>토너 종류<input type="text" name="toner" list="dl-toners"></label>
-          <label>파우치 종류<input type="text" name="pouchType" list="dl-pouches"></label>
-          <label>코팅량 규격(하)<input type="number" step="0.1" name="coatingMin"></label>
-          <label>코팅량 규격(중심)<input type="number" step="0.1" name="coatingMid"></label>
-          <label>코팅량 규격(상)<input type="number" step="0.1" name="coatingMax"></label>
+          <label class="wide">비고<input type="text" name="note"></label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ 코팅량·토너·라벨·파우치·박스 등은 <b>고객사별 생산사양</b>에서 관리합니다.</p>
+      </fieldset>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="standard-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="standard-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 고객사별 생산사양 등록/수정 모달 -->
+<div class="modal-back" id="custspec-modal" hidden>
+  <div class="modal" style="max-width:900px">
+    <div class="modal-head">
+      <h2 id="custspec-modal-title">생산사양 등록</h2>
+      <button class="btn icon" id="custspec-modal-close">✕</button>
+    </div>
+    <form id="custspec-form">
+      <fieldset>
+        <legend>구분 · 대상</legend>
+        <div class="form-grid">
+          <label>사양 구분 *<select name="specType"><option value="NEAL">기본 NEAL 사양</option><option value="OEM">고객사 OEM 사양</option></select></label>
+          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
+          <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
+          <label>칼라<input type="text" name="color" list="dl-colors"></label>
+          <label class="cs-oem-only">고객사 (OEM 필수)<input type="text" name="customer" list="dl-customers" placeholder="OEM일 때 고객사명"></label>
         </div>
       </fieldset>
       <fieldset>
-        <legend>포장 기준 · 사진</legend>
+        <legend>생산사양</legend>
+        <div class="form-grid">
+          <label>코팅량(하)<input type="number" step="0.1" name="coatingMin"></label>
+          <label>코팅량(중심)<input type="number" step="0.1" name="coatingMid"></label>
+          <label>코팅량(상)<input type="number" step="0.1" name="coatingMax"></label>
+          <label>토너<input type="text" name="toner" list="dl-toners"></label>
+          <label>파우치<input type="text" name="pouchType" list="dl-pouches"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>포장 사양 · 사진</legend>
         <div class="photo-grid">
           <div class="photo-slot" data-img="pouch">
             <div class="photo-head">라벨 · 파우치</div>
@@ -556,13 +616,16 @@
           <label class="wide">라벨 표기사항<input type="text" name="labelSpec" placeholder="LOT/EXP/Model 표기 규칙 등"></label>
           <label class="wide">In Box 기준<input type="text" name="inBoxSpec" placeholder="예: 10 ROLL, 라벨 표기사항"></label>
           <label class="wide">Out Box 기준<input type="text" name="outBoxSpec" placeholder="예: 10ROLLS/BOX"></label>
+          <label class="wide">설명서<input type="text" name="manualSpec" placeholder="동봉 설명서/사용안내 등"></label>
+          <label class="wide">동봉품<input type="text" name="enclosures" placeholder="보증서, 스티커 등 동봉물"></label>
+          <label class="wide">포장 주의사항<input type="text" name="packingNote" placeholder="취급/포장 시 주의사항"></label>
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
       </fieldset>
       <div class="modal-foot">
-        <button type="button" class="btn danger" id="standard-delete" hidden>삭제</button>
+        <button type="button" class="btn danger" id="custspec-delete" hidden>삭제</button>
         <span class="spacer"></span>
-        <button type="button" class="btn" id="standard-cancel">취소</button>
+        <button type="button" class="btn" id="custspec-cancel">취소</button>
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>
