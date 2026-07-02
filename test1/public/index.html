@@ -29,6 +29,7 @@
       <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="standards">📦 제품표준서</button>
       <button class="nav-btn" data-page="custspecs">🏷 고객사별 생산사양</button>
+      <button class="nav-btn" data-page="companies">🏢 업체 정보</button>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
     </div>
   </nav>
@@ -261,6 +262,22 @@
     <div class="card" style="margin-top:16px">
       <h3 style="margin:0 0 10px">제품표준서 <span class="muted" style="font-size:13px;font-weight:400">제품 자체 기준 · 행 클릭 시 수정</span></h3>
       <div class="table-wrap" id="ov-standards"></div>
+    </div>
+  </section>
+
+  <!-- 업체 정보 -->
+  <section id="page-companies" class="page" hidden>
+    <div class="page-head">
+      <h1>업체 정보</h1>
+      <div class="head-actions">
+        <input type="text" id="co-search" placeholder="업체명 · 나라 · 컬러 · 토너 검색">
+        <span class="muted" id="co-count"></span>
+        <button class="btn primary" id="btn-new-company">＋ 업체 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">고객사별 나라·컬러·수지·기재·토너·포장(인박스/아웃박스/파우치·라벨)·특이사항 정보입니다. 행을 클릭하면 수정할 수 있습니다.</p>
+      <div class="table-wrap" id="companies-list"></div>
     </div>
   </section>
 
@@ -646,6 +663,50 @@
         <button type="button" class="btn danger" id="custspec-delete" hidden>삭제</button>
         <span class="spacer"></span>
         <button type="button" class="btn" id="custspec-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 업체 정보 등록/수정 모달 -->
+<div class="modal-back" id="company-modal" hidden>
+  <div class="modal" style="max-width:820px">
+    <div class="modal-head">
+      <h2 id="company-modal-title">업체 등록</h2>
+      <button class="btn icon" id="company-modal-close">✕</button>
+    </div>
+    <form id="company-form">
+      <fieldset>
+        <legend>기본</legend>
+        <div class="form-grid">
+          <label>업체명 *<input type="text" name="name" required></label>
+          <label>나라<input type="text" name="country"></label>
+          <label>구분<select name="specType"><option value="NEAL">기본 NEAL</option><option value="OEM">OEM(전용)</option></select></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>생산 사양</legend>
+        <div class="form-grid">
+          <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN"></label>
+          <label>수지 종류<input type="text" name="resin"></label>
+          <label>기재 / 길이<input type="text" name="baseLength" placeholder="예: 50TEX / 3.6M"></label>
+          <label class="wide">토너 종류<input type="text" name="toner"></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>포장</legend>
+        <div class="form-grid">
+          <label>인박스<input type="text" name="packInBox" placeholder="NEAL / 무지 / 전용"></label>
+          <label>아웃박스<input type="text" name="packOutBox"></label>
+          <label>파우치 / 라벨<input type="text" name="packLabel"></label>
+          <label class="wide">특이사항<input type="text" name="notes"></label>
+        </div>
+      </fieldset>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="company-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="company-cancel">취소</button>
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>

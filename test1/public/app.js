@@ -237,12 +237,12 @@ function splintWsCalc(r) {
 
 /* ===================== 네비게이션 ===================== */
 $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
-const ADMIN_PAGES = ['overview', 'standards', 'custspecs', 'masters'];
+const ADMIN_PAGES = ['overview', 'standards', 'custspecs', 'companies', 'masters'];
 function showPage(page) {
   if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) page = 'dashboard';  // 잠금 시 관리자 페이지 차단
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, masters: renderMasters }[page];
+  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, masters: renderMasters }[page];
   if (render) render();
 }
 function refreshCurrentPage() {
@@ -923,6 +923,66 @@ document.addEventListener('click', (e) => {
   if (cs) { openCustSpecModal(Number(cs.dataset.id)); return; }
   const st = e.target.closest('.ov-std-row');
   if (st) openStandardModal(Number(st.dataset.id));
+});
+
+/* ===================== 업체 정보 (masters.companies) ===================== */
+let editingCompanyId = null;
+const companyForm = $('#company-form');
+
+function renderCompanies() {
+  const q = $('#co-search').value.trim().toLowerCase();
+  let items = (MASTERS.companies || []).slice();
+  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'resin', 'toner', 'notes'].some((f) => String(c[f] ?? '').toLowerCase().includes(q)));
+  items.sort((a, b) => (a.specType === b.specType ? 0 : (a.specType === 'OEM' ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
+  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c.specType === 'OEM').length}`;
+  const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
+    <td><b>${esc(c.name || '')}</b></td><td>${esc(c.country || '-')}</td><td>${specBadge(c.specType)}</td>
+    <td>${esc(c.colors || '-')}</td><td>${esc(c.resin || '-')}</td><td>${esc(c.baseLength || '-')}</td><td>${esc(c.toner || '-')}</td>
+    <td>${esc(c.packInBox || '-')}</td><td>${esc(c.packOutBox || '-')}</td><td>${esc(c.packLabel || '-')}</td><td>${esc(c.notes || '')}</td>
+  </tr>`).join('');
+  $('#companies-list').innerHTML = items.length
+    ? `<table><thead><tr><th>업체명</th><th>나라</th><th>구분</th><th>컬러</th><th>수지</th><th>기재/길이</th><th>토너</th><th>인박스</th><th>아웃박스</th><th>파우치/라벨</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">등록된 업체가 없습니다.</div>';
+}
+
+function openCompanyModal(id = null) {
+  editingCompanyId = id;
+  companyForm.reset();
+  $('#company-modal-title').textContent = id ? '업체 정보 수정' : '업체 등록';
+  $('#company-delete').hidden = !id;
+  const c = id ? (MASTERS.companies || []).find((x) => x.id === id) : null;
+  if (c) [...companyForm.elements].forEach((el) => { if (el.name && c[el.name] != null) el.value = c[el.name]; });
+  companyForm.elements.specType.value = c ? (c.specType || 'NEAL') : 'NEAL';
+  $('#company-modal').hidden = false;
+}
+$('#btn-new-company').addEventListener('click', () => openCompanyModal());
+$('#company-modal-close').addEventListener('click', () => ($('#company-modal').hidden = true));
+$('#company-cancel').addEventListener('click', () => ($('#company-modal').hidden = true));
+document.addEventListener('click', (e) => { const r = e.target.closest('.co-row'); if (r) openCompanyModal(Number(r.dataset.id)); });
+$('#co-search').addEventListener('input', renderCompanies);
+
+companyForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const c = {};
+  [...companyForm.elements].forEach((el) => { if (el.name) c[el.name] = el.value || null; });
+  MASTERS.companies = MASTERS.companies || [];
+  if (editingCompanyId) {
+    c.id = editingCompanyId;
+    const i = MASTERS.companies.findIndex((x) => x.id === editingCompanyId);
+    if (i >= 0) MASTERS.companies[i] = c; else MASTERS.companies.push(c);
+  } else {
+    c.id = Math.max(0, ...MASTERS.companies.map((x) => x.id || 0)) + 1;
+    MASTERS.companies.push(c);
+  }
+  try { MASTERS = await post('/api/masters', MASTERS, 'PUT'); $('#company-modal').hidden = true; refreshCurrentPage(); }
+  catch (err) { alert('저장 실패: ' + err.message); }
+});
+$('#company-delete').addEventListener('click', async () => {
+  if (!editingCompanyId || !confirm('이 업체 정보를 삭제하시겠습니까?')) return;
+  MASTERS.companies = (MASTERS.companies || []).filter((x) => x.id !== editingCompanyId);
+  MASTERS = await post('/api/masters', MASTERS, 'PUT');
+  $('#company-modal').hidden = true;
+  refreshCurrentPage();
 });
 
 /* ===================== 일일 공정일지 ===================== */
