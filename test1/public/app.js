@@ -250,7 +250,7 @@ function refreshCurrentPage() {
 }
 
 /* ===================== 관리자 모드 (PIN, 소프트 가드) ===================== */
-const ADMIN_DEFAULT_PIN = '1234';
+const ADMIN_DEFAULT_PIN = '268605';
 function isAdminUnlocked() { return sessionStorage.getItem('adminUnlocked') === '1'; }
 function applyAdminMode() {
   const on = isAdminUnlocked();
@@ -2378,8 +2378,8 @@ function renderMasters() {
     '<p class="muted" style="margin-bottom:10px">작업지시에서 이 설정에 따라 <b>기본 NEAL 사양</b> 또는 <b>고객사 OEM 사양</b>을 적용합니다.</p>' +
     custRows +
     '<h3 style="margin:20px 0 6px">관리자 PIN</h3>' +
-    '<p class="muted" style="margin-bottom:10px">관리자 모드 진입 PIN입니다. 비우면 기본값(1234).</p>' +
-    `<div class="m-row"><label>관리자 PIN</label><input type="text" id="admin-pin-input" value="${esc(MASTERS.adminPin || '')}" placeholder="기본 1234"></div>` +
+    '<p class="muted" style="margin-bottom:10px">관리자 모드 진입 PIN입니다. 비우면 기본값(268605).</p>' +
+    `<div class="m-row"><label>관리자 PIN</label><input type="text" id="admin-pin-input" value="${esc(MASTERS.adminPin || '')}" placeholder="기본 268605"></div>` +
     '<div style="margin-top:16px"><button class="btn primary" id="btn-save-masters">기준정보 저장</button></div>';
   $('#btn-save-masters').addEventListener('click', async () => {
     const next = { ...MASTERS };
