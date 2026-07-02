@@ -1296,6 +1296,7 @@ const WS_SCHEMA = {
         ] },
         { type: 'rows', title: '생산 제품 (여러 제품 등록)', kind: 'cpinfo', store: 'productInfos', minRows: 1 },
         { type: 'orderLinks' },
+        { type: 'startcheck' },
       ] },
       { id: 'prep', label: '② 생산준비·정기점검', blocks: [
         { type: 'note', text: '휴게시간 후 재가동 전 확인 항목입니다. (10:30 / 15:30)' },
@@ -1344,6 +1345,7 @@ const WS_SCHEMA = {
         ] },
         { type: 'rows', title: '생산 제품 (여러 제품 등록)', kind: 'pinfo', store: 'productInfos', minRows: 1 },
         { type: 'orderLinks' },
+        { type: 'startcheck' },
       ] },
       { id: 'prep', label: '② 생산준비·정기점검', blocks: [
         { type: 'note', text: '휴게시간 후 재가동 전 확인 항목입니다. (10:30 / 15:30)' },
@@ -1526,6 +1528,11 @@ function wsBlockHtml(b) {
   if (b.type === 'orderLinks') {
     return `<div class="ws-block"><h4>제품별 작업지시서 <span class="auto-tag">기본정보 제품 연동 · 제품표준서 기준</span></h4><div id="ws-order-links"></div></div>`;
   }
+  if (b.type === 'startcheck') {
+    return `<div class="ws-block"><h4>생산 시작 점검 — 라벨 · LOT <span class="auto-tag">기준 사양 대조 · LOT 자동확인</span></h4>
+      <div id="ws-startcheck-summary"></div>
+      <button type="button" class="btn small primary" id="btn-startcheck" style="margin-top:8px">📷 라벨·LOT 점검 열기</button></div>`;
+  }
   if (b.type === 'castSummary') {
     return `<div class="ws-block ws-summary-block"><h4>생산종료 자동 집계</h4><div id="ws-cast-summary"></div></div>`;
   }
@@ -1590,8 +1597,114 @@ function updateOrderLinks() {
     : '<div class="empty">기본정보에 생산 제품을 등록하면 제품별 작업지시서가 연동됩니다.</div>';
 }
 
+/* ===================== 생산 시작 점검 (라벨·LOT 대조) ===================== */
+function scLotResult(info, lotRead) {
+  const expected = String(info.lotNo || '').trim();
+  const read = String(lotRead || '').trim();
+  if (!read) return '<span class="muted">라벨 LOT 입력 대기</span>';
+  const parts = [];
+  if (expected) parts.push(read.toUpperCase() === expected.toUpperCase()
+    ? '<span class="badge ok">일지 LOT 일치</span>'
+    : `<span class="badge bad">일지 LOT 불일치</span> <span class="muted">일지: ${esc(expected)}</span>`);
+  else parts.push('<span class="badge warn">일지에 LOT 미기재</span>');
+  const dateCode = String(WS && WS.date || '').replace(/-/g, '').slice(2); // YYMMDD
+  if (dateCode) parts.push(read.includes(dateCode)
+    ? `<span class="badge ok">생산일(${dateCode}) 포함</span>`
+    : `<span class="badge warn">생산일(${dateCode}) 미포함</span>`);
+  return parts.join(' ');
+}
+
+function updateStartCheck() {
+  const box = $('#ws-startcheck-summary');
+  if (!box || !WS) return;
+  const infos = (WS.productInfos || []).filter((p) => p.product);
+  if (!infos.length) { box.innerHTML = '<div class="empty">기본정보에 제품을 등록하면 라벨·LOT 점검을 할 수 있습니다.</div>'; return; }
+  const sc = WS.startChecks || {};
+  box.innerHTML = `<table class="prod-table"><thead><tr><th>제품</th><th>라벨 대조</th><th>LOT 확인</th></tr></thead><tbody>${infos.map((info) => {
+    const c = sc[info.product] || {};
+    const label = c.labelOk ? '<span class="badge ok">확인</span>' : '<span class="badge plain">미확인</span>';
+    const expected = String(info.lotNo || '').trim();
+    let lot;
+    if (!c.lotRead) lot = '<span class="badge plain">미입력</span>';
+    else if (expected && String(c.lotRead).toUpperCase() === expected.toUpperCase()) lot = '<span class="badge ok">일치</span>';
+    else lot = '<span class="badge bad">불일치</span>';
+    return `<tr class="no-click"><td><b>${esc(info.product)}</b> ${esc(info.color || '')}</td><td>${label}</td><td>${lot}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function openStartCheckModal() {
+  if (!WS) return;
+  const infos = (WS.productInfos || []).filter((p) => p.product);
+  const body = $('#startcheck-body');
+  if (!infos.length) {
+    body.innerHTML = '<div class="empty">먼저 기본정보에 생산 제품을 등록하세요.</div>';
+  } else {
+    WS.startChecks = WS.startChecks || {};
+    body.innerHTML = infos.map((info) => {
+      const cs = findCustSpec({ part: wsPart, product: info.product, color: info.color, customer: info.customer });
+      const ref = (cs && cs.images) || {};
+      const type = customerSpecType(info.customer);
+      const c = WS.startChecks[info.product] || {};
+      return `<div class="sc-row" data-product="${esc(info.product)}">
+        <div class="sc-title"><b>${esc(info.product)}</b> ${esc(info.color || '')} · ${esc(info.customer || '내수')} ${specBadge(type)}${cs ? '' : ' <span class="badge bad">사양 미등록</span>'}</div>
+        <div class="sc-photos">
+          <div class="sc-ref">
+            <div class="photo-head">기준 라벨(사양)</div>
+            <div class="photo-box">${ref.pouch ? `<img src="${esc(ref.pouch)}">` : '<span class="photo-empty">기준 사진 미등록</span>'}</div>
+          </div>
+          <div class="photo-slot" data-img="cap">
+            <div class="photo-head">📷 현장 촬영 (라벨/LOT 실링)</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns"><button type="button" class="btn small photo-pick">촬영/선택</button><button type="button" class="btn small danger photo-del" hidden>삭제</button></div>
+            <input type="file" accept="image/*" capture="environment" hidden>
+          </div>
+        </div>
+        <label class="sc-ok"><input type="checkbox" data-sc-ok ${c.labelOk ? 'checked' : ''}> 기준 라벨과 일치함을 확인</label>
+        <div class="sc-lot">
+          <span>LOT(일지 기재): <b>${esc(info.lotNo || '(미기재)')}</b></span>
+          <label>라벨 LOT 입력<input type="text" data-sc-lot value="${esc(c.lotRead || '')}" placeholder="라벨에 인쇄된 LOT"></label>
+          <div class="sc-lot-result">${scLotResult(info, c.lotRead)}</div>
+        </div>
+      </div>`;
+    }).join('');
+    $$('#startcheck-body .photo-slot').forEach(initPhotoSlot);
+    $$('#startcheck-body .sc-row').forEach((row) => {
+      const c = WS.startChecks[row.dataset.product] || {};
+      const slot = row.querySelector('.photo-slot');
+      if (slot) slot._setUrl(c.photo || '');
+    });
+  }
+  $('#startcheck-modal').hidden = false;
+}
+$('#startcheck-body').addEventListener('input', (e) => {
+  const lotInput = e.target.closest('[data-sc-lot]');
+  if (!lotInput || !WS) return;
+  const row = e.target.closest('.sc-row');
+  const info = (WS.productInfos || []).find((p) => p.product === row.dataset.product) || {};
+  row.querySelector('.sc-lot-result').innerHTML = scLotResult(info, lotInput.value);
+});
+$('#startcheck-save').addEventListener('click', () => {
+  if (!WS) return;
+  WS.startChecks = WS.startChecks || {};
+  $$('#startcheck-body .sc-row').forEach((row) => {
+    const slot = row.querySelector('.photo-slot');
+    WS.startChecks[row.dataset.product] = {
+      labelOk: !!row.querySelector('[data-sc-ok]').checked,
+      lotRead: (row.querySelector('[data-sc-lot]').value || '').trim(),
+      photo: slot ? (slot.dataset.url || '') : '',
+    };
+  });
+  saveWsNow();
+  $('#startcheck-modal').hidden = true;
+  updateStartCheck();
+});
+$('#startcheck-close').addEventListener('click', () => ($('#startcheck-modal').hidden = true));
+$('#startcheck-cancel').addEventListener('click', () => ($('#startcheck-modal').hidden = true));
+document.addEventListener('click', (e) => { if (e.target.closest('#btn-startcheck')) openStartCheckModal(); });
+
 function updateSplintLive() {
   updateOrderLinks();
+  updateStartCheck();
   const set = (k, v) => { const el = $(`#ws-panel [data-live="${k}"]`); if (el) el.textContent = v; };
   if (wsPart === 'SPLINT') {
     const ag = splintAgg();

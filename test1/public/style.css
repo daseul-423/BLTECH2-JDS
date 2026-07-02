@@ -180,6 +180,16 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 /* 전체 사양 보기 — 고객사 그룹 */
 .ov-group { margin-bottom: 18px; }
 .ov-group-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 6px; background: #f4f6fa; border-left: 3px solid var(--brand); border-radius: 6px; font-size: 14px; }
+/* 생산 시작 점검 (라벨·LOT) */
+.sc-row { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.sc-title { font-size: 15px; margin-bottom: 8px; }
+.sc-photos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sc-ref .photo-box, .sc-row .photo-slot .photo-box { height: 150px; display: flex; align-items: center; justify-content: center; background: #f7f9fc; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.sc-ref .photo-box img, .sc-row .photo-slot .photo-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.sc-ok { display: inline-flex; align-items: center; gap: 6px; margin: 10px 0 6px; font-weight: 600; }
+.sc-lot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.sc-lot label { display: inline-flex; align-items: center; gap: 6px; }
+.sc-lot-result { width: 100%; }
 
 /* ---- SPLINT 일지 체크박스 행 ---- */
 .chk-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
@@ -395,3 +405,4 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 
 /* 작업지시서 모달이 워크스페이스 위에 표시 */
 #order-modal { z-index: 80; }
+#startcheck-modal { z-index: 80; }
