@@ -237,12 +237,12 @@ function splintWsCalc(r) {
 
 /* ===================== 네비게이션 ===================== */
 $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
-const ADMIN_PAGES = ['standards', 'custspecs', 'masters'];
+const ADMIN_PAGES = ['overview', 'standards', 'custspecs', 'masters'];
 function showPage(page) {
   if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) page = 'dashboard';  // 잠금 시 관리자 페이지 차단
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, standards: renderStandards, custspecs: renderCustSpecs, masters: renderMasters }[page];
+  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, masters: renderMasters }[page];
   if (render) render();
 }
 function refreshCurrentPage() {
@@ -864,6 +864,49 @@ $('#custspec-delete').addEventListener('click', async () => {
   await loadCustSpecs();
   $('#custspec-modal').hidden = true;
   refreshCurrentPage();
+});
+
+/* ===================== 전체 사양 보기 (제품표준서 + 모든 고객사별 생산사양) ===================== */
+function renderOverview() {
+  const q = $('#ov-search').value.trim().toLowerCase();
+  const hit = (x, fields) => !q || fields.some((f) => String(x[f] ?? '').toLowerCase().includes(q));
+
+  // 고객사별 생산사양 (OEM 먼저, 그다음 NEAL)
+  const specs = CUSTSPECS.filter((s) => hit(s, ['product', 'customer', 'color', 'toner', 'pouchType', 'labelSpec']))
+    .sort((a, b) => (a.specType === b.specType ? 0 : (a.specType === 'OEM' ? -1 : 1))
+      || (a.product || '').localeCompare(b.product || '')
+      || String(a.customer || '').localeCompare(String(b.customer || '')));
+  const csRows = specs.map((s) => `<tr class="ov-cs-row" data-id="${s.id}" style="cursor:pointer">
+    <td>${esc(s.part || 'CAST')}</td><td>${specBadge(s.specType)}</td>
+    <td>${s.specType === 'OEM' ? esc(s.customer || '-') : '제품 공통'}</td>
+    <td><b>${esc(s.product)}</b></td><td>${esc(s.color || '-')}</td>
+    <td class="num">${(s.coatingMid != null && s.coatingMid !== '') ? `${esc(s.coatingMin)}~${esc(s.coatingMax)}` : '-'}</td>
+    <td>${esc(s.toner || '-')}</td><td>${esc(s.pouchType || '-')}</td>
+    <td>${s.labelSpec ? '✓' : '-'}</td><td>${s.manualSpec ? '✓' : '-'}</td><td>${s.enclosures ? '✓' : '-'}</td>
+  </tr>`).join('');
+  $('#ov-custspecs').innerHTML = specs.length
+    ? `<table><thead><tr><th>공정</th><th>구분</th><th>고객사</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>라벨</th><th>설명서</th><th>동봉품</th></tr></thead><tbody>${csRows}</tbody></table>`
+    : '<div class="empty">등록된 생산사양이 없습니다.</div>';
+
+  // 제품표준서
+  const stds = STANDARDS.filter((s) => hit(s, ['product', 'productCode', 'color', 'brand', 'baseType', 'resinType']))
+    .sort((a, b) => (a.part || '').localeCompare(b.part || '') || (a.product || '').localeCompare(b.product || ''));
+  const stRows = stds.map((s) => `<tr class="ov-std-row" data-id="${s.id}" style="cursor:pointer">
+    <td>${esc(s.part || 'CAST')}</td><td><b>${esc(s.product)}</b></td><td>${esc(s.color || '-')}</td>
+    <td>${esc(s.productCode || '-')}</td><td>${esc(s.brand || '-')}</td>
+    <td>${esc(s.baseType || '-')}</td><td>${esc(s.resinType || '-')}</td><td>${esc(s.catalyst || '-')}</td>
+    <td>${esc(s.core || '-')}</td><td>${esc(s.sizeSpec || '-')}</td>
+  </tr>`).join('');
+  $('#ov-standards').innerHTML = stds.length
+    ? `<table><thead><tr><th>공정</th><th>제품</th><th>색상</th><th>제품코드</th><th>브랜드</th><th>기재</th><th>수지</th><th>촉매</th><th>코어</th><th>규격</th></tr></thead><tbody>${stRows}</tbody></table>`
+    : '<div class="empty">등록된 제품표준서가 없습니다.</div>';
+}
+$('#ov-search').addEventListener('input', renderOverview);
+document.addEventListener('click', (e) => {
+  const cs = e.target.closest('.ov-cs-row');
+  if (cs) { openCustSpecModal(Number(cs.dataset.id)); return; }
+  const st = e.target.closest('.ov-std-row');
+  if (st) openStandardModal(Number(st.dataset.id));
 });
 
 /* ===================== 일일 공정일지 ===================== */

@@ -26,6 +26,7 @@
     </div>
     <div class="nav-group" id="admin-nav" hidden>
       <div class="nav-group-label">관리자</div>
+      <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="standards">📦 제품표준서</button>
       <button class="nav-btn" data-page="custspecs">🏷 고객사별 생산사양</button>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
@@ -242,6 +243,24 @@
     <div class="card">
       <p class="muted" style="margin-bottom:10px">기본 <b>NEAL 사양</b>과 <b>고객사 OEM 사양</b>으로 구분합니다. 코팅·토너·라벨·파우치·박스·설명서·동봉품·포장주의사항을 관리하며, 작업지시에서 고객사 지정(기준정보)에 따라 자동 선택됩니다.</p>
       <div id="custspecs-list" class="standard-grid"></div>
+    </div>
+  </section>
+
+  <!-- 전체 사양 보기 -->
+  <section id="page-overview" class="page" hidden>
+    <div class="page-head">
+      <h1>전체 사양 보기</h1>
+      <div class="head-actions">
+        <input type="text" id="ov-search" placeholder="제품명 · 고객사 · 코드 검색">
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 10px">고객사별 생산사양 <span class="muted" style="font-size:13px;font-weight:400">OEM · NEAL 전체 · 행 클릭 시 수정</span></h3>
+      <div class="table-wrap" id="ov-custspecs"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin:0 0 10px">제품표준서 <span class="muted" style="font-size:13px;font-weight:400">제품 자체 기준 · 행 클릭 시 수정</span></h3>
+      <div class="table-wrap" id="ov-standards"></div>
     </div>
   </section>
 
