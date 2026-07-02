@@ -797,7 +797,7 @@ function renderCustSpecs() {
     return `<div class="standard-card" data-custspec-id="${s.id}">
       <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'🏷'}))">` : '<span>🏷</span>'}</div>
       <div class="standard-info">
-        <div class="standard-name"><b>${esc(s.product)}</b> ${esc(s.color ?? '')} ${specBadge(s.specType)}</div>
+        <div class="standard-name"><b>${esc(s.product)}</b>${s.variant ? ` <span class="muted">(${esc(s.variant)})</span>` : ''} ${esc(s.color ?? '')} ${specBadge(s.specType)}</div>
         <div class="muted">${s.specType === 'OEM' ? esc(s.customer || '(고객사 미지정)') : '제품 공통'}</div>
         <div class="standard-mats">코팅 ${coat} · 토너 ${esc(s.toner ?? '-')} · 파우치 ${esc(s.pouchType ?? '-')}</div>
         <div class="standard-mats">라벨 ${s.labelSpec ? '있음' : '-'} · 설명서 ${s.manualSpec ? '있음' : '-'} · 동봉품 ${s.enclosures ? '있음' : '-'}</div>
@@ -811,11 +811,11 @@ document.addEventListener('click', (e) => {
   if (card) openCustSpecModal(Number(card.dataset.custspecId));
 });
 
-function csToggleOem() {
-  const oemOnly = custspecForm.querySelector('.cs-oem-only');
-  if (oemOnly) oemOnly.style.display = custspecForm.elements.specType.value === 'OEM' ? '' : 'none';
+/* 적용 대상 드롭다운: [기본 NEAL] + 각 고객사 (기준정보 masters.customers) */
+function fillSpecTarget() {
+  custspecForm.elements.specTarget.innerHTML = '<option value="__NEAL__">기본 NEAL (제품 공통)</option>'
+    + (MASTERS.customers || []).map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
 }
-custspecForm.elements.specType.addEventListener('change', csToggleOem);
 
 function openCustSpecModal(id = null) {
   editingCustSpecId = id;
@@ -823,15 +823,20 @@ function openCustSpecModal(id = null) {
   $('#custspec-modal-title').textContent = id ? '생산사양 수정' : '생산사양 등록';
   $('#custspec-delete').hidden = !id;
   const s = id ? CUSTSPECS.find((x) => x.id === id) : null;
+  fillSpecTarget();
   if (s) {
     [...custspecForm.elements].forEach((el) => { if (el.name && s[el.name] != null && typeof s[el.name] !== 'object') el.value = s[el.name]; });
     custspecForm.elements.part.value = s.part || 'CAST';
-    custspecForm.elements.specType.value = s.specType || 'NEAL';
+    const target = (s.specType === 'OEM' && s.customer) ? s.customer : '__NEAL__';
+    const sel = custspecForm.elements.specTarget;
+    if (target !== '__NEAL__' && ![...sel.options].some((o) => o.value === target)) {
+      sel.insertAdjacentHTML('beforeend', `<option value="${esc(target)}">${esc(target)}</option>`);
+    }
+    sel.value = target;
   } else {
     custspecForm.elements.part.value = PART;
-    custspecForm.elements.specType.value = 'NEAL';
+    custspecForm.elements.specTarget.value = '__NEAL__';
   }
-  csToggleOem();
   $$('#custspec-form .photo-slot').forEach((slot) => slot._setUrl((s && s.images && s.images[slot.dataset.img]) || ''));
   $('#custspec-modal').hidden = false;
 }
@@ -846,8 +851,9 @@ custspecForm.addEventListener('submit', async (e) => {
     if (!el.name) return;
     s[el.name] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
   });
-  if (s.specType === 'NEAL') s.customer = null;
-  if (s.specType === 'OEM' && !s.customer) { alert('OEM 사양은 고객사명을 입력하세요.'); return; }
+  const target = s.specTarget; delete s.specTarget;
+  s.specType = (target && target !== '__NEAL__') ? 'OEM' : 'NEAL';
+  s.customer = s.specType === 'OEM' ? target : null;
   s.images = {};
   $$('#custspec-form .photo-slot').forEach((slot) => (s.images[slot.dataset.img] = slot.dataset.url || ''));
   try {
@@ -883,7 +889,7 @@ function renderOverview() {
   const ordered = [...groups.values()].sort((a, b) =>
     (a.type === b.type ? 0 : (a.type === 'OEM' ? -1 : 1)) || a.label.localeCompare(b.label));
   const csRow = (s) => `<tr class="ov-cs-row" data-id="${s.id}" style="cursor:pointer">
-    <td>${esc(s.part || 'CAST')}</td><td><b>${esc(s.product)}</b></td><td>${esc(s.color || '-')}</td>
+    <td>${esc(s.part || 'CAST')}</td><td><b>${esc(s.product)}</b>${s.variant ? ` <span class="muted">(${esc(s.variant)})</span>` : ''}</td><td>${esc(s.color || '-')}</td>
     <td class="num">${(s.coatingMid != null && s.coatingMid !== '') ? `${esc(s.coatingMin)}~${esc(s.coatingMax)}` : '-'}</td>
     <td>${esc(s.toner || '-')}</td><td>${esc(s.pouchType || '-')}</td>
     <td>${s.labelSpec ? '✓' : '-'}</td><td>${s.manualSpec ? '✓' : '-'}</td><td>${s.enclosures ? '✓' : '-'}</td>

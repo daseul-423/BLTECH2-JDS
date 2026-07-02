@@ -581,14 +581,15 @@
     </div>
     <form id="custspec-form">
       <fieldset>
-        <legend>구분 · 대상</legend>
+        <legend>적용 대상</legend>
         <div class="form-grid">
-          <label>사양 구분 *<select name="specType"><option value="NEAL">기본 NEAL 사양</option><option value="OEM">고객사 OEM 사양</option></select></label>
+          <label>적용 대상 *<select name="specTarget"></select></label>
           <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
           <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
           <label>칼라<input type="text" name="color" list="dl-colors"></label>
-          <label class="cs-oem-only">고객사 (OEM 필수)<input type="text" name="customer" list="dl-customers" placeholder="OEM일 때 고객사명"></label>
+          <label>변형/구분<input type="text" name="variant" placeholder="예: 백 / 전용 (같은 고객사·제품 구분)"></label>
         </div>
+        <p class="muted" style="margin-top:8px">‘기본 NEAL’은 제품 공통 사양, 그 외는 각 고객사 전용 사양입니다. 고객사는 <b>기준정보</b>에서 추가합니다.</p>
       </fieldset>
       <fieldset>
         <legend>생산사양</legend>
