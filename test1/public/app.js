@@ -871,21 +871,31 @@ function renderOverview() {
   const q = $('#ov-search').value.trim().toLowerCase();
   const hit = (x, fields) => !q || fields.some((f) => String(x[f] ?? '').toLowerCase().includes(q));
 
-  // 고객사별 생산사양 (OEM 먼저, 그다음 NEAL)
-  const specs = CUSTSPECS.filter((s) => hit(s, ['product', 'customer', 'color', 'toner', 'pouchType', 'labelSpec']))
-    .sort((a, b) => (a.specType === b.specType ? 0 : (a.specType === 'OEM' ? -1 : 1))
-      || (a.product || '').localeCompare(b.product || '')
-      || String(a.customer || '').localeCompare(String(b.customer || '')));
-  const csRows = specs.map((s) => `<tr class="ov-cs-row" data-id="${s.id}" style="cursor:pointer">
-    <td>${esc(s.part || 'CAST')}</td><td>${specBadge(s.specType)}</td>
-    <td>${s.specType === 'OEM' ? esc(s.customer || '-') : '제품 공통'}</td>
-    <td><b>${esc(s.product)}</b></td><td>${esc(s.color || '-')}</td>
+  // 고객사별 생산사양 — 고객사별로 묶어서 표시 (OEM 고객사 먼저, 기본 NEAL 마지막)
+  const specsAll = CUSTSPECS.filter((s) => hit(s, ['product', 'customer', 'color', 'toner', 'pouchType', 'labelSpec']));
+  const groups = new Map();
+  for (const s of specsAll) {
+    const isOem = (s.specType || 'NEAL') === 'OEM';
+    const key = isOem ? 'OEM::' + (s.customer || '(고객사 미지정)') : 'NEAL';
+    if (!groups.has(key)) groups.set(key, { type: isOem ? 'OEM' : 'NEAL', label: isOem ? (s.customer || '(고객사 미지정)') : '기본 NEAL 사양 (제품 공통)', items: [] });
+    groups.get(key).items.push(s);
+  }
+  const ordered = [...groups.values()].sort((a, b) =>
+    (a.type === b.type ? 0 : (a.type === 'OEM' ? -1 : 1)) || a.label.localeCompare(b.label));
+  const csRow = (s) => `<tr class="ov-cs-row" data-id="${s.id}" style="cursor:pointer">
+    <td>${esc(s.part || 'CAST')}</td><td><b>${esc(s.product)}</b></td><td>${esc(s.color || '-')}</td>
     <td class="num">${(s.coatingMid != null && s.coatingMid !== '') ? `${esc(s.coatingMin)}~${esc(s.coatingMax)}` : '-'}</td>
     <td>${esc(s.toner || '-')}</td><td>${esc(s.pouchType || '-')}</td>
     <td>${s.labelSpec ? '✓' : '-'}</td><td>${s.manualSpec ? '✓' : '-'}</td><td>${s.enclosures ? '✓' : '-'}</td>
-  </tr>`).join('');
-  $('#ov-custspecs').innerHTML = specs.length
-    ? `<table><thead><tr><th>공정</th><th>구분</th><th>고객사</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>라벨</th><th>설명서</th><th>동봉품</th></tr></thead><tbody>${csRows}</tbody></table>`
+  </tr>`;
+  $('#ov-custspecs').innerHTML = ordered.length
+    ? ordered.map((g) => {
+        const items = g.items.slice().sort((a, b) => (a.part || '').localeCompare(b.part || '') || (a.product || '').localeCompare(b.product || ''));
+        return `<div class="ov-group">
+          <div class="ov-group-head">${specBadge(g.type)} <b>${esc(g.label)}</b> <span class="muted">${items.length}건</span></div>
+          <table><thead><tr><th>공정</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>라벨</th><th>설명서</th><th>동봉품</th></tr></thead><tbody>${items.map(csRow).join('')}</tbody></table>
+        </div>`;
+      }).join('')
     : '<div class="empty">등록된 생산사양이 없습니다.</div>';
 
   // 제품표준서

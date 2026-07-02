@@ -177,6 +177,9 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .order-badge.neal { background: #e8efff; color: var(--brand); }
 .order-badge.oem { background: #f3e8ff; color: #8b3ff0; }
 .order-exception { border: 1px solid var(--warn); background: #fff8e8; border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+/* 전체 사양 보기 — 고객사 그룹 */
+.ov-group { margin-bottom: 18px; }
+.ov-group-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 6px; background: #f4f6fa; border-left: 3px solid var(--brand); border-radius: 6px; font-size: 14px; }
 
 /* ---- SPLINT 일지 체크박스 행 ---- */
 .chk-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; font-size: 13px; }
