@@ -28,8 +28,7 @@
       <div class="nav-group-label">관리자</div>
       <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="standards">📦 제품표준서</button>
-      <button class="nav-btn" data-page="custspecs">🏷 고객사별 생산사양</button>
-      <button class="nav-btn" data-page="companies">🏢 업체 정보</button>
+      <button class="nav-btn" data-page="companies">🏭 OEM (고객사별)</button>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
     </div>
   </nav>
@@ -265,18 +264,18 @@
     </div>
   </section>
 
-  <!-- 업체 정보 -->
+  <!-- OEM (고객사별 사양) -->
   <section id="page-companies" class="page" hidden>
     <div class="page-head">
-      <h1>업체 정보</h1>
+      <h1>OEM — 고객사별 사양</h1>
       <div class="head-actions">
-        <input type="text" id="co-search" placeholder="업체명 · 나라 · 컬러 · 토너 검색">
+        <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 검색">
         <span class="muted" id="co-count"></span>
-        <button class="btn primary" id="btn-new-company">＋ 업체 등록</button>
+        <button class="btn primary" id="btn-new-company">＋ 고객사 등록</button>
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">고객사별 나라·컬러·수지·기재·토너·포장(인박스/아웃박스/파우치·라벨)·특이사항 정보입니다. 행을 클릭하면 수정할 수 있습니다.</p>
+      <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·OSSUR·크로실 등) 포장사양(인박스/아웃박스/파우치·라벨)과 특이사항(코팅·토너·컬러 등)입니다. OEM(전용 사양)을 위에 표시하며, 행을 클릭하면 수정할 수 있습니다. 제품 자체 기준은 <b>제품표준서</b>에서 관리합니다.</p>
       <div class="table-wrap" id="companies-list"></div>
     </div>
   </section>

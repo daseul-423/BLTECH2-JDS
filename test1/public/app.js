@@ -929,20 +929,41 @@ document.addEventListener('click', (e) => {
 let editingCompanyId = null;
 const companyForm = $('#company-form');
 
+/* 해당 고객사(업체)와 매칭되는 OEM 생산사양(코팅) — 이름 느슨 매칭 */
+function coatingsForCompany(co) {
+  const nm = String(co.name || '').toLowerCase();
+  const base = nm.split('(')[0].trim();
+  return (CUSTSPECS || []).filter((cs) => {
+    if (cs.specType !== 'OEM' || !cs.customer) return false;
+    const c = String(cs.customer).toLowerCase();
+    return c && (nm.includes(c) || (base && (base.includes(c) || c.includes(base))));
+  });
+}
+function coatingText(cs) {
+  const coat = (cs.coatingMid != null && cs.coatingMid !== '') ? `${cs.coatingMin ?? ''}~${cs.coatingMax ?? ''}` : '';
+  return `${cs.product}${cs.variant ? `(${cs.variant})` : ''}${coat ? ' ' + coat : ''}`;
+}
+
 function renderCompanies() {
   const q = $('#co-search').value.trim().toLowerCase();
-  let items = (MASTERS.companies || []).slice();
-  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'resin', 'toner', 'notes'].some((f) => String(c[f] ?? '').toLowerCase().includes(q)));
-  items.sort((a, b) => (a.specType === b.specType ? 0 : (a.specType === 'OEM' ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
-  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c.specType === 'OEM').length}`;
+  let items = (MASTERS.companies || []).slice().map((c) => {
+    const coats = coatingsForCompany(c);
+    return { ...c, _coats: coats, _oem: c.specType === 'OEM' || coats.length > 0 };
+  });
+  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'resin', 'toner', 'notes'].some((f) => String(c[f] ?? '').toLowerCase().includes(q))
+    || c._coats.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
+  items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
+  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c._oem).length}`;
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
-    <td><b>${esc(c.name || '')}</b></td><td>${esc(c.country || '-')}</td><td>${specBadge(c.specType)}</td>
-    <td>${esc(c.colors || '-')}</td><td>${esc(c.resin || '-')}</td><td>${esc(c.baseLength || '-')}</td><td>${esc(c.toner || '-')}</td>
-    <td>${esc(c.packInBox || '-')}</td><td>${esc(c.packOutBox || '-')}</td><td>${esc(c.packLabel || '-')}</td><td>${esc(c.notes || '')}</td>
+    <td><b>${esc(c.name || '')}</b></td><td>${esc(c.country || '-')}</td><td>${specBadge(c._oem ? 'OEM' : 'NEAL')}</td>
+    <td>${esc(c.colors || '-')}</td><td>${esc(c.toner || '-')}</td>
+    <td>${c._coats.length ? esc(c._coats.map(coatingText).join(', ')) : '<span class="muted">-</span>'}</td>
+    <td>${esc(c.packInBox || '-')}</td><td>${esc(c.packOutBox || '-')}</td><td>${esc(c.packLabel || '-')}</td>
+    <td>${esc(c.resin || '-')} ${esc(c.baseLength || '')}</td><td>${esc(c.notes || '')}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table><thead><tr><th>업체명</th><th>나라</th><th>구분</th><th>컬러</th><th>수지</th><th>기재/길이</th><th>토너</th><th>인박스</th><th>아웃박스</th><th>파우치/라벨</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
-    : '<div class="empty">등록된 업체가 없습니다.</div>';
+    ? `<table><thead><tr><th>고객사</th><th>나라</th><th>구분</th><th>컬러</th><th>토너</th><th>코팅(제품별)</th><th>인박스</th><th>아웃박스</th><th>파우치/라벨</th><th>수지/기재</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">등록된 고객사가 없습니다.</div>';
 }
 
 function openCompanyModal(id = null) {
