@@ -290,6 +290,39 @@ function goArea(page) {
 }
 document.addEventListener('click', (e) => { const c = e.target.closest('.hub-card[data-goto]'); if (c) goArea(c.dataset.goto); });
 
+/* ===================== AI 분석 챗봇 (서버 /api/chat 프록시) ===================== */
+function buildAiContext() {
+  const recs = (RECORDS || []).map((r) => ({ date: r.date, part: r.part || 'CAST', machine: r.machine, customer: r.customer, product: r.product, color: r.color, planQty: r.planQty, prodQty: r.prodQty, processDefect: r.processDefect, prodDefect: r.prodDefect, totalLossRate: r.totalLossRate, workers: r.workers }));
+  return {
+    설명: 'BL-TECH 생산1팀 데이터. totalLossRate=총로스율(%), processDefect=공정불량, prodDefect=생산불량, prodQty=정품생산량, workers=작업조(/로 구분).',
+    건수: { records: RECORDS.length, sheets: SHEETS.length, plans: PLANS.length, standards: STANDARDS.length, custspecs: CUSTSPECS.length, equipchecks: EQUIPCHECKS.length, equipment: EQUIPMENT.length },
+    records: recs,
+    companies: (MASTERS.companies || []).map((c) => ({ name: c.name, specType: c.specType, country: c.country, toner: c.toner, colors: c.colors, notes: c.notes })),
+    custspecs: (CUSTSPECS || []).map((s) => ({ product: s.product, customer: s.customer, specType: s.specType, coatingMid: s.coatingMid, toner: s.toner })),
+    equipchecks: (EQUIPCHECKS || []).map((e) => ({ date: e.date, machine: e.machine, abnormal: e.abnormal, note: e.note })),
+    equipment: (EQUIPMENT || []).map((e) => ({ name: e.name, model: e.model, manager: e.manager, 이력수: (e.history || []).length })),
+  };
+}
+const aiFormat = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
+async function aiAsk(q) {
+  const msgs = $('#ai-messages');
+  msgs.insertAdjacentHTML('beforeend', `<div class="ai-msg user">${esc(q)}</div>`);
+  const loading = document.createElement('div');
+  loading.className = 'ai-msg bot'; loading.textContent = '분석 중…';
+  msgs.appendChild(loading); msgs.scrollTop = msgs.scrollHeight;
+  try {
+    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, context: buildAiContext() }) });
+    const data = await res.json().catch(() => ({}));
+    loading.innerHTML = res.ok ? aiFormat(data.answer || '(응답 없음)') : `<span class="ai-err">오류: ${esc(data.error || res.status)}</span>`;
+  } catch (e) { loading.innerHTML = `<span class="ai-err">연결 실패: ${esc(e.message)}</span>`; }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+$('#ai-fab').addEventListener('click', () => { const p = $('#ai-panel'); p.hidden = !p.hidden; if (!p.hidden) $('#ai-q').focus(); });
+$('#ai-close').addEventListener('click', () => ($('#ai-panel').hidden = true));
+const aiSend = () => { const q = $('#ai-q').value.trim(); if (q) { aiAsk(q); $('#ai-q').value = ''; } };
+$('#ai-send').addEventListener('click', aiSend);
+$('#ai-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') aiSend(); });
+
 /* ===================== 대시보드 ===================== */
 function renderDashboard() {
   const month = $('#dash-month').value;

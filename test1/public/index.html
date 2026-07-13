@@ -874,6 +874,19 @@
 <datalist id="dl-lossTypes"></datalist>
 <datalist id="dl-qcItems"></datalist>
 
+<!-- AI 분석 챗봇 -->
+<button id="ai-fab" title="AI 분석 챗봇">🤖 AI 분석</button>
+<div id="ai-panel" hidden>
+  <div class="ai-head"><b>🤖 AI 생산분석</b><button class="btn icon" id="ai-close">✕</button></div>
+  <div id="ai-messages">
+    <div class="ai-msg bot">안녕하세요! 입력된 생산 데이터(실적·불량·작업자·설비 등)를 분석해 드립니다. 예: <i>"이번달 호기별 불량률 알려줘"</i>, <i>"작업자별 총로스율 순위"</i>, <i>"SIGMAX 실적 요약해줘"</i></div>
+  </div>
+  <div class="ai-input">
+    <input type="text" id="ai-q" placeholder="질문을 입력하세요…" autocomplete="off">
+    <button class="btn primary" id="ai-send">전송</button>
+  </div>
+</div>
+
 <script src="app.js"></script>
 </body>
 </html>

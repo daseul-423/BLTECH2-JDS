@@ -9,6 +9,11 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const SEED_PATH = path.join(__dirname, 'public', 'seed.json');
 const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], equipchecks: [], equipment: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1, equipchecks: 1, equipment: 1 } };
 const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
+const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+function openaiKey() {
+  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY.trim();
+  try { return fs.readFileSync(path.join(__dirname, '.openai-key'), 'utf-8').trim(); } catch (e) { return ''; }
+}
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -72,6 +77,27 @@ const server = http.createServer(async (req, res) => {
       const fname = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
       fs.writeFileSync(path.join(UPLOAD_DIR, fname), Buffer.from(m[2], 'base64'));
       return sendJSON(res, 201, { url: '/uploads/' + fname });
+    }
+
+    // ---- AI 분석 챗봇 (OpenAI 프록시, 키는 서버에서만) ----
+    if (p === '/api/chat' && req.method === 'POST') {
+      const key = openaiKey();
+      if (!key) return sendJSON(res, 500, { error: 'OPENAI_API_KEY 미설정 (env 또는 test1/.openai-key)' });
+      const body = await readBody(req);
+      const question = String(body.question || '').slice(0, 4000);
+      const context = body.context ? JSON.stringify(body.context).slice(0, 60000) : '';
+      if (!question) return sendJSON(res, 400, { error: 'question 필요' });
+      const sys = `당신은 BL-TECH 생산1팀의 생산데이터 분석 도우미입니다. 아래 JSON 데이터(생산실적·불량·사양·설비 등)를 근거로 한국어로 간결하고 정확하게 답합니다. 숫자는 데이터에서 계산해 제시하고, 근거가 없으면 모른다고 하세요. 표/목록으로 보기 좋게 정리하세요.\n\n[데이터]\n${context}`;
+      try {
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: OPENAI_MODEL, temperature: 0.2, messages: [{ role: 'system', content: sys }, { role: 'user', content: question }] }),
+        });
+        const data = await r.json();
+        if (!r.ok) return sendJSON(res, 502, { error: 'OpenAI 오류: ' + ((data.error && data.error.message) || r.status) });
+        return sendJSON(res, 200, { answer: (data.choices && data.choices[0] && data.choices[0].message.content) || '(응답 없음)' });
+      } catch (e) { return sendJSON(res, 500, { error: String((e && e.message) || e) }); }
     }
 
     // ---- 컬렉션 공통 CRUD: /api/{records|sheets|plans|standards}[/:id] ----

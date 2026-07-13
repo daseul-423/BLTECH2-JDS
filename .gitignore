@@ -26,3 +26,9 @@ test1/data/source/
 # 실데이터가 내장된 1회성 마이그레이션/시드 스크립트 (로컬: test1/data/source/ 에 보관)
 test1/migrate-*.js
 test1/seed-examples.js
+
+# ===== 비밀 키 — 절대 커밋 금지 (서버 env / 로컬 파일에서만) =====
+.openai-key
+*.key
+.env
+.env.*
