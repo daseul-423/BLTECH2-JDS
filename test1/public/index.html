@@ -68,7 +68,7 @@
     <div class="page-head">
       <h1>대시보드</h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="month" id="dash-month">
       </div>
     </div>
@@ -94,7 +94,7 @@
     <div class="page-head">
       <h1>생산계획표</h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="date" id="p-from"> ~ <input type="date" id="p-to">
         <select id="p-machine"><option value="">호기 전체</option></select>
         <select id="p-status">
@@ -115,7 +115,7 @@
     <div class="page-head">
       <h1>일일 공정일지 <span class="muted" style="font-size:13px;font-weight:400">CAST: F-PD-003A(Rev.12) · SPLINT: F-PD-003b(Rev.13)</span></h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="month" id="s-month">
         <select id="s-machine"><option value="">호기 전체</option></select>
         <button class="btn primary" id="btn-new-sheet">＋ 일지 작성</button>
@@ -132,7 +132,7 @@
     <div class="page-head">
       <h1>생산실적 <span class="muted" style="font-size:13px;font-weight:400">일일 공정일지 저장 시 자동 생성됩니다</span></h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <button class="btn" id="btn-csv">⬇ CSV 내보내기</button>
       </div>
     </div>
@@ -153,7 +153,7 @@
     <div class="page-head">
       <h1>실적·불량 분석</h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
       </div>
     </div>
     <div class="card filter-bar">
@@ -245,7 +245,7 @@
     <div class="page-head">
       <h1>제품표준서</h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="text" id="st-search" placeholder="제품명, 제품코드, 업체 검색">
         <button class="btn primary" id="btn-new-standard">＋ 표준서 등록</button>
       </div>
@@ -261,7 +261,7 @@
     <div class="page-head">
       <h1>고객사별 생산사양</h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button></div>
+        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="text" id="cs-search" placeholder="제품명, 고객사 검색">
         <button class="btn primary" id="btn-new-custspec">＋ 사양 등록</button>
       </div>
@@ -311,7 +311,7 @@
     <div class="page-head">
       <h1>설비 일상점검</h1>
       <div class="head-actions">
-        <select id="ec-part"><option value="">공정 전체</option><option>CAST</option><option>SPLINT</option></select>
+        <select id="ec-part"><option value="">공정 전체</option><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select>
         <input type="month" id="ec-month">
         <select id="ec-machine"><option value="">호기 전체</option></select>
         <button class="btn primary" id="btn-new-equipcheck">＋ 점검 등록</button>
@@ -558,7 +558,7 @@
     </div>
     <form id="plan-form">
       <div class="form-grid">
-        <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
+        <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
         <label>생산일 *<input type="date" name="date" required></label>
         <label>호기 *<select name="machine" required></select></label>
         <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
@@ -615,7 +615,7 @@
       <fieldset>
         <legend>제품 정보</legend>
         <div class="form-grid">
-          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
+          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
           <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
           <label>제품코드<input type="text" name="productCode" placeholder="예: NHC-3F-BK"></label>
           <label>칼라<input type="text" name="color" list="dl-colors"></label>
@@ -658,7 +658,7 @@
         <legend>적용 대상</legend>
         <div class="form-grid">
           <label>적용 대상 *<select name="specTarget"></select></label>
-          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
+          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
           <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
           <label>칼라<input type="text" name="color" list="dl-colors"></label>
           <label>변형/구분<input type="text" name="variant" placeholder="예: 백 / 전용 (같은 고객사·제품 구분)"></label>
@@ -777,7 +777,7 @@
     <form id="equipcheck-form">
       <fieldset><legend>기본</legend>
         <div class="form-grid">
-          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option></select></label>
+          <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
           <label>점검일 *<input type="date" name="date" required></label>
           <label>호기 *<select name="machine" required></select></label>
           <label>점검자<input type="text" name="checker" list="dl-workers"></label>

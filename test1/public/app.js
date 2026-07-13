@@ -10,7 +10,10 @@ let EQUIPCHECKS = [];       // 설비 일상점검
 let EQUIPMENT = [];         // 설비 대장 (+ 점검이력)
 let MASTERS = {};
 let editingStandardId = null;
-let PART = 'CAST';          // 공정 구분 (CAST / SPLINT)
+let PART = 'CAST';          // 공정 구분 (CAST / SPLINT / PRE-CUT / HYBRID)
+const PARTS = ['CAST', 'SPLINT', 'PRE-CUT', 'HYBRID'];
+// 워크스페이스 폼·계산 기준: PRE-CUT은 SPLINT 방식, HYBRID는 CAST 방식으로 처리
+const partBase = (p) => (p === 'SPLINT' || p === 'PRE-CUT') ? 'SPLINT' : 'CAST';
 let editingId = null;       // 생산실적 모달 (CAST)
 let editingSplintId = null; // 생산실적 모달 (SPLINT)
 let editingPlanId = null;   // 계획 모달
@@ -336,7 +339,7 @@ function renderDashboard() {
   const planKpi = `<div class="kpi"><div class="k-label">생산계획 (${PART})</div><div class="k-value">${fmt(monthPlans.length)}<small>건</small></div><div class="k-sub">계획수량 ${fmt(planSum)} · 완료 ${planDone}건</div></div>`;
 
   const byDay = {}, byMc = {};
-  if (PART === 'CAST') {
+  if (partBase(PART) === 'CAST') {
     const prodQty = sum('prodQty'), totalProdLoss = sum('totalProdLoss'), totalLoss = sum('totalLoss');
     const lossRate = totalProdLoss ? (totalLoss / totalProdLoss * 100) : 0;
     $('#kpi-grid').innerHTML = `
@@ -394,7 +397,7 @@ function planActual(p) {
   const matched = RECORDS.filter((r) =>
     partOf(r) === part && r.date === p.date && r.machine === p.machine && r.product === p.product &&
     (!p.orderNo || num(r.orderNo) === num(p.orderNo)));
-  return +matched.reduce((a, r) => a + num(part === 'SPLINT' ? r.totalRoll : r.prodQty), 0).toFixed(1);
+  return +matched.reduce((a, r) => a + num(partBase(part) === 'SPLINT' ? r.totalRoll : r.prodQty), 0).toFixed(1);
 }
 
 function renderPlans() {
@@ -1192,7 +1195,7 @@ function renderSheets() {
 
   const rows = sheets.map((s) => {
     const lines = s.lines || [];
-    const prodSum = (s.part || 'CAST') === 'SPLINT'
+    const prodSum = partBase(s.part || 'CAST') === 'SPLINT'
       ? lines.reduce((a, l) => a + num(l.rollQty) + num(l.precutQty), 0)
       : lines.reduce((a, l) => a + num(l.qty != null ? l.qty : l.prodQty), 0);
     const items = (s.product ? s.product + (lines.length > 1 ? ` 외 ${lines.length - 1}` : '') : lines.map((l) => l.product || l.productCode).filter(Boolean).join(', '));
@@ -1475,11 +1478,11 @@ const setByPath = (obj, path, v) => {
 
 /* 일지 라인 → 생산실적(records) 동기화 (CAST/SPLINT 공용) */
 async function syncSheetLines(s, origRecordIds) {
-  const isSplint = s.part === 'SPLINT';
+  const isSplint = partBase(s.part) === 'SPLINT';
     for (const line of s.lines) {
       const base = isSplint
         ? {
-          part: 'SPLINT',
+          part: s.part || 'SPLINT',
           date: s.date, machine: s.machine, workers: s.writer || null,
           lotNo: line.lotNo || s.lotNo || null,
           customer: line.customer || s.customer || null,
@@ -1491,7 +1494,7 @@ async function syncSheetLines(s, origRecordIds) {
           avgWeight: line.avgWeight ?? null, isFirst: !!line.isFirst, rollLen: 4.55,
         }
         : {
-          part: 'CAST',
+          part: s.part || 'CAST',
           date: s.date, machine: s.machine, workers: s.writer || null,
           lotNo: line.lotNo || null,
           customer: line.customer || s.customer || null,
@@ -2005,7 +2008,7 @@ function updateSplintLive() {
 
 function renderWorkspace() {
   const sc = WS_SCHEMA[wsPart];
-  $('#ws-part-badge').textContent = wsPart;
+  $('#ws-part-badge').textContent = WS.part || wsPart;
   $('#ws-part-badge').className = 'ws-part-badge ' + wsPart.toLowerCase();
   $('#ws-formno').textContent = sc.formNo;
   $('#ws-tabs').innerHTML = sc.tabs.map((t) => `<button data-tab="${t.id}" class="${t.id === wsTab ? 'active' : ''}">${esc(t.label)}</button>`).join('');
@@ -2106,14 +2109,14 @@ function wsLoadPlan() {
 
 /* --- 열기 / 닫기 / 완료 / 삭제 --- */
 async function openWorkspace(part, id = null) {
-  wsPart = part; wsTab = 'basic';
+  wsPart = partBase(part); wsTab = 'basic';
   if (id) {
     WS = JSON.parse(JSON.stringify(SHEETS.find((s) => s.id === id)));
     WS.part = part;
     wsIsNew = false;
     wsOrigRecordIds = (WS.lines || []).map((l) => l.recordId).filter(Boolean);
     // 구버전 SPLINT 일지 호환: writer만 있고 호기장 비었으면 채움
-    if (part === 'SPLINT' && !WS.leader && WS.writer) WS.leader = WS.writer;
+    if (partBase(part) === 'SPLINT' && !WS.leader && WS.writer) WS.leader = WS.writer;
   } else {
     WS = { part, date: todayStr(), status: '작성중', lines: [] };
     const saved = await post('/api/sheets', WS);
@@ -2242,7 +2245,7 @@ function renderLogs() {
 
 function recordTable(recs, full = false) {
   if (!recs.length) return '<div class="empty">데이터가 없습니다.</div>';
-  if (PART === 'SPLINT') {
+  if (partBase(PART) === 'SPLINT') {
     const rollOf = (r) => r.rollQty != null ? num(r.rollQty) : num(r.spDom) + num(r.spOvs);
     const precutOf = (r) => r.precutQty != null ? num(r.precutQty) : num(r.prRoll);
     const lossOf = (r) => r.lossQty != null ? num(r.lossQty) : num(r.processDefect) + num(r.prodDefect);
@@ -2301,7 +2304,7 @@ document.addEventListener('click', (e) => {
   if (!rec) return;
   const sheet = sheetOfRecord(id);
   if (sheet) return openWorkspace(sheet.part || 'CAST', sheet.id);
-  if (partOf(rec) === 'SPLINT') openSplintModal(id);
+  if (partBase(partOf(rec)) === 'SPLINT') openSplintModal(id);
   else openModal(id);
 });
 
@@ -2410,7 +2413,7 @@ const PART_METRIC_LABELS = {
     totalLoss: '총로스(roll)', processDefect: '공정불량(roll)', prodDefect: '생산불량(roll)', prodQty: '총수량(roll)',
   },
 };
-const METRIC_LABELS_OF = () => PART_METRIC_LABELS[PART];
+const METRIC_LABELS_OF = () => PART_METRIC_LABELS[partBase(PART)];
 const RATE_METRICS = ['totalLossRate', 'processLossRate', 'prodLossRate'];
 const PART_SUM_FIELDS = {
   CAST: ['planQty', 'prodQty', 'totalProdLoss', 'processDefect', 'prodDefect', 'totalLoss', 'resinTotal'],
@@ -2446,14 +2449,14 @@ function accumulate(g, r) {
 /* 집계 그룹에서 지표값 계산 — 로스율은 합계 기준으로 재계산
    CAST: 불량 ÷ 총생산량(loss포함) / SPLINT: 불량(roll) ÷ 이론총수량(roll) */
 function metricOf(g, metric) {
-  const denom = PART === 'SPLINT' ? g.theoRoll : g.totalProdLoss;
-  const totalLoss = PART === 'SPLINT' ? g.processDefect + g.prodDefect : g.totalLoss;
+  const denom = partBase(PART) === 'SPLINT' ? g.theoRoll : g.totalProdLoss;
+  const totalLoss = partBase(PART) === 'SPLINT' ? g.processDefect + g.prodDefect : g.totalLoss;
   const r2 = (x) => denom ? +(x / denom * 100).toFixed(2) : 0;
   if (metric === 'totalLossRate') return r2(totalLoss);
   if (metric === 'processLossRate') return r2(g.processDefect);
   if (metric === 'prodLossRate') return r2(g.prodDefect);
-  if (metric === 'totalLoss') return PART === 'SPLINT' ? +totalLoss.toFixed(2) : g.totalLoss;
-  if (metric === 'prodQty') return PART === 'SPLINT' ? +g.totalRoll.toFixed(1) : g.prodQty;
+  if (metric === 'totalLoss') return partBase(PART) === 'SPLINT' ? +totalLoss.toFixed(2) : g.totalLoss;
+  if (metric === 'prodQty') return partBase(PART) === 'SPLINT' ? +g.totalRoll.toFixed(1) : g.prodQty;
   return Math.round((g[metric] || 0) * 100) / 100;
 }
 const dimLabel = (key, dim) => (dim === 'date' ? key.slice(5) : key);
@@ -2481,7 +2484,7 @@ function renderAnalysis() {
   })), { red: isRate || metric !== 'prodQty', suffix: isRate ? '%' : '' });
 
   let rows, headCols;
-  if (PART === 'SPLINT') {
+  if (partBase(PART) === 'SPLINT') {
     rows = keys.map((k) => {
       const g = groups[k];
       const rate = g.theoRoll ? ((g.processDefect + g.prodDefect) / g.theoRoll * 100) : 0;
@@ -2549,11 +2552,11 @@ function renderWorkerComparison(recs) {
     label: k, value: rateOf(groups[k]),
   })), { red: true, suffix: '%' });
 
-  const unit = PART === 'SPLINT' ? 'roll' : '수량';
-  const dec = PART === 'SPLINT' ? 2 : 0;
+  const unit = partBase(PART) === 'SPLINT' ? 'roll' : '수량';
+  const dec = partBase(PART) === 'SPLINT' ? 2 : 0;
   const rows = keys.map((k, i) => {
     const g = groups[k];
-    const totalLoss = PART === 'SPLINT' ? +(g.processDefect + g.prodDefect).toFixed(2) : g.totalLoss;
+    const totalLoss = partBase(PART) === 'SPLINT' ? +(g.processDefect + g.prodDefect).toFixed(2) : g.totalLoss;
     return `<tr class="no-click">
       <td class="num">${i + 1}</td>
       <td><b>${esc(k)}</b></td>
@@ -2602,7 +2605,7 @@ function renderPivot(recs, metric, isRate) {
       ? `background: rgba(226,61,61,${(t * 0.55).toFixed(3)})`
       : `background: rgba(31,94,255,${(t * 0.4).toFixed(3)})`;
   };
-  const cellTxt = (g) => g == null ? '<span class="muted">-</span>' : (isRate ? metricOf(g, metric).toFixed(2) + '%' : fmt(metricOf(g, metric), PART === 'SPLINT' ? 1 : 0));
+  const cellTxt = (g) => g == null ? '<span class="muted">-</span>' : (isRate ? metricOf(g, metric).toFixed(2) + '%' : fmt(metricOf(g, metric), partBase(PART) === 'SPLINT' ? 1 : 0));
 
   const head = `<tr><th>${DIM_LABELS[rowDim]} ＼ ${DIM_LABELS[colDim]}</th>${cks.map((c) => `<th class="num">${esc(dimLabel(c, colDim))}</th>`).join('')}<th class="num">합계</th></tr>`;
   const body = rks.map((rk) => `<tr class="no-click">
@@ -2631,7 +2634,7 @@ function renderDefectCharts(recs) {
     { label: `생산불량 (${pSum + gSum ? (gSum / (pSum + gSum) * 100).toFixed(0) : 0}%)`, value: gSum },
   ], { red: true });
 
-  if (PART === 'SPLINT') {
+  if (partBase(PART) === 'SPLINT') {
     $('#defect-detail-note').textContent = 'SPLINT 공정은 불량 세부유형(이음매/매듭 등)을 사용하지 않습니다. 공정/생산 구분은 왼쪽 차트를 참고하세요.';
     $('#chart-defect-detail').innerHTML = '<div class="empty">해당 없음 (CAST 전용)</div>';
     return;
@@ -2871,7 +2874,7 @@ const SPLINT_CSV_COLS = [
   ['inBox', 'In Box'], ['outBox', 'Out Box'], ['brown', 'Brown'], ['workers', '작업자'], ['remarks', '특이사항'],
 ];
 $('#btn-csv').addEventListener('click', () => {
-  const COLS = PART === 'SPLINT' ? SPLINT_CSV_COLS : CSV_COLS;
+  const COLS = partBase(PART) === 'SPLINT' ? SPLINT_CSV_COLS : CSV_COLS;
   const header = COLS.map(([, label]) => label).join(',');
   const lines = partRecords().map((r) =>
     COLS.map(([k]) => {
