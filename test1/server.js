@@ -158,7 +158,12 @@ const server = http.createServer(async (req, res) => {
     }
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       const ext = path.extname(filePath).toLowerCase();
-      res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+      const headers = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+      // 업로드 이미지는 파일명이 고유 → 장기 캐시. 그 외 앱 파일(html/js/css)은 항상 최신 로드(캐시로 인한 구버전 표시 방지).
+      headers['Cache-Control'] = p.startsWith('/uploads/')
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store, must-revalidate';
+      res.writeHead(200, headers);
       return res.end(fs.readFileSync(filePath));
     }
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });

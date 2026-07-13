@@ -765,6 +765,7 @@ function initPhotoSlot(slot) {
 }
 $$('#standard-form .photo-slot').forEach(initPhotoSlot);
 $$('#custspec-form .photo-slot').forEach(initPhotoSlot);
+$$('#equipcheck-form .photo-slot').forEach(initPhotoSlot);
 
 async function uploadImage(f) {
   // 큰 사진은 1280px로 줄여 저장 (db 용량·인쇄 속도 보호)
@@ -1069,15 +1070,20 @@ function renderEquipChecks() {
   items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || String(a.machine || '').localeCompare(String(b.machine || '')));
   const ck = (v) => v ? '✔' : '<span class="muted">-</span>';
   const num = (v) => v != null && v !== '' ? esc(v) : '-';
-  const rows = items.map((x) => `<tr class="ec-row" data-id="${x.id}" style="cursor:pointer">
+  const photoCount = (x) => Object.values(x.images || {}).filter(Boolean).length;
+  const rows = items.map((x) => {
+    const pc = photoCount(x);
+    return `<tr class="ec-row" data-id="${x.id}" style="cursor:pointer">
     <td>${esc(x.date)}</td><td>${esc(x.part || 'CAST')}</td><td>${esc(x.machine || '')}</td><td>${esc(x.checker || '')}</td>
     <td class="num">${ck(x.clean)}</td><td class="num">${ck(x.sealer)}</td><td class="num">${ck(x.pressure)}</td><td class="num">${ck(x.safety)}</td>
     <td class="num">${ck(x.dehum1)}</td><td class="num">${ck(x.dehum2)}</td>
     <td class="num">${num(x.temp)}</td><td class="num">${num(x.humid)}</td>
+    <td class="num">${pc ? `<span class="badge ok">📷 ${pc}</span>` : '<span class="muted">-</span>'}</td>
     <td>${x.abnormal ? `<span class="badge bad">이상</span> ${esc(x.abnormalNote || '')}` : '<span class="badge ok">정상</span>'}</td><td>${esc(x.note || '')}</td>
-  </tr>`).join('');
+  </tr>`;
+  }).join('');
   $('#equipchecks-list').innerHTML = items.length
-    ? `<table><thead><tr><th>점검일</th><th>공정</th><th>호기</th><th>점검자</th><th>청결</th><th>실링기</th><th>압력</th><th>안전</th><th>제습기1</th><th>제습기2</th><th>온도</th><th>습도</th><th>이상유무</th><th>비고</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>점검일</th><th>공정</th><th>호기</th><th>점검자</th><th>청결</th><th>실링기</th><th>압력</th><th>안전</th><th>제습기1</th><th>제습기2</th><th>온도</th><th>습도</th><th>사진</th><th>이상유무</th><th>비고</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">점검 기록이 없습니다. [＋ 점검 등록]으로 추가하세요.</div>';
 }
 function openEquipCheckModal(id = null) {
@@ -1090,6 +1096,7 @@ function openEquipCheckModal(id = null) {
   if (x) {
     [...equipcheckForm.elements].forEach((el) => { if (!el.name) return; if (el.type === 'checkbox') el.checked = !!x[el.name]; else if (x[el.name] != null) el.value = x[el.name]; });
   } else { equipcheckForm.elements.date.value = todayStr(); equipcheckForm.elements.part.value = PART; }
+  $$('#equipcheck-form .photo-slot').forEach((slot) => slot._setUrl((x && x.images && x.images[slot.dataset.img]) || ''));
   $('#equipcheck-modal').hidden = false;
 }
 $('#btn-new-equipcheck').addEventListener('click', () => openEquipCheckModal());
@@ -1100,6 +1107,8 @@ equipcheckForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const x = {};
   [...equipcheckForm.elements].forEach((el) => { if (!el.name) return; x[el.name] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null); });
+  x.images = {};
+  $$('#equipcheck-form .photo-slot').forEach((slot) => { x.images[slot.dataset.img] = slot.dataset.url || ''; });
   try {
     if (editingEquipCheckId) await post('/api/equipchecks/' + editingEquipCheckId, x, 'PUT'); else await post('/api/equipchecks', x);
     await loadEquipChecks(); $('#equipcheck-modal').hidden = true; refreshCurrentPage();
@@ -1134,6 +1143,61 @@ function harvestEqHistory() {
 $('#eq-history-add').addEventListener('click', () => { harvestEqHistory(); eqHistoryRows.push({ date: todayStr(), type: '정기점검', detail: '', by: '' }); renderEqHistory(); });
 $('#eq-history').addEventListener('click', (e) => { const d = e.target.closest('.eq-hdel'); if (d) { harvestEqHistory(); eqHistoryRows.splice(Number(d.closest('.eq-hrow').dataset.i), 1); renderEqHistory(); } });
 
+/* 설비 체크리스트 (점검 항목) */
+let eqChecklistRows = [];
+function renderEqChecklist() {
+  $('#eq-checklist').innerHTML = eqChecklistRows.map((c, i) => `<div class="eq-crow" data-i="${i}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+    <input type="text" data-c="item" value="${esc(c.item || '')}" placeholder="점검항목" style="flex:1;min-width:150px">
+    <input type="text" data-c="method" value="${esc(c.method || '')}" placeholder="점검방법" list="dl-eqMethods" style="width:130px">
+    <input type="text" data-c="standard" value="${esc(c.standard || '')}" placeholder="판정기준" style="width:160px">
+    <input type="text" data-c="cycle" value="${esc(c.cycle || '')}" placeholder="주기" list="dl-eqCycles" style="width:90px">
+    <button type="button" class="btn small danger eq-cdel">삭제</button>
+  </div>`).join('') || '<div class="muted">체크리스트가 없습니다. [＋ 점검항목 추가]로 등록하세요.</div>';
+}
+function harvestEqChecklist() {
+  eqChecklistRows = $$('#eq-checklist .eq-crow').map((row) => {
+    const g = (k) => { const el = row.querySelector(`[data-c="${k}"]`); return el ? el.value : ''; };
+    return { item: g('item') || null, method: g('method') || null, standard: g('standard') || null, cycle: g('cycle') || null };
+  }).filter((c) => c.item || c.method || c.standard);
+}
+$('#eq-checklist-add').addEventListener('click', () => { harvestEqChecklist(); eqChecklistRows.push({ item: '', method: '육안검사', standard: '', cycle: '일일' }); renderEqChecklist(); });
+$('#eq-checklist').addEventListener('click', (e) => { const d = e.target.closest('.eq-cdel'); if (d) { harvestEqChecklist(); eqChecklistRows.splice(Number(d.closest('.eq-crow').dataset.i), 1); renderEqChecklist(); } });
+
+/* 설비 점검·수리 사진 (라벨 + 촬영 첨부, 여러 장) */
+let eqPhotos = [];
+function harvestEqPhotoLabels() {
+  $$('#eq-photos .eq-photo').forEach((card) => {
+    const i = Number(card.dataset.i);
+    const l = card.querySelector('.eq-photo-label');
+    if (eqPhotos[i]) eqPhotos[i].label = l ? l.value : '';
+  });
+}
+function renderEqPhotos() {
+  const box = $('#eq-photos');
+  box.innerHTML = eqPhotos.map((p, i) => `<div class="photo-slot eq-photo" data-i="${i}">
+    <input type="text" class="eq-photo-label" value="${esc(p.label || '')}" placeholder="구분 (예: 수리 전/후, 점검부위)" style="width:100%;margin-bottom:6px">
+    <div class="photo-box">${p.url ? `<img src="${esc(p.url)}">` : '<span class="photo-empty">사진 없음</span>'}</div>
+    <div class="photo-btns">
+      <button type="button" class="btn small eq-photo-pick">📷 촬영/선택</button>
+      <button type="button" class="btn small danger eq-photo-del">삭제</button>
+    </div>
+    <input type="file" accept="image/*" capture="environment" hidden>
+  </div>`).join('') || '<div class="muted">사진이 없습니다. [＋ 사진 추가]로 점검·수리 사진을 첨부하세요.</div>';
+  $$('#eq-photos .eq-photo').forEach((card) => {
+    const i = Number(card.dataset.i);
+    const file = card.querySelector('input[type=file]');
+    card.querySelector('.eq-photo-pick').addEventListener('click', () => file.click());
+    card.querySelector('.eq-photo-del').addEventListener('click', () => { harvestEqPhotoLabels(); eqPhotos.splice(i, 1); renderEqPhotos(); });
+    file.addEventListener('change', async () => {
+      if (!file.files[0]) return;
+      try { harvestEqPhotoLabels(); eqPhotos[i].url = await uploadImage(file.files[0]); renderEqPhotos(); }
+      catch (err) { alert('업로드 실패: ' + err.message); }
+      file.value = '';
+    });
+  });
+}
+$('#eq-photo-add').addEventListener('click', () => { harvestEqPhotoLabels(); eqPhotos.push({ label: '', url: '' }); renderEqPhotos(); });
+
 function renderEquipment() {
   const q = $('#eq-search').value.trim().toLowerCase();
   let items = EQUIPMENT.slice();
@@ -1142,13 +1206,16 @@ function renderEquipment() {
   const rows = items.map((x) => {
     const hist = x.history || [];
     const last = hist.length ? hist[hist.length - 1] : null;
+    const clen = (x.checklist || []).length, plen = (x.photos || []).length;
     return `<tr class="eq-row" data-id="${x.id}" style="cursor:pointer">
       <td><b>${esc(x.name || '')}</b></td><td>${esc(x.model || '-')}</td><td>${esc(x.serialNo || '-')}</td><td>${esc(x.buyDate || '-')}</td><td>${esc(x.manager || '-')}</td><td>${esc(x.location || '-')}</td>
+      <td class="num">${clen ? `<span class="badge ok">${clen}</span>` : '<span class="muted">-</span>'}</td>
+      <td class="num">${plen ? `<span class="badge ok">📷 ${plen}</span>` : '<span class="muted">-</span>'}</td>
       <td class="num">${hist.length}</td><td>${last ? esc((last.date || '') + ' ' + (last.type || '')) : '-'}</td>
     </tr>`;
   }).join('');
   $('#equipment-list').innerHTML = items.length
-    ? `<table><thead><tr><th>설비명</th><th>모델</th><th>관리번호</th><th>구입일</th><th>담당자</th><th>위치</th><th>이력</th><th>최근</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>설비명</th><th>모델</th><th>관리번호</th><th>구입일</th><th>담당자</th><th>위치</th><th>체크리스트</th><th>사진</th><th>이력</th><th>최근</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 설비가 없습니다. [＋ 설비 등록]으로 추가하세요.</div>';
 }
 function openEquipmentModal(id = null) {
@@ -1159,7 +1226,9 @@ function openEquipmentModal(id = null) {
   const x = id ? EQUIPMENT.find((e) => e.id === id) : null;
   if (x) [...equipmentForm.elements].forEach((el) => { if (el.name && x[el.name] != null && typeof x[el.name] !== 'object') el.value = x[el.name]; });
   eqHistoryRows = x && Array.isArray(x.history) ? x.history.map((h) => ({ ...h })) : [];
-  renderEqHistory();
+  eqChecklistRows = x && Array.isArray(x.checklist) ? x.checklist.map((c) => ({ ...c })) : [];
+  eqPhotos = x && Array.isArray(x.photos) ? x.photos.map((p) => ({ ...p })) : [];
+  renderEqHistory(); renderEqChecklist(); renderEqPhotos();
   $('#equipment-modal').hidden = false;
 }
 $('#btn-new-equipment').addEventListener('click', () => openEquipmentModal());
@@ -1168,10 +1237,12 @@ $('#equipment-cancel').addEventListener('click', () => ($('#equipment-modal').hi
 document.addEventListener('click', (e) => { const r = e.target.closest('.eq-row'); if (r) openEquipmentModal(Number(r.dataset.id)); });
 equipmentForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  harvestEqHistory();
+  harvestEqHistory(); harvestEqChecklist(); harvestEqPhotoLabels();
   const x = {};
   [...equipmentForm.elements].forEach((el) => { if (el.name) x[el.name] = el.value || null; });
   x.history = eqHistoryRows;
+  x.checklist = eqChecklistRows;
+  x.photos = eqPhotos.filter((p) => p.url);
   try {
     if (editingEquipmentId) await post('/api/equipment/' + editingEquipmentId, x, 'PUT'); else await post('/api/equipment', x);
     await loadEquipment(); $('#equipment-modal').hidden = true; refreshCurrentPage();
@@ -1312,6 +1383,38 @@ const DYN_DEFS = {
       { key: 'note', label: '비고' },
     ],
   },
+  pcprod: { // PRE-CUT 생산 수량 (제품종류 · Roll Splint Type · 생산LOT · 생산수량 · 사용설명서 · 내수/수출)
+    container: '#--pcprod',
+    fields: [
+      { key: 'product', label: '제품종류(코드)', list: 'dl-products' },
+      { key: 'rollType', label: 'Roll Splint Type' },
+      { key: 'lotNo', label: '생산 LOT' },
+      { key: 'prodQty', label: '생산수량', type: 'number' },
+      { key: 'ifuPrep', label: '설명서 준비수량', type: 'number' },
+      { key: 'ifuUsed', label: '설명서 사용수량', type: 'number' },
+      { key: 'ifuReturn', label: '설명서 반납수량', type: 'number' },
+      { key: 'market', label: '내수/수출', type: 'select', options: ['내수', '수출'] },
+      { key: 'sign', label: '확인 서명', list: 'dl-workers' },
+      { key: 'note', label: '비고' },
+    ],
+  },
+  pcbase: { // PRE-CUT 기재사용 내용 (기재종류 · LOT · 사용량 · 코팅량 · 폐기량)
+    container: '#--pcbase',
+    fields: [
+      { key: 'baseType', label: '기재종류', list: 'dl-baseTypes' },
+      { key: 'lotNo', label: 'LOT' },
+      { key: 'used', label: '사용량', type: 'number' },
+      { key: 'coating', label: '코팅량', type: 'number', step: '0.01' },
+      { key: 'waste', label: '폐기량', type: 'number' },
+    ],
+  },
+  pcbubble: { // PRE-CUT 기포테스트 확인 (시간 · 담당)
+    container: '#--pcbubble',
+    fields: [
+      { key: 'time', label: '시간', type: 'time', now: true },
+      { key: 'checker', label: '담당', list: 'dl-workers' },
+    ],
+  },
   sresin: { // SPLINT 수지 원료 (원료별 추가)
     container: '#--sresin',
     fields: [
@@ -1424,7 +1527,7 @@ function addDynRow(kind, data = {}, containerEl) {
   const def = DYN_DEFS[kind];
   const container = containerEl || $(def.container);
   const row = document.createElement('div');
-  row.className = 'dyn-row' + (kind === 'line' || kind === 'sline' ? ' line-row' : '');
+  row.className = 'dyn-row' + (kind === 'line' || kind === 'sline' || kind === 'pcprod' ? ' line-row' : '');
   row.dataset.kind = kind;
   if (data.recordId) row.dataset.recordId = data.recordId;
   row.innerHTML = def.fields.map((f) => {
@@ -1666,9 +1769,116 @@ const WS_SCHEMA = {
       ] },
     ],
   },
+  'PRE-CUT': {
+    formNo: 'F-PD-003e (Rev.9) · 프리컷 생산공정일지',
+    tabs: [
+      { id: 'basic', label: '① 기본정보', blocks: [
+        { type: 'startstop', which: 'start' },
+        { type: 'grid', title: '기본 정보', fields: [
+          { name: 'date', label: '생산일', type: 'date' },
+          { name: 'weekday', label: '요일' },
+          { name: 'weather', label: '날씨' },
+          { name: 'machine', label: '호기', type: 'select', master: 'machines' },
+          { name: 'writer1', label: '작업자 1', list: 'dl-workers' },
+          { name: 'writer2', label: '작업자 2', list: 'dl-workers' },
+        ] },
+        { type: 'note', text: '공정 점검 (Chamber 내부) — 온도 상한값 30℃ / 습도 상한값 20% · 초과 시 작업중지 후 보고' },
+        { type: 'matrix', title: '공정 점검 (Chamber 내부) — 측정시간별 온·습도', group: 'pcChecks',
+          rows: [{ key: 't1030', label: '10:30' }, { key: 't1530', label: '15:30' }],
+          cols: [{ key: 'temp', label: '온도(℃)' }, { key: 'humid', label: '습도(%)' }, { key: 'note', label: '비고' }] },
+        { type: 'grid', title: '저압제습기 상태', fields: [
+          { name: 'dehum1AM', label: '저압제습기1 오전' },
+          { name: 'dehum1PM', label: '저압제습기1 오후' },
+          { name: 'dehum2AM', label: '저압제습기2 오전' },
+          { name: 'dehum2PM', label: '저압제습기2 오후' },
+        ] },
+      ] },
+      { id: 'during', label: '② 생산 수량 ★', blocks: [
+        { type: 'pcProducts' },
+        { type: 'rows', title: '기재사용 내용', kind: 'pcbase', store: 'baseUse', minRows: 1 },
+        { type: 'grid', title: '특이사항 (공정이상 발생시 내용기록)', fields: [{ name: 'remarks', label: '특이사항', type: 'textarea' }] },
+      ] },
+      { id: 'quality', label: '③ 기포테스트', blocks: [
+        { type: 'rows', title: '기포테스트 확인 (시간 / 담당)', kind: 'pcbubble', store: 'bubbleTests', minRows: 1 },
+      ] },
+      { id: 'finish', label: '④ 생산종료', blocks: [
+        { type: 'pcSummary' },
+        { type: 'startstop', which: 'end' },
+      ] },
+    ],
+  },
+  HYBRID: {
+    formNo: '하이브리드 공정생산일지 · 작업흐름형',
+    tabs: [
+      { id: 'basic', label: '① 기본정보', blocks: [
+        { type: 'startstop', which: 'start' },
+        { type: 'grid', title: '기본 정보', fields: [
+          { name: 'date', label: '날짜', type: 'date' },
+          { name: 'orderNo', label: '주문차수' },
+          { name: 'machine', label: '호기', type: 'select', master: 'machines' },
+          { name: 'checker', label: '확인자', list: 'dl-workers' },
+          { name: 'workSupport', label: '지지체 작업자', list: 'dl-workers' },
+          { name: 'workCover', label: '커버 실링작업자(초음파)', list: 'dl-workers' },
+          { name: 'workPouch', label: '파우치 실링작업자', list: 'dl-workers' },
+          { name: 'workStd', label: '작업표준서 참조' },
+        ] },
+        { type: 'note', text: '※ 온도 및 습도는 매일 10:30, 15:30에 측정하여 기록' },
+        { type: 'matrix', title: '챔버 온·습도 (측정시간별)', group: 'hchamber',
+          rows: [{ key: 't1030', label: '10:30' }, { key: 't1530', label: '15:30' }],
+          cols: [{ key: 'c1t', label: '챔버1 온도' }, { key: 'c1h', label: '챔버1 습도' }, { key: 'c2t', label: '챔버2 온도' }, { key: 'c2h', label: '챔버2 습도' }, { key: 'c3t', label: '챔버3 온도' }, { key: 'c3h', label: '챔버3 습도' }] },
+        { type: 'grid', title: '저압제습기 상태', fields: [
+          { name: 'dehum1AM', label: '저압제습기1 오전' },
+          { name: 'dehum1PM', label: '저압제습기1 오후' },
+          { name: 'dehum2AM', label: '저압제습기2 오전' },
+          { name: 'dehum2PM', label: '저압제습기2 오후' },
+        ] },
+      ] },
+      { id: 'prep', label: '② 설비·작업 점검', blocks: [
+        { type: 'hybridCheck' },
+      ] },
+      { id: 'during', label: '③ 생산기록 ★', blocks: [
+        { type: 'grid', title: '생산 정보', fields: [
+          { name: 'product', label: '생산품목명', list: 'dl-products' },
+          { name: 'totalQty', label: '생산 총수량(개) — 미입력 시 시간대 합계', type: 'number' },
+          { name: 'labelLot', label: '라벨 LOT NO' },
+          { name: 'labelExp', label: '라벨 EXP NO' },
+        ] },
+        { type: 'hybridTimes' },
+        { type: 'grid', title: '부가 정보', fields: [
+          { name: 'nnsUse', label: 'NNS-N 사용량' },
+          { name: 'semiLot', label: '반제품 LOT' },
+          { name: 'avgWeight', label: '평균무게', type: 'number', step: '0.1' },
+          { name: 'zipWeight', label: '지퍼백 무게', type: 'number', step: '0.1' },
+        ] },
+        { type: 'grid', title: '특이사항', fields: [{ name: 'remarks', label: '특이사항', type: 'textarea' }] },
+      ] },
+      { id: 'finish', label: '④ 생산종료', blocks: [
+        { type: 'hybridSummary' },
+        { type: 'startstop', which: 'end' },
+      ] },
+    ],
+  },
 };
 
-let WS = null, wsPart = 'CAST', wsTab = 'basic', wsIsNew = false, wsSaveTimer = null, wsOrigRecordIds = [];
+/* HYBRID 설비·작업 점검 항목 (고정) · 시간대별 생산 (고정) */
+const HYBRID_CHECKS = [
+  { key: 'ck1', item: '컷팅칼날 목형 및 밑판 상태', method: '육안검사', std: '수지 및 이물질이 없을 것' },
+  { key: 'ck2', item: '초음파 설비의 압력상태', method: '게이지 확인', std: '0.5 ~ 0.6 Mpa' },
+  { key: 'ck3', item: 'check 버튼 확인', method: '게이지 확인', std: '3 V 이하' },
+  { key: 'ck4', item: '실링기 최고 속도', method: '설정상태 확인', std: '스위치 지정 위치' },
+  { key: 'ck5', item: '실링기 온도 체크', method: '설정상태 기록', std: '실링기 온도 체크' },
+  { key: 'ck6', item: '파우치 실링상태', method: '파우치 버블 테스트', std: '기포 나오지 않을 것' },
+  { key: 'ck7', item: '제품 외관 확인', method: '육안검사', std: '오염 및 이물질이 없을 것' },
+];
+const HYBRID_TIMES = [
+  { key: 'a', label: 'A time (08:30 ~ 10:30)' },
+  { key: 'b', label: 'B time (10:40 ~ 12:00)' },
+  { key: 'c', label: 'C time (13:00 ~ 15:00)' },
+  { key: 'd', label: 'D time (15:10 ~ 17:30)' },
+  { key: 'e', label: 'E time (18:00 ~ 21:00)' },
+];
+
+let WS = null, wsPart = 'CAST', wsForm = 'CAST', wsTab = 'basic', wsIsNew = false, wsSaveTimer = null, wsOrigRecordIds = [];
 
 /* --- 블록 렌더링 --- */
 function wsFieldHtml(f) {
@@ -1733,7 +1943,7 @@ function wsBlockHtml(b) {
   if (b.type === 'rows') {
     const min = b.minRows ? ` data-rows-min="${b.minRows}"` : '';
     const addLabel = b.kind === 'sresin' ? '＋ 원료 추가'
-      : b.kind === 'cbaseloss' ? '＋ 기재 추가'
+      : (b.kind === 'cbaseloss' || b.kind === 'pcbase') ? '＋ 기재 추가'
       : (b.kind === 'sloss' || b.kind === 'pinfo' || b.kind === 'cpinfo') ? '＋ 제품 추가'
       : '＋ 행 추가';
     return `<div class="ws-block"><h4>${esc(b.title)}</h4>
@@ -1754,6 +1964,42 @@ function wsBlockHtml(b) {
   }
   if (b.type === 'splintSummary') {
     return `<div class="ws-block ws-summary-block"><h4>제품별 생산실적</h4><div id="ws-prod-list"></div></div>`;
+  }
+  if (b.type === 'pcProducts') {
+    return `<div class="ws-block ws-prod"><h4>생산 수량 <span class="auto-tag">제품종류 · Roll Splint Type · 생산LOT · 생산수량 · 사용설명서 · 내수/수출</span></h4>
+      <div class="dyn-rows" data-rows-store="pcProducts" data-rows-kind="pcprod" data-rows-min="1"></div>
+      <button type="button" class="btn small" data-add-rows data-kind="pcprod" data-store="pcProducts">＋ 제품 추가</button>
+      <div class="qty-live">총 생산량 <b data-live="pcTotal" class="big">0</b></div></div>`;
+  }
+  if (b.type === 'pcSummary') {
+    return `<div class="ws-block ws-summary-block"><h4>생산종료 자동 집계</h4><div id="ws-pc-summary"></div></div>`;
+  }
+  if (b.type === 'hybridCheck') {
+    const c = WS.hchecks || {};
+    const rows = HYBRID_CHECKS.map((x) => {
+      const cur = (c[x.key] || {}).result || '';
+      const opt = (o) => `<option ${o === cur ? 'selected' : ''}>${o}</option>`;
+      return `<tr><td class="mx-row" style="text-align:left">${esc(x.item)}</td><td>${esc(x.method)}</td><td>${esc(x.std)}</td>
+        <td><select data-matrix="hchecks.${x.key}.result"><option value="">-</option>${opt('OK')}${opt('NG')}</select></td></tr>`;
+    }).join('');
+    return `<div class="ws-block"><h4>설비·작업 점검 <span class="auto-tag">판정 OK / NG</span></h4>
+      <div class="table-wrap"><table class="input-table"><tr><th>체크항목</th><th>체크방법</th><th>판정기준</th><th>판정</th></tr>${rows}</table></div></div>`;
+  }
+  if (b.type === 'hybridTimes') {
+    const t = WS.htimes || {};
+    const rows = HYBRID_TIMES.map((r) => {
+      const v = t[r.key] || {};
+      return `<tr><td class="mx-row" style="text-align:left">${esc(r.label)}</td>
+        <td><input type="number" data-matrix="htimes.${r.key}.qty" value="${esc(v.qty ?? '')}"></td>
+        <td class="num" data-cum="${r.key}">-</td>
+        <td><input data-matrix="htimes.${r.key}.note" value="${esc(v.note ?? '')}"></td></tr>`;
+    }).join('');
+    return `<div class="ws-block ws-prod"><h4>생산 시간대별 수량 <span class="auto-tag">생산누계수량 자동 계산</span></h4>
+      <div class="table-wrap"><table class="input-table"><tr><th>항목</th><th>생산수량</th><th>생산누계수량</th><th>비고</th></tr>${rows}
+      <tr class="prod-total"><td><b>생산 총수량</b></td><td class="num"><b data-live="htTotal">0</b> 개</td><td></td><td></td></tr></table></div></div>`;
+  }
+  if (b.type === 'hybridSummary') {
+    return `<div class="ws-block ws-summary-block"><h4>생산종료 자동 집계</h4><div id="ws-hybrid-summary"></div></div>`;
   }
   if (b.type === 'castResults') {
     return linkedTableHtml({
@@ -1828,6 +2074,14 @@ function splintAgg() {
     return { product: n, rollQty: num(p.rollQty), precutQty: num(p.precutQty), loss: lossByProd[n] || 0 };
   });
   return { infos, prods, losses, lossByProd, totLoss, rows };
+}
+
+/* PRE-CUT 생산 수량 집계 (생산 수량 표 기준) */
+function precutAgg() {
+  const prods = (WS.pcProducts || []).filter((p) => p.product || p.prodQty != null || p.lotNo);
+  const bases = (WS.baseUse || []).filter((b) => b.baseType || b.lotNo || b.used != null || b.coating != null || b.waste != null);
+  const total = prods.reduce((a, p) => a + num(p.prodQty), 0);
+  return { prods, bases, total };
 }
 
 /* CAST 제품별 생산실적 집계 (기본정보 제품 + 생산실적 연동, key=제품명) */
@@ -1965,6 +2219,59 @@ function updateSplintLive() {
   updateOrderLinks();
   updateStartCheck();
   const set = (k, v) => { const el = $(`#ws-panel [data-live="${k}"]`); if (el) el.textContent = v; };
+  if (wsForm === 'PRE-CUT') {
+    const ag = precutAgg();
+    set('pcTotal', fmt(ag.total));
+    const box = $('#ws-pc-summary');
+    if (box) {
+      const prodTbl = ag.prods.length
+        ? `<table class="prod-table big"><thead><tr><th>제품종류(코드)</th><th>Roll Splint Type</th><th>생산 LOT</th><th class="num">생산수량</th><th>내수/수출</th></tr></thead><tbody>${ag.prods.map((p) => `<tr><td><b>${esc(p.product || '-')}</b></td><td>${esc(p.rollType || '')}</td><td>${esc(p.lotNo || '')}</td><td class="num roll">${fmt(p.prodQty)}</td><td>${esc(p.market || '')}</td></tr>`).join('')}<tr class="prod-total"><td colspan="3"><b>총 생산량</b></td><td class="num"><b>${fmt(ag.total)}</b></td><td></td></tr></tbody></table>`
+        : '<div class="empty">생산 수량 탭에서 제품을 추가하세요.</div>';
+      const baseTbl = ag.bases.length
+        ? `<h4 style="margin-top:14px">기재사용 내용</h4><table class="prod-table"><thead><tr><th>기재종류</th><th>LOT</th><th class="num">사용량</th><th class="num">코팅량</th><th class="num">폐기량</th></tr></thead><tbody>${ag.bases.map((x) => `<tr><td>${esc(x.baseType || '-')}</td><td>${esc(x.lotNo || '')}</td><td class="num">${fmt(x.used)}</td><td class="num">${fmt(x.coating, 2)}</td><td class="num">${fmt(x.waste)}</td></tr>`).join('')}</tbody></table>`
+        : '';
+      const bt = (WS.bubbleTests || []).filter((x) => x.time || x.checker);
+      const btTbl = bt.length
+        ? `<h4 style="margin-top:14px">기포테스트 확인</h4><table class="prod-table"><thead><tr><th>시간</th><th>담당</th></tr></thead><tbody>${bt.map((x) => `<tr><td>${esc(x.time || '')}</td><td>${esc(x.checker || '')}</td></tr>`).join('')}</tbody></table>`
+        : '';
+      box.innerHTML = prodTbl + baseTbl + btTbl;
+    }
+    return;
+  }
+  if (wsForm === 'HYBRID') {
+    const t = WS.htimes || {};
+    let cum = 0;
+    HYBRID_TIMES.forEach((r) => {
+      cum += num((t[r.key] || {}).qty);
+      const el = $(`#ws-panel [data-cum="${r.key}"]`);
+      if (el) el.textContent = ((t[r.key] || {}).qty == null || (t[r.key] || {}).qty === '') ? '-' : fmt(cum);
+    });
+    const total = cum || num(WS.totalQty);
+    set('htTotal', fmt(total));
+    const box = $('#ws-hybrid-summary');
+    if (box) {
+      const c = WS.hchecks || {};
+      const ng = HYBRID_CHECKS.filter((x) => (c[x.key] || {}).result === 'NG');
+      const done = HYBRID_CHECKS.filter((x) => (c[x.key] || {}).result).length;
+      const timeTbl = `<table class="prod-table big"><thead><tr><th>항목</th><th class="num">생산수량</th><th class="num">누계</th><th>비고</th></tr></thead><tbody>${(() => {
+        let acc = 0;
+        return HYBRID_TIMES.map((r) => {
+          const v = t[r.key] || {};
+          acc += num(v.qty);
+          return `<tr><td>${esc(r.label)}</td><td class="num roll">${fmt(v.qty)}</td><td class="num">${v.qty == null || v.qty === '' ? '-' : fmt(acc)}</td><td>${esc(v.note || '')}</td></tr>`;
+        }).join('');
+      })()}<tr class="prod-total"><td><b>생산 총수량</b></td><td class="num"><b>${fmt(total)}</b> 개</td><td colspan="2"></td></tr></tbody></table>`;
+      const info = `<div class="ws-note" style="margin-top:10px">품목: <b>${esc(WS.product || '-')}</b> · 라벨 LOT: ${esc(WS.labelLot || '-')} · EXP: ${esc(WS.labelExp || '-')} · 평균무게: ${esc(WS.avgWeight ?? '-')} · 반제품 LOT: ${esc(WS.semiLot || '-')}</div>`;
+      const chkState = ng.length
+        ? `<b style="color:#e03131">NG ${ng.length}건</b> (${ng.map((x) => esc(x.item)).join(', ')})`
+        : done === HYBRID_CHECKS.length
+          ? '<b style="color:#2f9e44">전 항목 이상 없음</b>'
+          : `<b style="color:#e8590c">미판정 ${HYBRID_CHECKS.length - done}건</b>`;
+      const chk = `<div class="ws-note" style="margin-top:10px">설비·작업 점검: ${done}/${HYBRID_CHECKS.length} 판정 · ${chkState}</div>`;
+      box.innerHTML = timeTbl + info + chk;
+    }
+    return;
+  }
   if (wsPart === 'SPLINT') {
     const ag = splintAgg();
     set('totLoss', fmt(ag.totLoss));
@@ -2007,9 +2314,9 @@ function updateSplintLive() {
 }
 
 function renderWorkspace() {
-  const sc = WS_SCHEMA[wsPart];
-  $('#ws-part-badge').textContent = WS.part || wsPart;
-  $('#ws-part-badge').className = 'ws-part-badge ' + wsPart.toLowerCase();
+  const sc = WS_SCHEMA[wsForm];
+  $('#ws-part-badge').textContent = WS.part || wsForm;
+  $('#ws-part-badge').className = 'ws-part-badge ' + wsForm.toLowerCase().replace(/[^a-z]/g, '-');
   $('#ws-formno').textContent = sc.formNo;
   $('#ws-tabs').innerHTML = sc.tabs.map((t) => `<button data-tab="${t.id}" class="${t.id === wsTab ? 'active' : ''}">${esc(t.label)}</button>`).join('');
   $('#ws-tabs').querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
@@ -2020,14 +2327,15 @@ function renderWorkspace() {
 }
 function updateWsChrome() {
   let prodDisp = WS.product || '제품 미정';
-  const ps = (WS.productInfos || []).map((p) => p.product).filter(Boolean);
+  const ps = [...(WS.productInfos || []), ...(WS.pcProducts || [])].map((p) => p.product).filter(Boolean);
   if (ps.length) prodDisp = ps[0] + (ps.length > 1 ? ` 외 ${ps.length - 1}` : '');
   $('#ws-summary').innerHTML = `${esc(WS.date || '')} · ${esc(WS.machine || '호기 미정')} · ${esc(prodDisp)} <span class="muted">${esc(WS.startTime || '')}${WS.endTime ? '~' + esc(WS.endTime) : ''}</span>`;
   const st = WS.status || '작성중';
   $('#ws-status-badge').innerHTML = `<span class="badge ${st === '완료' ? 'ok' : st === '진행' ? 'warn' : 'plain'}">${st}</span>`;
 }
 function renderWsTab() {
-  const tab = WS_SCHEMA[wsPart].tabs.find((t) => t.id === wsTab);
+  const tab = (WS_SCHEMA[wsForm].tabs.find((t) => t.id === wsTab) || WS_SCHEMA[wsForm].tabs[0]);
+  wsTab = tab.id;
   const panel = $('#ws-panel');
   panel.innerHTML = tab.blocks.map(wsBlockHtml).join('');
   // 동적 행 채우기 (저장된 행이 없고 minRows면 빈 행 1개 표시)
@@ -2069,8 +2377,10 @@ function harvestWs() {
       return o;
     });
   });
-  if (wsPart === 'SPLINT') WS.writer = [WS.leader, WS.assistant, WS.pack1, WS.pack2].filter(Boolean).join('/');
-  if (wsPart === 'CAST') WS.writer = [WS.writer1, WS.writer2].filter(Boolean).join('/');
+  if (wsForm === 'PRE-CUT') WS.writer = [WS.writer1, WS.writer2].filter(Boolean).join('/');
+  else if (wsForm === 'HYBRID') WS.writer = [WS.workSupport, WS.workCover, WS.workPouch].filter(Boolean).join('/');
+  else if (wsPart === 'SPLINT') WS.writer = [WS.leader, WS.assistant, WS.pack1, WS.pack2].filter(Boolean).join('/');
+  else if (wsPart === 'CAST') WS.writer = [WS.writer1, WS.writer2].filter(Boolean).join('/');
 }
 
 /* --- 자동저장 --- */
@@ -2109,7 +2419,7 @@ function wsLoadPlan() {
 
 /* --- 열기 / 닫기 / 완료 / 삭제 --- */
 async function openWorkspace(part, id = null) {
-  wsPart = partBase(part); wsTab = 'basic';
+  wsPart = partBase(part); wsForm = (part === 'PRE-CUT' || part === 'HYBRID') ? part : wsPart; wsTab = 'basic';
   if (id) {
     WS = JSON.parse(JSON.stringify(SHEETS.find((s) => s.id === id)));
     WS.part = part;
@@ -2128,12 +2438,29 @@ async function openWorkspace(part, id = null) {
 function isEmptyWs() {
   return !WS.machine && !WS.writer && !WS.leader && !WS.startTime && !WS.product
     && !(WS.productInfos && WS.productInfos.length) && !(WS.products && WS.products.length)
-    && !(WS.lines && WS.lines.length);
+    && !(WS.pcProducts && WS.pcProducts.length) && !(WS.lines && WS.lines.length);
 }
 async function saveAndSyncWs() {
   // SPLINT은 제품별 실적 — 각 제품 행이 하나의 생산실적(레코드).
   // 제품별 ROLL/PRECUT 생산량 + 작업로스(제품명으로 매칭한 항목별 합계)
-  if (wsPart === 'SPLINT') {
+  // PRE-CUT — 생산 수량 표의 각 제품 행이 하나의 생산실적(레코드). 생산수량 → ROLL 생산량으로 반영.
+  if (wsForm === 'PRE-CUT') {
+    const ag = precutAgg();
+    const base0 = ag.bases[0] || {};
+    const oldLines = WS.lines || [];
+    WS.lines = ag.prods.map((p) => {
+      const old = oldLines.find((l) => l.product === (p.product || '(미지정)') && (l.lotNo || null) === (p.lotNo || null)) || {};
+      return {
+        recordId: old.recordId,
+        product: p.product || '(미지정)', rollType: p.rollType || null,
+        lotNo: p.lotNo || null, market: p.market || null,
+        rollQty: p.prodQty ?? null, precutQty: null,
+        baseType: base0.baseType || null,
+        loss: null, note: p.note || null, isFirst: true,
+      };
+    });
+  }
+  if (wsForm === 'SPLINT') {
     const ag = splintAgg();
     const allW = WS.weights || [];
     WS.lines = ag.rows.map((r) => {
@@ -2155,8 +2482,21 @@ async function saveAndSyncWs() {
       };
     });
   }
+  // HYBRID — 단일 품목 실적. 시간대별 생산수량 합계(없으면 총수량 입력값)를 생산량으로 반영.
+  if (wsForm === 'HYBRID') {
+    const t = WS.htimes || {};
+    const timeSum = HYBRID_TIMES.reduce((s, r) => s + num((t[r.key] || {}).qty), 0);
+    const total = timeSum || num(WS.totalQty);
+    const old = (WS.lines || [])[0] || {};
+    WS.lines = (WS.product || total) ? [{
+      recordId: old.recordId,
+      product: WS.product || '(미지정)', lotNo: WS.labelLot || null,
+      prodQty: total || null, weight: WS.avgWeight ?? null,
+      note: WS.remarks || null, resinType: null,
+    }] : [];
+  }
   // CAST도 제품별 실적 — 각 제품 행이 하나의 생산실적(레코드)
-  if (wsPart === 'CAST') {
+  if (wsForm === 'CAST') {
     const r0 = (WS.resins || []).find((x) => x.name) || {};
     const infos = (WS.productInfos || []).filter((p) => p.product);
     const prods = WS.products || [], qc = WS.qcProducts || [];
@@ -2299,6 +2639,8 @@ const sheetOfRecord = (recordId) => SHEETS.find((s) => (s.lines || []).some((l) 
 document.addEventListener('click', (e) => {
   const tr = e.target.closest('tr[data-id]');
   if (!tr) return;
+  // 설비 일상점검·설비 대장 행은 각자 전용 핸들러가 처리 (같은 data-id 사용으로 인한 오작동 방지)
+  if (tr.classList.contains('ec-row') || tr.classList.contains('eq-row')) return;
   const id = Number(tr.dataset.id);
   const rec = RECORDS.find((r) => r.id === id);
   if (!rec) return;

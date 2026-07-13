@@ -809,6 +809,46 @@
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
       </fieldset>
+      <fieldset><legend>설비 사진 (촬영 첨부) — 예: 저압제습기 모니터부</legend>
+        <div class="photo-grid">
+          <div class="photo-slot" data-img="dehum1">
+            <div class="photo-head">저압제습기1 모니터</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 촬영/선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" capture="environment" hidden>
+          </div>
+          <div class="photo-slot" data-img="dehum2">
+            <div class="photo-head">저압제습기2 모니터</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 촬영/선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" capture="environment" hidden>
+          </div>
+          <div class="photo-slot" data-img="gauge">
+            <div class="photo-head">온·습도계 / 게이지</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 촬영/선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" capture="environment" hidden>
+          </div>
+          <div class="photo-slot" data-img="etc">
+            <div class="photo-head">기타 (설비 전경 등)</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 촬영/선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" capture="environment" hidden>
+          </div>
+        </div>
+      </fieldset>
       <div class="modal-foot"><button type="button" class="btn danger" id="equipcheck-delete" hidden>삭제</button><span class="spacer"></span><button type="button" class="btn" id="equipcheck-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
     </form>
   </div>
@@ -829,6 +869,14 @@
           <label>위치<input type="text" name="location"></label>
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
+      </fieldset>
+      <fieldset><legend>설비 체크리스트 (점검 항목)</legend>
+        <div id="eq-checklist"></div>
+        <button type="button" class="btn small" id="eq-checklist-add" style="margin-top:6px">＋ 점검항목 추가</button>
+      </fieldset>
+      <fieldset><legend>점검 · 수리 사진 (촬영 첨부)</legend>
+        <div id="eq-photos" class="photo-grid"></div>
+        <button type="button" class="btn small" id="eq-photo-add" style="margin-top:6px">＋ 사진 추가</button>
       </fieldset>
       <fieldset><legend>점검 · 수리 이력</legend>
         <div id="eq-history"></div>
@@ -882,6 +930,8 @@
 <datalist id="dl-cores"></datalist>
 <datalist id="dl-lossTypes"></datalist>
 <datalist id="dl-qcItems"></datalist>
+<datalist id="dl-eqMethods"><option>육안검사</option><option>게이지 확인</option><option>작동 확인</option><option>측정</option><option>청소</option><option>급유</option></datalist>
+<datalist id="dl-eqCycles"><option>일일</option><option>주간</option><option>월간</option><option>분기</option><option>반기</option><option>연간</option></datalist>
 
 <!-- AI 분석 챗봇 -->
 <button id="ai-fab" title="AI 분석 챗봇">🤖 AI 분석</button>
