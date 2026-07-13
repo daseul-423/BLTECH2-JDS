@@ -1058,20 +1058,23 @@ $('#company-delete').addEventListener('click', async () => {
 let editingEquipCheckId = null;
 const equipcheckForm = $('#equipcheck-form');
 function renderEquipChecks() {
-  const month = $('#ec-month').value, mc = $('#ec-machine').value;
+  const month = $('#ec-month').value, mc = $('#ec-machine').value, pt = $('#ec-part').value;
   let items = EQUIPCHECKS.slice();
   if (month) items = items.filter((x) => (x.date || '').startsWith(month));
   if (mc) items = items.filter((x) => x.machine === mc);
+  if (pt) items = items.filter((x) => (x.part || 'CAST') === pt);
   items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || String(a.machine || '').localeCompare(String(b.machine || '')));
   const ck = (v) => v ? '✔' : '<span class="muted">-</span>';
+  const num = (v) => v != null && v !== '' ? esc(v) : '-';
   const rows = items.map((x) => `<tr class="ec-row" data-id="${x.id}" style="cursor:pointer">
-    <td>${esc(x.date)}</td><td>${esc(x.machine || '')}</td><td>${esc(x.checker || '')}</td>
+    <td>${esc(x.date)}</td><td>${esc(x.part || 'CAST')}</td><td>${esc(x.machine || '')}</td><td>${esc(x.checker || '')}</td>
     <td class="num">${ck(x.clean)}</td><td class="num">${ck(x.sealer)}</td><td class="num">${ck(x.pressure)}</td><td class="num">${ck(x.safety)}</td>
-    <td class="num">${x.temp != null && x.temp !== '' ? esc(x.temp) : '-'}</td><td class="num">${x.humid != null && x.humid !== '' ? esc(x.humid) : '-'}</td>
+    <td class="num">${ck(x.dehum1)}</td><td class="num">${ck(x.dehum2)}</td>
+    <td class="num">${num(x.temp)}</td><td class="num">${num(x.humid)}</td>
     <td>${x.abnormal ? `<span class="badge bad">이상</span> ${esc(x.abnormalNote || '')}` : '<span class="badge ok">정상</span>'}</td><td>${esc(x.note || '')}</td>
   </tr>`).join('');
   $('#equipchecks-list').innerHTML = items.length
-    ? `<table><thead><tr><th>점검일</th><th>호기</th><th>점검자</th><th>청결</th><th>실링기</th><th>압력</th><th>안전</th><th>온도</th><th>습도</th><th>이상유무</th><th>비고</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>점검일</th><th>공정</th><th>호기</th><th>점검자</th><th>청결</th><th>실링기</th><th>압력</th><th>안전</th><th>제습기1</th><th>제습기2</th><th>온도</th><th>습도</th><th>이상유무</th><th>비고</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">점검 기록이 없습니다. [＋ 점검 등록]으로 추가하세요.</div>';
 }
 function openEquipCheckModal(id = null) {
@@ -1083,7 +1086,7 @@ function openEquipCheckModal(id = null) {
   const x = id ? EQUIPCHECKS.find((e) => e.id === id) : null;
   if (x) {
     [...equipcheckForm.elements].forEach((el) => { if (!el.name) return; if (el.type === 'checkbox') el.checked = !!x[el.name]; else if (x[el.name] != null) el.value = x[el.name]; });
-  } else { equipcheckForm.elements.date.value = todayStr(); }
+  } else { equipcheckForm.elements.date.value = todayStr(); equipcheckForm.elements.part.value = PART; }
   $('#equipcheck-modal').hidden = false;
 }
 $('#btn-new-equipcheck').addEventListener('click', () => openEquipCheckModal());
@@ -1104,7 +1107,7 @@ $('#equipcheck-delete').addEventListener('click', async () => {
   await api('/api/equipchecks/' + editingEquipCheckId, { method: 'DELETE' });
   await loadEquipChecks(); $('#equipcheck-modal').hidden = true; refreshCurrentPage();
 });
-['ec-month', 'ec-machine'].forEach((id) => $('#' + id).addEventListener('input', renderEquipChecks));
+['ec-month', 'ec-machine', 'ec-part'].forEach((id) => $('#' + id).addEventListener('input', renderEquipChecks));
 
 /* ===================== 설비 대장 (equipment + 이력) ===================== */
 let editingEquipmentId = null;
