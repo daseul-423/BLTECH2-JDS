@@ -333,8 +333,9 @@
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">설비 목록과 점검·수리 이력입니다. 행을 클릭하면 상세·이력을 관리할 수 있습니다.</p>
-      <div class="table-wrap" id="equipment-list"></div>
+      <p class="muted" style="margin-bottom:10px">설비를 등록하면 탭으로 나타납니다. 설비 탭을 누르면 그 설비의 체크리스트와 점검·수리 이력을 작성·조회할 수 있습니다.</p>
+      <div id="eq-tabs" class="eq-tabs"></div>
+      <div id="eq-detail" class="eq-detail"></div>
     </div>
   </section>
 
@@ -854,9 +855,9 @@
   </div>
 </div>
 
-<!-- 설비 대장 모달 -->
+<!-- 설비 정보 등록/수정 모달 (정보만 — 체크리스트·이력은 상세 패널에서 관리) -->
 <div class="modal-back" id="equipment-modal" hidden>
-  <div class="modal" style="max-width:840px">
+  <div class="modal" style="max-width:680px">
     <div class="modal-head"><h2 id="equipment-modal-title">설비 등록</h2><button class="btn icon" id="equipment-close">✕</button></div>
     <form id="equipment-form">
       <fieldset><legend>설비 정보</legend>
@@ -870,19 +871,29 @@
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
       </fieldset>
-      <fieldset><legend>설비 체크리스트 (점검 항목)</legend>
-        <div id="eq-checklist"></div>
-        <button type="button" class="btn small" id="eq-checklist-add" style="margin-top:6px">＋ 점검항목 추가</button>
-      </fieldset>
-      <fieldset><legend>점검 · 수리 사진 (촬영 첨부)</legend>
-        <div id="eq-photos" class="photo-grid"></div>
-        <button type="button" class="btn small" id="eq-photo-add" style="margin-top:6px">＋ 사진 추가</button>
-      </fieldset>
-      <fieldset><legend>점검 · 수리 이력</legend>
-        <div id="eq-history"></div>
-        <button type="button" class="btn small" id="eq-history-add" style="margin-top:6px">＋ 이력 추가</button>
-      </fieldset>
       <div class="modal-foot"><button type="button" class="btn danger" id="equipment-delete" hidden>삭제</button><span class="spacer"></span><button type="button" class="btn" id="equipment-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- 점검·수리 기록 모달 (사진 첨부) -->
+<div class="modal-back" id="equip-record-modal" hidden>
+  <div class="modal" style="max-width:720px">
+    <div class="modal-head"><h2><span id="equip-record-title">점검·수리 기록</span> <span class="auto-tag" id="equip-record-sub"></span></h2><button class="btn icon" id="equip-record-close">✕</button></div>
+    <form id="equip-record-form">
+      <fieldset><legend>기록</legend>
+        <div class="form-grid">
+          <label>일자<input type="date" name="date"></label>
+          <label>구분<select name="type"><option>정기점검</option><option>점검</option><option>수리</option><option>교체</option><option>기타</option></select></label>
+          <label>담당<input type="text" name="by" list="dl-workers"></label>
+          <label class="wide">내용<input type="text" name="detail" placeholder="점검·수리 내용"></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>첨부 사진 (촬영 첨부)</legend>
+        <div id="eqr-photos" class="photo-grid"></div>
+        <button type="button" class="btn small" id="eqr-photo-add" style="margin-top:6px">＋ 사진 추가</button>
+      </fieldset>
+      <div class="modal-foot"><button type="button" class="btn danger" id="equip-record-delete" hidden>삭제</button><span class="spacer"></span><button type="button" class="btn" id="equip-record-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
     </form>
   </div>
 </div>

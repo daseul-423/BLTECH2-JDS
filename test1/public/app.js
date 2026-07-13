@@ -1121,60 +1121,210 @@ $('#equipcheck-delete').addEventListener('click', async () => {
 });
 ['ec-month', 'ec-machine', 'ec-part'].forEach((id) => $('#' + id).addEventListener('input', renderEquipChecks));
 
-/* ===================== 설비 대장 (equipment + 이력) ===================== */
-let editingEquipmentId = null;
+/* ===================== 설비 대장 (설비별 탭 → 체크리스트 + 점검·수리 이력) ===================== */
+let editingEquipmentId = null;      // 설비 정보 등록/수정 모달 대상
+let selectedEquipId = null;         // 현재 선택된 설비 탭
+let editRecEquipId = null;          // 점검·수리 기록 모달: 대상 설비
+let editRecId = null;               // 점검·수리 기록 모달: 편집 중 기록 id (null=신규)
+let eqrPhotos = [];                 // 기록 모달 첨부 사진
+let eqClSaveTimer = null;
 const equipmentForm = $('#equipment-form');
-let eqHistoryRows = [];
-function renderEqHistory() {
-  $('#eq-history').innerHTML = eqHistoryRows.map((h, i) => `<div class="eq-hrow" data-i="${i}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
-    <input type="date" data-h="date" value="${esc(h.date || '')}" style="width:150px">
-    <select data-h="type">${['정기점검', '수리', '교체', '기타'].map((t) => `<option ${h.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
-    <input type="text" data-h="detail" value="${esc(h.detail || '')}" placeholder="내용" style="flex:1;min-width:160px">
-    <input type="text" data-h="by" value="${esc(h.by || '')}" placeholder="담당" list="dl-workers" style="width:110px">
-    <button type="button" class="btn small danger eq-hdel">삭제</button>
-  </div>`).join('') || '<div class="muted">이력이 없습니다. [＋ 이력 추가]로 등록하세요.</div>';
-}
-function harvestEqHistory() {
-  eqHistoryRows = $$('#eq-history .eq-hrow').map((row) => {
-    const g = (k) => { const el = row.querySelector(`[data-h="${k}"]`); return el ? el.value : ''; };
-    return { date: g('date') || null, type: g('type') || null, detail: g('detail') || null, by: g('by') || null };
-  }).filter((h) => h.date || h.detail);
-}
-$('#eq-history-add').addEventListener('click', () => { harvestEqHistory(); eqHistoryRows.push({ date: todayStr(), type: '정기점검', detail: '', by: '' }); renderEqHistory(); });
-$('#eq-history').addEventListener('click', (e) => { const d = e.target.closest('.eq-hdel'); if (d) { harvestEqHistory(); eqHistoryRows.splice(Number(d.closest('.eq-hrow').dataset.i), 1); renderEqHistory(); } });
+const EQ_TYPES = ['정기점검', '점검', '수리', '교체', '기타'];
+const eqTypeBadge = (t) => t === '수리' ? 'bad' : t === '교체' ? 'warn' : t === '기타' ? 'plain' : 'ok';
 
-/* 설비 체크리스트 (점검 항목) */
-let eqChecklistRows = [];
-function renderEqChecklist() {
-  $('#eq-checklist').innerHTML = eqChecklistRows.map((c, i) => `<div class="eq-crow" data-i="${i}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+/* --- 목록: 설비 탭 + 상세 패널 --- */
+function renderEquipment() {
+  const q = $('#eq-search').value.trim().toLowerCase();
+  let items = EQUIPMENT.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  if (q) items = items.filter((x) => ['name', 'model', 'serialNo', 'manager', 'location'].some((f) => String(x[f] ?? '').toLowerCase().includes(q)));
+  const tabs = $('#eq-tabs'), detail = $('#eq-detail');
+  if (!items.length) {
+    tabs.innerHTML = '';
+    detail.innerHTML = '<div class="empty">등록된 설비가 없습니다. [＋ 설비 등록]으로 추가하세요.</div>';
+    return;
+  }
+  if (!items.some((e) => e.id === selectedEquipId)) selectedEquipId = items[0].id;
+  tabs.innerHTML = items.map((e) => {
+    const hh = (e.history || []).length;
+    return `<button type="button" class="eq-tab ${e.id === selectedEquipId ? 'active' : ''}" data-id="${e.id}">
+      <span class="eq-tab-name">${esc(e.name || '(무명)')}</span>
+      <span class="eq-tab-sub">${esc(e.model || '')}${hh ? ` · 이력 ${hh}` : ''}</span>
+    </button>`;
+  }).join('');
+  renderEquipDetail(selectedEquipId);
+}
+
+function checklistRowHtml(c) {
+  return `<div class="eq-crow" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
     <input type="text" data-c="item" value="${esc(c.item || '')}" placeholder="점검항목" style="flex:1;min-width:150px">
     <input type="text" data-c="method" value="${esc(c.method || '')}" placeholder="점검방법" list="dl-eqMethods" style="width:130px">
     <input type="text" data-c="standard" value="${esc(c.standard || '')}" placeholder="판정기준" style="width:160px">
     <input type="text" data-c="cycle" value="${esc(c.cycle || '')}" placeholder="주기" list="dl-eqCycles" style="width:90px">
-    <button type="button" class="btn small danger eq-cdel">삭제</button>
-  </div>`).join('') || '<div class="muted">체크리스트가 없습니다. [＋ 점검항목 추가]로 등록하세요.</div>';
+    <button type="button" class="btn small danger eq-cdel" title="삭제">✕</button>
+  </div>`;
 }
-function harvestEqChecklist() {
-  eqChecklistRows = $$('#eq-checklist .eq-crow').map((row) => {
+
+function renderEquipDetail(id) {
+  const e = EQUIPMENT.find((x) => x.id === id);
+  const box = $('#eq-detail');
+  if (!e) { box.innerHTML = ''; return; }
+  // 구버전 이력에 id 없으면 부여 (설비 내 고유)
+  (e.history || []).forEach((h, i) => { if (h.id == null) h.id = i + 1; });
+  const meta = [['모델', e.model], ['관리번호', e.serialNo], ['구입일', e.buyDate], ['담당자', e.manager], ['위치', e.location]]
+    .map(([k, v]) => `<span class="eq-meta"><b>${esc(k)}</b> ${esc(v || '-')}</span>`).join('');
+  const cl = e.checklist || [];
+  const clRows = cl.length ? cl.map(checklistRowHtml).join('') : '<div class="muted">점검항목이 없습니다. [＋ 점검항목 추가]로 등록하세요.</div>';
+  const hist = (e.history || []).slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
+  const histHtml = hist.length ? hist.map((h) => {
+    const photos = (h.photos || []).filter((p) => p.url);
+    const thumbs = photos.length ? `<div class="eq-rec-photos">${photos.map((p) => `<figure class="eq-thumb"><img src="${esc(p.url)}" data-full="${esc(p.url)}" alt="${esc(p.label || '')}"><figcaption>${esc(p.label || '')}</figcaption></figure>`).join('')}</div>` : '';
+    return `<div class="eq-rec">
+      <div class="eq-rec-head">
+        <span class="badge ${eqTypeBadge(h.type)}">${esc(h.type || '점검')}</span>
+        <b>${esc(h.date || '')}</b>
+        ${h.by ? `<span class="muted">· ${esc(h.by)}</span>` : ''}
+        <span class="spacer"></span>
+        <button type="button" class="btn small eq-rec-edit" data-rec="${h.id}">수정</button>
+      </div>
+      ${h.detail ? `<div class="eq-rec-detail">${esc(h.detail)}</div>` : ''}
+      ${thumbs}
+    </div>`;
+  }).join('') : '<div class="muted">점검·수리 기록이 없습니다. [＋ 점검·수리 기록]으로 추가하세요.</div>';
+
+  box.innerHTML = `
+    <div class="eq-detail-head">
+      <div>
+        <h2 class="eq-detail-name">${esc(e.name || '(무명)')}</h2>
+        <div class="eq-meta-row">${meta}</div>
+        ${e.note ? `<div class="muted" style="margin-top:4px">${esc(e.note)}</div>` : ''}
+      </div>
+      <div class="eq-detail-actions">
+        <button type="button" class="btn small" id="eq-info-edit">✎ 설비정보 수정</button>
+        <button type="button" class="btn small danger" id="eq-info-del">🗑 설비 삭제</button>
+      </div>
+    </div>
+    <div class="eq-section">
+      <div class="eq-section-head"><h3>설비 체크리스트</h3><span class="ws-save" id="eq-cl-save"></span><span class="spacer"></span><button type="button" class="btn small" id="eq-cl-add">＋ 점검항목 추가</button></div>
+      <div id="eq-detail-checklist">${clRows}</div>
+    </div>
+    <div class="eq-section">
+      <div class="eq-section-head"><h3>점검 · 수리 이력</h3><span class="spacer"></span><button type="button" class="btn small primary" id="eq-rec-add">＋ 점검·수리 기록</button></div>
+      <div class="eq-rec-list">${histHtml}</div>
+    </div>`;
+}
+
+/* 체크리스트: 상세 패널에서 인라인 편집 → 자동저장 (재렌더 없이) */
+function harvestDetailChecklist() {
+  const e = EQUIPMENT.find((x) => x.id === selectedEquipId);
+  if (!e) return null;
+  e.checklist = $$('#eq-detail-checklist .eq-crow').map((row) => {
     const g = (k) => { const el = row.querySelector(`[data-c="${k}"]`); return el ? el.value : ''; };
     return { item: g('item') || null, method: g('method') || null, standard: g('standard') || null, cycle: g('cycle') || null };
   }).filter((c) => c.item || c.method || c.standard);
+  return e;
 }
-$('#eq-checklist-add').addEventListener('click', () => { harvestEqChecklist(); eqChecklistRows.push({ item: '', method: '육안검사', standard: '', cycle: '일일' }); renderEqChecklist(); });
-$('#eq-checklist').addEventListener('click', (e) => { const d = e.target.closest('.eq-cdel'); if (d) { harvestEqChecklist(); eqChecklistRows.splice(Number(d.closest('.eq-crow').dataset.i), 1); renderEqChecklist(); } });
+async function saveEquipmentNow(e, statusSel) {
+  if (!e) return;
+  const s = statusSel && $(statusSel);
+  if (s) s.textContent = '저장 중…';
+  try { await post('/api/equipment/' + e.id, e, 'PUT'); if (s) s.textContent = '저장됨 ✓'; }
+  catch (err) { if (s) s.textContent = '저장 실패'; }
+}
+function scheduleChecklistSave() {
+  const s = $('#eq-cl-save'); if (s) s.textContent = '저장 중…';
+  clearTimeout(eqClSaveTimer);
+  eqClSaveTimer = setTimeout(() => saveEquipmentNow(harvestDetailChecklist(), '#eq-cl-save'), 600);
+}
 
-/* 설비 점검·수리 사진 (라벨 + 촬영 첨부, 여러 장) */
-let eqPhotos = [];
-function harvestEqPhotoLabels() {
-  $$('#eq-photos .eq-photo').forEach((card) => {
+/* --- 설비 탭 / 상세 패널 이벤트 (정적 부모에 위임) --- */
+$('#eq-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('.eq-tab'); if (!b) return;
+  selectedEquipId = Number(b.dataset.id); renderEquipment();
+});
+$('#eq-detail').addEventListener('click', (e) => {
+  if (e.target.closest('#eq-info-edit')) return openEquipmentModal(selectedEquipId);
+  if (e.target.closest('#eq-info-del')) return deleteEquipment(selectedEquipId);
+  if (e.target.closest('#eq-cl-add')) {
+    const cont = $('#eq-detail-checklist');
+    if (cont.querySelector('.muted')) cont.innerHTML = '';
+    cont.insertAdjacentHTML('beforeend', checklistRowHtml({ method: '육안검사', cycle: '일일' }));
+    const rows = cont.querySelectorAll('.eq-crow'); const last = rows[rows.length - 1];
+    const inp = last && last.querySelector('[data-c="item"]'); if (inp) inp.focus();
+    saveEquipmentNow(harvestDetailChecklist(), '#eq-cl-save');
+    return;
+  }
+  const cdel = e.target.closest('.eq-cdel');
+  if (cdel) { cdel.closest('.eq-crow').remove(); saveEquipmentNow(harvestDetailChecklist(), '#eq-cl-save'); return; }
+  if (e.target.closest('#eq-rec-add')) return openRecordModal(selectedEquipId, null);
+  const re = e.target.closest('.eq-rec-edit'); if (re) return openRecordModal(selectedEquipId, Number(re.dataset.rec));
+  const img = e.target.closest('.eq-thumb img'); if (img) return openPhotoViewer(img.dataset.full);
+});
+$('#eq-detail').addEventListener('input', (e) => { if (e.target.closest('#eq-detail-checklist')) scheduleChecklistSave(); });
+
+/* --- 설비 정보 등록/수정 모달 (정보만) --- */
+function openEquipmentModal(id = null) {
+  editingEquipmentId = id;
+  equipmentForm.reset();
+  $('#equipment-modal-title').textContent = id ? '설비 정보 수정' : '설비 등록';
+  $('#equipment-delete').hidden = !id;
+  const x = id ? EQUIPMENT.find((e) => e.id === id) : null;
+  if (x) [...equipmentForm.elements].forEach((el) => { if (el.name && x[el.name] != null && typeof x[el.name] !== 'object') el.value = x[el.name]; });
+  $('#equipment-modal').hidden = false;
+}
+$('#btn-new-equipment').addEventListener('click', () => openEquipmentModal());
+$('#equipment-close').addEventListener('click', () => ($('#equipment-modal').hidden = true));
+$('#equipment-cancel').addEventListener('click', () => ($('#equipment-modal').hidden = true));
+equipmentForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const cur = editingEquipmentId ? EQUIPMENT.find((x) => x.id === editingEquipmentId) : null;
+  const x = cur ? { ...cur } : {};
+  [...equipmentForm.elements].forEach((el) => { if (el.name) x[el.name] = el.value || null; });
+  x.checklist = (cur && cur.checklist) || [];   // 체크리스트·이력은 상세 패널에서 관리 → 보존
+  x.history = (cur && cur.history) || [];
+  try {
+    let saved;
+    if (editingEquipmentId) saved = await post('/api/equipment/' + editingEquipmentId, x, 'PUT');
+    else saved = await post('/api/equipment', x);
+    if (saved && saved.id) selectedEquipId = saved.id;
+    await loadEquipment(); $('#equipment-modal').hidden = true; renderEquipment();
+  } catch (err) { alert('저장 실패: ' + err.message); }
+});
+$('#equipment-delete').addEventListener('click', () => deleteEquipment(editingEquipmentId));
+async function deleteEquipment(id) {
+  if (!id || !confirm('이 설비를 삭제하시겠습니까?\n체크리스트·점검이력도 함께 삭제됩니다.')) return;
+  await api('/api/equipment/' + id, { method: 'DELETE' });
+  if (selectedEquipId === id) selectedEquipId = null;
+  await loadEquipment(); $('#equipment-modal').hidden = true; renderEquipment();
+}
+$('#eq-search').addEventListener('input', renderEquipment);
+
+/* --- 점검·수리 기록 모달 (날짜/구분/담당/내용 + 사진 첨부) --- */
+function openRecordModal(equipId, recId) {
+  editRecEquipId = equipId; editRecId = recId;
+  const e = EQUIPMENT.find((x) => x.id === equipId); if (!e) return;
+  const rec = recId ? (e.history || []).find((h) => h.id === recId) : null;
+  const f = $('#equip-record-form'); f.reset();
+  $('#equip-record-title').textContent = rec ? '점검·수리 기록 수정' : '점검·수리 기록 추가';
+  $('#equip-record-sub').textContent = e.name || '';
+  $('#equip-record-delete').hidden = !rec;
+  f.elements.date.value = (rec && rec.date) || todayStr();
+  f.elements.type.value = (rec && rec.type) || '정기점검';
+  f.elements.by.value = (rec && rec.by) || '';
+  f.elements.detail.value = (rec && rec.detail) || '';
+  eqrPhotos = rec && Array.isArray(rec.photos) ? rec.photos.map((p) => ({ ...p })) : [];
+  renderEqrPhotos();
+  $('#equip-record-modal').hidden = false;
+}
+function harvestEqrLabels() {
+  $$('#eqr-photos .eq-photo').forEach((card) => {
     const i = Number(card.dataset.i);
     const l = card.querySelector('.eq-photo-label');
-    if (eqPhotos[i]) eqPhotos[i].label = l ? l.value : '';
+    if (eqrPhotos[i]) eqrPhotos[i].label = l ? l.value : '';
   });
 }
-function renderEqPhotos() {
-  const box = $('#eq-photos');
-  box.innerHTML = eqPhotos.map((p, i) => `<div class="photo-slot eq-photo" data-i="${i}">
+function renderEqrPhotos() {
+  const box = $('#eqr-photos');
+  box.innerHTML = eqrPhotos.map((p, i) => `<div class="photo-slot eq-photo" data-i="${i}">
     <input type="text" class="eq-photo-label" value="${esc(p.label || '')}" placeholder="구분 (예: 수리 전/후, 점검부위)" style="width:100%;margin-bottom:6px">
     <div class="photo-box">${p.url ? `<img src="${esc(p.url)}">` : '<span class="photo-empty">사진 없음</span>'}</div>
     <div class="photo-btns">
@@ -1182,78 +1332,67 @@ function renderEqPhotos() {
       <button type="button" class="btn small danger eq-photo-del">삭제</button>
     </div>
     <input type="file" accept="image/*" capture="environment" hidden>
-  </div>`).join('') || '<div class="muted">사진이 없습니다. [＋ 사진 추가]로 점검·수리 사진을 첨부하세요.</div>';
-  $$('#eq-photos .eq-photo').forEach((card) => {
+  </div>`).join('') || '<div class="muted">사진이 없습니다. [＋ 사진 추가]로 첨부하세요.</div>';
+  $$('#eqr-photos .eq-photo').forEach((card) => {
     const i = Number(card.dataset.i);
     const file = card.querySelector('input[type=file]');
     card.querySelector('.eq-photo-pick').addEventListener('click', () => file.click());
-    card.querySelector('.eq-photo-del').addEventListener('click', () => { harvestEqPhotoLabels(); eqPhotos.splice(i, 1); renderEqPhotos(); });
+    card.querySelector('.eq-photo-del').addEventListener('click', () => { harvestEqrLabels(); eqrPhotos.splice(i, 1); renderEqrPhotos(); });
     file.addEventListener('change', async () => {
       if (!file.files[0]) return;
-      try { harvestEqPhotoLabels(); eqPhotos[i].url = await uploadImage(file.files[0]); renderEqPhotos(); }
+      try { harvestEqrLabels(); eqrPhotos[i].url = await uploadImage(file.files[0]); renderEqrPhotos(); }
       catch (err) { alert('업로드 실패: ' + err.message); }
       file.value = '';
     });
   });
 }
-$('#eq-photo-add').addEventListener('click', () => { harvestEqPhotoLabels(); eqPhotos.push({ label: '', url: '' }); renderEqPhotos(); });
-
-function renderEquipment() {
-  const q = $('#eq-search').value.trim().toLowerCase();
-  let items = EQUIPMENT.slice();
-  if (q) items = items.filter((x) => ['name', 'model', 'serialNo', 'manager', 'location'].some((f) => String(x[f] ?? '').toLowerCase().includes(q)));
-  items.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-  const rows = items.map((x) => {
-    const hist = x.history || [];
-    const last = hist.length ? hist[hist.length - 1] : null;
-    const clen = (x.checklist || []).length, plen = (x.photos || []).length;
-    return `<tr class="eq-row" data-id="${x.id}" style="cursor:pointer">
-      <td><b>${esc(x.name || '')}</b></td><td>${esc(x.model || '-')}</td><td>${esc(x.serialNo || '-')}</td><td>${esc(x.buyDate || '-')}</td><td>${esc(x.manager || '-')}</td><td>${esc(x.location || '-')}</td>
-      <td class="num">${clen ? `<span class="badge ok">${clen}</span>` : '<span class="muted">-</span>'}</td>
-      <td class="num">${plen ? `<span class="badge ok">📷 ${plen}</span>` : '<span class="muted">-</span>'}</td>
-      <td class="num">${hist.length}</td><td>${last ? esc((last.date || '') + ' ' + (last.type || '')) : '-'}</td>
-    </tr>`;
-  }).join('');
-  $('#equipment-list').innerHTML = items.length
-    ? `<table><thead><tr><th>설비명</th><th>모델</th><th>관리번호</th><th>구입일</th><th>담당자</th><th>위치</th><th>체크리스트</th><th>사진</th><th>이력</th><th>최근</th></tr></thead><tbody>${rows}</tbody></table>`
-    : '<div class="empty">등록된 설비가 없습니다. [＋ 설비 등록]으로 추가하세요.</div>';
-}
-function openEquipmentModal(id = null) {
-  editingEquipmentId = id;
-  equipmentForm.reset();
-  $('#equipment-modal-title').textContent = id ? '설비 수정' : '설비 등록';
-  $('#equipment-delete').hidden = !id;
-  const x = id ? EQUIPMENT.find((e) => e.id === id) : null;
-  if (x) [...equipmentForm.elements].forEach((el) => { if (el.name && x[el.name] != null && typeof x[el.name] !== 'object') el.value = x[el.name]; });
-  eqHistoryRows = x && Array.isArray(x.history) ? x.history.map((h) => ({ ...h })) : [];
-  eqChecklistRows = x && Array.isArray(x.checklist) ? x.checklist.map((c) => ({ ...c })) : [];
-  eqPhotos = x && Array.isArray(x.photos) ? x.photos.map((p) => ({ ...p })) : [];
-  renderEqHistory(); renderEqChecklist(); renderEqPhotos();
-  $('#equipment-modal').hidden = false;
-}
-$('#btn-new-equipment').addEventListener('click', () => openEquipmentModal());
-$('#equipment-close').addEventListener('click', () => ($('#equipment-modal').hidden = true));
-$('#equipment-cancel').addEventListener('click', () => ($('#equipment-modal').hidden = true));
-document.addEventListener('click', (e) => { const r = e.target.closest('.eq-row'); if (r) openEquipmentModal(Number(r.dataset.id)); });
-equipmentForm.addEventListener('submit', async (e) => {
+$('#eqr-photo-add').addEventListener('click', () => { harvestEqrLabels(); eqrPhotos.push({ label: '', url: '' }); renderEqrPhotos(); });
+$('#equip-record-close').addEventListener('click', () => ($('#equip-record-modal').hidden = true));
+$('#equip-record-cancel').addEventListener('click', () => ($('#equip-record-modal').hidden = true));
+$('#equip-record-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  harvestEqHistory(); harvestEqChecklist(); harvestEqPhotoLabels();
-  const x = {};
-  [...equipmentForm.elements].forEach((el) => { if (el.name) x[el.name] = el.value || null; });
-  x.history = eqHistoryRows;
-  x.checklist = eqChecklistRows;
-  x.photos = eqPhotos.filter((p) => p.url);
+  harvestEqrLabels();
+  const eq = EQUIPMENT.find((x) => x.id === editRecEquipId); if (!eq) return;
+  const f = e.target;
+  const rec = {
+    id: editRecId || nextRecordId(eq),
+    date: f.elements.date.value || null,
+    type: f.elements.type.value || null,
+    detail: f.elements.detail.value || null,
+    by: f.elements.by.value || null,
+    photos: eqrPhotos.filter((p) => p.url),
+  };
+  eq.history = eq.history || [];
+  const idx = editRecId ? eq.history.findIndex((h) => h.id === editRecId) : -1;
+  if (idx >= 0) eq.history[idx] = rec; else eq.history.push(rec);
   try {
-    if (editingEquipmentId) await post('/api/equipment/' + editingEquipmentId, x, 'PUT'); else await post('/api/equipment', x);
-    await loadEquipment(); $('#equipment-modal').hidden = true; refreshCurrentPage();
+    await post('/api/equipment/' + eq.id, eq, 'PUT');
+    await loadEquipment(); $('#equip-record-modal').hidden = true; renderEquipment();
   } catch (err) { alert('저장 실패: ' + err.message); }
 });
-$('#equipment-delete').addEventListener('click', async () => {
-  if (!editingEquipmentId || !confirm('이 설비를 삭제하시겠습니까?')) return;
-  await api('/api/equipment/' + editingEquipmentId, { method: 'DELETE' });
-  await loadEquipment(); $('#equipment-modal').hidden = true; refreshCurrentPage();
+$('#equip-record-delete').addEventListener('click', async () => {
+  if (!editRecId || !confirm('이 점검·수리 기록을 삭제하시겠습니까?')) return;
+  const eq = EQUIPMENT.find((x) => x.id === editRecEquipId); if (!eq) return;
+  eq.history = (eq.history || []).filter((h) => h.id !== editRecId);
+  try {
+    await post('/api/equipment/' + eq.id, eq, 'PUT');
+    await loadEquipment(); $('#equip-record-modal').hidden = true; renderEquipment();
+  } catch (err) { alert('삭제 실패: ' + err.message); }
 });
-$('#eq-search').addEventListener('input', renderEquipment);
+function nextRecordId(eq) { return (eq.history || []).reduce((m, h) => Math.max(m, Number(h.id) || 0), 0) + 1; }
+
+/* --- 사진 확대 뷰어 --- */
+function openPhotoViewer(url) {
+  let ov = $('#img-viewer');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'img-viewer'; ov.className = 'img-viewer';
+    ov.innerHTML = '<img alt="확대 사진">';
+    ov.addEventListener('click', () => ov.classList.remove('show'));
+    document.body.appendChild(ov);
+  }
+  ov.querySelector('img').src = url; ov.classList.add('show');
+}
 
 /* ===================== 일일 공정일지 ===================== */
 function renderSheets() {
