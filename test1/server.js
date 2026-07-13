@@ -7,8 +7,8 @@ const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SEED_PATH = path.join(__dirname, 'public', 'seed.json');
-const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1 } };
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs'];
+const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], equipchecks: [], equipment: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1, equipchecks: 1, equipment: 1 } };
+const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -31,7 +31,11 @@ function loadDB() {
     fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
     fs.writeFileSync(DB_PATH, JSON.stringify(init, null, 2), 'utf-8');
   }
-  return JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+  const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+  db.seqs = db.seqs || {};
+  COLLECTIONS.forEach((c) => { if (!db[c]) db[c] = []; if (db.seqs[c] == null) db.seqs[c] = 1; });
+  db.masters = db.masters || {};
+  return db;
 }
 function saveDB(db) {
   fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');

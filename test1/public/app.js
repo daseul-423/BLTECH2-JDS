@@ -6,6 +6,8 @@ let SHEETS = [];
 let PLANS = [];
 let STANDARDS = [];
 let CUSTSPECS = [];         // 고객사별 생산사양 (NEAL / OEM)
+let EQUIPCHECKS = [];       // 설비 일상점검
+let EQUIPMENT = [];         // 설비 대장 (+ 점검이력)
 let MASTERS = {};
 let editingStandardId = null;
 let PART = 'CAST';          // 공정 구분 (CAST / SPLINT)
@@ -27,14 +29,14 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
    - 정적 배포(Vercel 등 API 없음): 자동으로 브라우저 localStorage 사용, seed.json으로 최초 시드 */
 let LOCAL_MODE = false, LDB = null, _localInit = null;
 const LKEY = 'cast-mes-db-v1';
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs'];
+const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
 const saveLocal = () => { try { localStorage.setItem(LKEY, JSON.stringify(LDB)); } catch (e) { /* quota */ } };
 async function initLocal() {
   const cached = localStorage.getItem(LKEY);
   if (cached) { LDB = JSON.parse(cached); }
   else { LDB = await (await fetch('seed.json')).json(); }
   LDB.seqs = LDB.seqs || { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1 };
-  if (LDB.seqs.custspecs == null) LDB.seqs.custspecs = 1;
+  ['custspecs', 'equipchecks', 'equipment'].forEach((c) => { if (LDB.seqs[c] == null) LDB.seqs[c] = 1; });
   COLLECTIONS.forEach((c) => { if (!LDB[c]) LDB[c] = []; });
   LDB.masters = LDB.masters || {};
   if (cached) await healStandardImages();  // 옛 /uploads 경로 → 내장 사진(dataURL) 자동 교체
@@ -110,6 +112,8 @@ const loadSheets = async () => { SHEETS = await api('/api/sheets'); };
 const loadPlans = async () => { PLANS = await api('/api/plans'); };
 const loadStandards = async () => { STANDARDS = await api('/api/standards'); };
 const loadCustSpecs = async () => { CUSTSPECS = await api('/api/custspecs'); };
+const loadEquipChecks = async () => { EQUIPCHECKS = await api('/api/equipchecks'); };
+const loadEquipment = async () => { EQUIPMENT = await api('/api/equipment'); };
 const loadMasters = async () => { MASTERS = await api('/api/masters'); };
 
 /* ===================== 자동계산 (엑셀 수식 동일) ===================== */
@@ -237,12 +241,12 @@ function splintWsCalc(r) {
 
 /* ===================== 네비게이션 ===================== */
 $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
-const ADMIN_PAGES = ['overview', 'standards', 'custspecs', 'companies', 'masters'];
+const ADMIN_PAGES = ['logs', 'analysis', 'overview', 'standards', 'custspecs', 'companies', 'equipment', 'masters'];
 function showPage(page) {
-  if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) page = 'dashboard';  // 잠금 시 관리자 페이지 차단
+  if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) page = 'home';  // 잠금 시 관리자 페이지 차단
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, masters: renderMasters }[page];
+  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters }[page];
   if (render) render();
 }
 function refreshCurrentPage() {
@@ -264,7 +268,7 @@ $('#admin-toggle').addEventListener('click', () => {
     sessionStorage.removeItem('adminUnlocked');
     applyAdminMode();
     const cur = $('.nav-btn.active');
-    if (cur && ADMIN_PAGES.includes(cur.dataset.page)) showPage('dashboard');
+    if (cur && ADMIN_PAGES.includes(cur.dataset.page)) showPage('home');
     return;
   }
   const input = prompt('관리자 PIN을 입력하세요');
@@ -274,6 +278,17 @@ $('#admin-toggle').addEventListener('click', () => {
     applyAdminMode();
   } else { alert('PIN이 올바르지 않습니다.'); }
 });
+/* 카드 허브 → 영역 이동 (관리자 카드는 PIN 확인) */
+function goArea(page) {
+  if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) {
+    const input = prompt('관리자 PIN을 입력하세요');
+    if (input == null) return;
+    if (String(input).trim() === String(MASTERS.adminPin || ADMIN_DEFAULT_PIN)) { sessionStorage.setItem('adminUnlocked', '1'); applyAdminMode(); }
+    else { alert('PIN이 올바르지 않습니다.'); return; }
+  }
+  showPage(page);
+}
+document.addEventListener('click', (e) => { const c = e.target.closest('.hub-card[data-goto]'); if (c) goArea(c.dataset.goto); });
 
 /* ===================== 대시보드 ===================== */
 function renderDashboard() {
@@ -1005,6 +1020,130 @@ $('#company-delete').addEventListener('click', async () => {
   $('#company-modal').hidden = true;
   refreshCurrentPage();
 });
+
+/* ===================== 설비 일상점검 (equipchecks) ===================== */
+let editingEquipCheckId = null;
+const equipcheckForm = $('#equipcheck-form');
+function renderEquipChecks() {
+  const month = $('#ec-month').value, mc = $('#ec-machine').value;
+  let items = EQUIPCHECKS.slice();
+  if (month) items = items.filter((x) => (x.date || '').startsWith(month));
+  if (mc) items = items.filter((x) => x.machine === mc);
+  items.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || String(a.machine || '').localeCompare(String(b.machine || '')));
+  const ck = (v) => v ? '✔' : '<span class="muted">-</span>';
+  const rows = items.map((x) => `<tr class="ec-row" data-id="${x.id}" style="cursor:pointer">
+    <td>${esc(x.date)}</td><td>${esc(x.machine || '')}</td><td>${esc(x.checker || '')}</td>
+    <td class="num">${ck(x.clean)}</td><td class="num">${ck(x.sealer)}</td><td class="num">${ck(x.pressure)}</td><td class="num">${ck(x.safety)}</td>
+    <td class="num">${x.temp != null && x.temp !== '' ? esc(x.temp) : '-'}</td><td class="num">${x.humid != null && x.humid !== '' ? esc(x.humid) : '-'}</td>
+    <td>${x.abnormal ? `<span class="badge bad">이상</span> ${esc(x.abnormalNote || '')}` : '<span class="badge ok">정상</span>'}</td><td>${esc(x.note || '')}</td>
+  </tr>`).join('');
+  $('#equipchecks-list').innerHTML = items.length
+    ? `<table><thead><tr><th>점검일</th><th>호기</th><th>점검자</th><th>청결</th><th>실링기</th><th>압력</th><th>안전</th><th>온도</th><th>습도</th><th>이상유무</th><th>비고</th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">점검 기록이 없습니다. [＋ 점검 등록]으로 추가하세요.</div>';
+}
+function openEquipCheckModal(id = null) {
+  editingEquipCheckId = id;
+  equipcheckForm.reset();
+  $('#equipcheck-modal-title').textContent = id ? '일상점검 수정' : '일상점검 등록';
+  $('#equipcheck-delete').hidden = !id;
+  equipcheckForm.elements.machine.innerHTML = '<option value="">선택</option>' + (MASTERS.machines || []).map((m) => `<option>${esc(m)}</option>`).join('');
+  const x = id ? EQUIPCHECKS.find((e) => e.id === id) : null;
+  if (x) {
+    [...equipcheckForm.elements].forEach((el) => { if (!el.name) return; if (el.type === 'checkbox') el.checked = !!x[el.name]; else if (x[el.name] != null) el.value = x[el.name]; });
+  } else { equipcheckForm.elements.date.value = todayStr(); }
+  $('#equipcheck-modal').hidden = false;
+}
+$('#btn-new-equipcheck').addEventListener('click', () => openEquipCheckModal());
+$('#equipcheck-close').addEventListener('click', () => ($('#equipcheck-modal').hidden = true));
+$('#equipcheck-cancel').addEventListener('click', () => ($('#equipcheck-modal').hidden = true));
+document.addEventListener('click', (e) => { const r = e.target.closest('.ec-row'); if (r) openEquipCheckModal(Number(r.dataset.id)); });
+equipcheckForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const x = {};
+  [...equipcheckForm.elements].forEach((el) => { if (!el.name) return; x[el.name] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null); });
+  try {
+    if (editingEquipCheckId) await post('/api/equipchecks/' + editingEquipCheckId, x, 'PUT'); else await post('/api/equipchecks', x);
+    await loadEquipChecks(); $('#equipcheck-modal').hidden = true; refreshCurrentPage();
+  } catch (err) { alert('저장 실패: ' + err.message); }
+});
+$('#equipcheck-delete').addEventListener('click', async () => {
+  if (!editingEquipCheckId || !confirm('이 점검 기록을 삭제하시겠습니까?')) return;
+  await api('/api/equipchecks/' + editingEquipCheckId, { method: 'DELETE' });
+  await loadEquipChecks(); $('#equipcheck-modal').hidden = true; refreshCurrentPage();
+});
+['ec-month', 'ec-machine'].forEach((id) => $('#' + id).addEventListener('input', renderEquipChecks));
+
+/* ===================== 설비 대장 (equipment + 이력) ===================== */
+let editingEquipmentId = null;
+const equipmentForm = $('#equipment-form');
+let eqHistoryRows = [];
+function renderEqHistory() {
+  $('#eq-history').innerHTML = eqHistoryRows.map((h, i) => `<div class="eq-hrow" data-i="${i}" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px">
+    <input type="date" data-h="date" value="${esc(h.date || '')}" style="width:150px">
+    <select data-h="type">${['정기점검', '수리', '교체', '기타'].map((t) => `<option ${h.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
+    <input type="text" data-h="detail" value="${esc(h.detail || '')}" placeholder="내용" style="flex:1;min-width:160px">
+    <input type="text" data-h="by" value="${esc(h.by || '')}" placeholder="담당" list="dl-workers" style="width:110px">
+    <button type="button" class="btn small danger eq-hdel">삭제</button>
+  </div>`).join('') || '<div class="muted">이력이 없습니다. [＋ 이력 추가]로 등록하세요.</div>';
+}
+function harvestEqHistory() {
+  eqHistoryRows = $$('#eq-history .eq-hrow').map((row) => {
+    const g = (k) => { const el = row.querySelector(`[data-h="${k}"]`); return el ? el.value : ''; };
+    return { date: g('date') || null, type: g('type') || null, detail: g('detail') || null, by: g('by') || null };
+  }).filter((h) => h.date || h.detail);
+}
+$('#eq-history-add').addEventListener('click', () => { harvestEqHistory(); eqHistoryRows.push({ date: todayStr(), type: '정기점검', detail: '', by: '' }); renderEqHistory(); });
+$('#eq-history').addEventListener('click', (e) => { const d = e.target.closest('.eq-hdel'); if (d) { harvestEqHistory(); eqHistoryRows.splice(Number(d.closest('.eq-hrow').dataset.i), 1); renderEqHistory(); } });
+
+function renderEquipment() {
+  const q = $('#eq-search').value.trim().toLowerCase();
+  let items = EQUIPMENT.slice();
+  if (q) items = items.filter((x) => ['name', 'model', 'serialNo', 'manager', 'location'].some((f) => String(x[f] ?? '').toLowerCase().includes(q)));
+  items.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  const rows = items.map((x) => {
+    const hist = x.history || [];
+    const last = hist.length ? hist[hist.length - 1] : null;
+    return `<tr class="eq-row" data-id="${x.id}" style="cursor:pointer">
+      <td><b>${esc(x.name || '')}</b></td><td>${esc(x.model || '-')}</td><td>${esc(x.serialNo || '-')}</td><td>${esc(x.buyDate || '-')}</td><td>${esc(x.manager || '-')}</td><td>${esc(x.location || '-')}</td>
+      <td class="num">${hist.length}</td><td>${last ? esc((last.date || '') + ' ' + (last.type || '')) : '-'}</td>
+    </tr>`;
+  }).join('');
+  $('#equipment-list').innerHTML = items.length
+    ? `<table><thead><tr><th>설비명</th><th>모델</th><th>관리번호</th><th>구입일</th><th>담당자</th><th>위치</th><th>이력</th><th>최근</th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">등록된 설비가 없습니다. [＋ 설비 등록]으로 추가하세요.</div>';
+}
+function openEquipmentModal(id = null) {
+  editingEquipmentId = id;
+  equipmentForm.reset();
+  $('#equipment-modal-title').textContent = id ? '설비 수정' : '설비 등록';
+  $('#equipment-delete').hidden = !id;
+  const x = id ? EQUIPMENT.find((e) => e.id === id) : null;
+  if (x) [...equipmentForm.elements].forEach((el) => { if (el.name && x[el.name] != null && typeof x[el.name] !== 'object') el.value = x[el.name]; });
+  eqHistoryRows = x && Array.isArray(x.history) ? x.history.map((h) => ({ ...h })) : [];
+  renderEqHistory();
+  $('#equipment-modal').hidden = false;
+}
+$('#btn-new-equipment').addEventListener('click', () => openEquipmentModal());
+$('#equipment-close').addEventListener('click', () => ($('#equipment-modal').hidden = true));
+$('#equipment-cancel').addEventListener('click', () => ($('#equipment-modal').hidden = true));
+document.addEventListener('click', (e) => { const r = e.target.closest('.eq-row'); if (r) openEquipmentModal(Number(r.dataset.id)); });
+equipmentForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  harvestEqHistory();
+  const x = {};
+  [...equipmentForm.elements].forEach((el) => { if (el.name) x[el.name] = el.value || null; });
+  x.history = eqHistoryRows;
+  try {
+    if (editingEquipmentId) await post('/api/equipment/' + editingEquipmentId, x, 'PUT'); else await post('/api/equipment', x);
+    await loadEquipment(); $('#equipment-modal').hidden = true; refreshCurrentPage();
+  } catch (err) { alert('저장 실패: ' + err.message); }
+});
+$('#equipment-delete').addEventListener('click', async () => {
+  if (!editingEquipmentId || !confirm('이 설비를 삭제하시겠습니까?')) return;
+  await api('/api/equipment/' + editingEquipmentId, { method: 'DELETE' });
+  await loadEquipment(); $('#equipment-modal').hidden = true; refreshCurrentPage();
+});
+$('#eq-search').addEventListener('input', renderEquipment);
 
 /* ===================== 일일 공정일지 ===================== */
 function renderSheets() {
@@ -2661,7 +2800,7 @@ function fillMasterInputs() {
   planForm.elements.machine.innerHTML = mcOpts('<option value="">선택</option>');
   splintForm.elements.machine.innerHTML = mcOpts('<option value="">선택</option>');
   // 워크스페이스(공정일지)의 호기/품목 select는 렌더 시 MASTERS에서 직접 생성됨
-  ['#f-machine', '#p-machine', '#s-machine', '#a-machine'].forEach((sel) => { $(sel).innerHTML = mcOpts($(sel).querySelector('option').outerHTML); });
+  ['#f-machine', '#p-machine', '#s-machine', '#a-machine', '#ec-machine'].forEach((sel) => { $(sel).innerHTML = mcOpts($(sel).querySelector('option').outerHTML); });
   const custOpts = '<option value="">전체</option>' + (MASTERS.customers || []).map((c) => `<option>${esc(c)}</option>`).join('');
   $('#f-customer').innerHTML = custOpts;
   $('#a-customer').innerHTML = custOpts;
@@ -2729,12 +2868,13 @@ $('#a-reset').addEventListener('click', () => {
 
 /* ===================== 초기화 ===================== */
 (async function init() {
-  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadMasters()]);
+  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadMasters()]);
   fillMasterInputs();
   updateMetricLabels();
   applyAdminMode();
   const latest = RECORDS.length ? RECORDS[0].date : todayStr();
   $('#dash-month').value = latest.slice(0, 7);
   $('#s-month').value = latest.slice(0, 7);
-  renderDashboard();
+  applyAdminMode();
+  showPage('home');
 })();

@@ -16,19 +16,22 @@
     </div>
   </div>
   <nav>
+    <button class="nav-btn home-btn active" data-page="home">🏠 홈</button>
     <div class="nav-group">
-      <div class="nav-group-label">작업자</div>
-      <button class="nav-btn active" data-page="dashboard">📊 대시보드</button>
+      <div class="nav-group-label">작업</div>
+      <button class="nav-btn" data-page="dashboard">📊 대시보드</button>
       <button class="nav-btn" data-page="plans">🗓 생산계획 · 작업지시</button>
-      <button class="nav-btn" data-page="sheets">📝 공정기록 · 실적입력</button>
-      <button class="nav-btn" data-page="logs">📋 생산실적</button>
-      <button class="nav-btn" data-page="analysis">📈 실적·불량 분석</button>
+      <button class="nav-btn" data-page="sheets">📝 공정일지 작성</button>
+      <button class="nav-btn" data-page="equipchecks">🛠 설비 일상점검</button>
     </div>
     <div class="nav-group" id="admin-nav" hidden>
       <div class="nav-group-label">관리자</div>
-      <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
+      <button class="nav-btn" data-page="logs">📋 실적관리</button>
+      <button class="nav-btn" data-page="analysis">📈 실적·불량 분석</button>
+      <button class="nav-btn" data-page="companies">🏭 OEM 정보</button>
       <button class="nav-btn" data-page="standards">📦 제품표준서</button>
-      <button class="nav-btn" data-page="companies">🏭 OEM (고객사별)</button>
+      <button class="nav-btn" data-page="equipment">📒 설비 대장</button>
+      <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
     </div>
   </nav>
@@ -37,8 +40,31 @@
 </aside>
 
 <main class="main">
+  <!-- 홈 (카드 허브) -->
+  <section id="page-home" class="page">
+    <div class="hub">
+      <div class="hub-head">
+        <h1>🏭 BL-TECH 생산관리</h1>
+        <p class="muted">아래에서 작업 영역을 선택하세요</p>
+      </div>
+      <div class="hub-group-label">작업</div>
+      <div class="hub-cards">
+        <div class="hub-card" data-goto="sheets"><div class="hub-ico">📝</div><h3>공정일지 작성</h3><p>생산자가 직접 입력하는 일일 공정일지·실적. 라벨/LOT 시작점검 포함.</p><span class="hub-open">열기 →</span></div>
+        <div class="hub-card" data-goto="plans"><div class="hub-ico">🗓</div><h3>생산계획 · 작업지시</h3><p>생산계획 확인 및 작업지시서 발행.</p><span class="hub-open">열기 →</span></div>
+        <div class="hub-card" data-goto="equipchecks"><div class="hub-ico">🛠</div><h3>설비 일상점검</h3><p>호기(기계)별 일상 점검 체크리스트 작성.</p><span class="hub-open">열기 →</span></div>
+      </div>
+      <div class="hub-group-label">관리자 <span class="muted" style="font-weight:400">🔒 PIN</span></div>
+      <div class="hub-cards">
+        <div class="hub-card admin" data-goto="logs"><div class="hub-ico">📋</div><h3>실적관리</h3><p>생산실적 조회·CSV, 실적·불량 분석, 대시보드.</p><span class="hub-open">열기 →</span></div>
+        <div class="hub-card admin" data-goto="companies"><div class="hub-ico">🏭</div><h3>OEM 정보</h3><p>고객사별 포장·코팅·토너·특이사항.</p><span class="hub-open">열기 →</span></div>
+        <div class="hub-card admin" data-goto="standards"><div class="hub-ico">📦</div><h3>제품표준서</h3><p>제품별 기재·수지·촉매·코어·규격.</p><span class="hub-open">열기 →</span></div>
+        <div class="hub-card admin" data-goto="equipment"><div class="hub-ico">📒</div><h3>설비 대장</h3><p>설비 목록 관리 + 점검·수리 이력.</p><span class="hub-open">열기 →</span></div>
+      </div>
+    </div>
+  </section>
+
   <!-- 대시보드 -->
-  <section id="page-dashboard" class="page">
+  <section id="page-dashboard" class="page" hidden>
     <div class="page-head">
       <h1>대시보드</h1>
       <div class="head-actions">
@@ -277,6 +303,37 @@
     <div class="card">
       <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·OSSUR·크로실 등) 포장사양(인박스/아웃박스/파우치·라벨)과 특이사항(코팅·토너·컬러 등)입니다. OEM(전용 사양)을 위에 표시하며, 행을 클릭하면 수정할 수 있습니다. 제품 자체 기준은 <b>제품표준서</b>에서 관리합니다.</p>
       <div class="table-wrap" id="companies-list"></div>
+    </div>
+  </section>
+
+  <!-- 설비 일상점검 -->
+  <section id="page-equipchecks" class="page" hidden>
+    <div class="page-head">
+      <h1>설비 일상점검</h1>
+      <div class="head-actions">
+        <input type="month" id="ec-month">
+        <select id="ec-machine"><option value="">호기 전체</option></select>
+        <button class="btn primary" id="btn-new-equipcheck">＋ 점검 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">호기(기계)별 일상 점검 기록입니다. 행을 클릭하면 수정할 수 있습니다.</p>
+      <div class="table-wrap" id="equipchecks-list"></div>
+    </div>
+  </section>
+
+  <!-- 설비 대장 -->
+  <section id="page-equipment" class="page" hidden>
+    <div class="page-head">
+      <h1>설비 대장</h1>
+      <div class="head-actions">
+        <input type="text" id="eq-search" placeholder="설비명 · 모델 · 담당자 검색">
+        <button class="btn primary" id="btn-new-equipment">＋ 설비 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">설비 목록과 점검·수리 이력입니다. 행을 클릭하면 상세·이력을 관리할 수 있습니다.</p>
+      <div class="table-wrap" id="equipment-list"></div>
     </div>
   </section>
 
@@ -708,6 +765,67 @@
         <button type="button" class="btn" id="company-cancel">취소</button>
         <button type="submit" class="btn primary">저장</button>
       </div>
+    </form>
+  </div>
+</div>
+
+<!-- 설비 일상점검 모달 -->
+<div class="modal-back" id="equipcheck-modal" hidden>
+  <div class="modal" style="max-width:720px">
+    <div class="modal-head"><h2 id="equipcheck-modal-title">일상점검 등록</h2><button class="btn icon" id="equipcheck-close">✕</button></div>
+    <form id="equipcheck-form">
+      <fieldset><legend>기본</legend>
+        <div class="form-grid">
+          <label>점검일 *<input type="date" name="date" required></label>
+          <label>호기 *<select name="machine" required></select></label>
+          <label>점검자<input type="text" name="checker" list="dl-workers"></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>점검 항목</legend>
+        <div class="chk-row">
+          <label><input type="checkbox" name="clean"> 청결 상태</label>
+          <label><input type="checkbox" name="sealer"> 실링기 정상</label>
+          <label><input type="checkbox" name="pressure"> 압력 정상</label>
+          <label><input type="checkbox" name="safety"> 안전장치 정상</label>
+        </div>
+        <div class="form-grid" style="margin-top:8px">
+          <label>온도(℃)<input type="number" step="0.1" name="temp"></label>
+          <label>습도(%)<input type="number" step="0.1" name="humid"></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>이상 유무</legend>
+        <div class="form-grid">
+          <label><input type="checkbox" name="abnormal"> 이상 있음</label>
+          <label class="wide">이상 내용<input type="text" name="abnormalNote"></label>
+          <label class="wide">비고<input type="text" name="note"></label>
+        </div>
+      </fieldset>
+      <div class="modal-foot"><button type="button" class="btn danger" id="equipcheck-delete" hidden>삭제</button><span class="spacer"></span><button type="button" class="btn" id="equipcheck-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
+    </form>
+  </div>
+</div>
+
+<!-- 설비 대장 모달 -->
+<div class="modal-back" id="equipment-modal" hidden>
+  <div class="modal" style="max-width:840px">
+    <div class="modal-head"><h2 id="equipment-modal-title">설비 등록</h2><button class="btn icon" id="equipment-close">✕</button></div>
+    <form id="equipment-form">
+      <fieldset><legend>설비 정보</legend>
+        <div class="form-grid">
+          <label>설비명 *<input type="text" name="name" required></label>
+          <label>모델<input type="text" name="model"></label>
+          <label>관리번호<input type="text" name="serialNo"></label>
+          <label>구입일<input type="date" name="buyDate"></label>
+          <label>담당자<input type="text" name="manager" list="dl-workers"></label>
+          <label>위치<input type="text" name="location"></label>
+          <label class="wide">비고<input type="text" name="note"></label>
+        </div>
+      </fieldset>
+      <fieldset><legend>점검 · 수리 이력</legend>
+        <div id="eq-history"></div>
+        <button type="button" class="btn small" id="eq-history-add" style="margin-top:6px">＋ 이력 추가</button>
+      </fieldset>
+      <div class="modal-foot"><button type="button" class="btn danger" id="equipment-delete" hidden>삭제</button><span class="spacer"></span><button type="button" class="btn" id="equipment-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
     </form>
   </div>
 </div>

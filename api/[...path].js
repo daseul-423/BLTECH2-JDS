@@ -11,8 +11,8 @@
 const SB_URL = process.env.SUPABASE_URL;
 const SB_KEY = process.env.SUPABASE_SERVICE_KEY;
 const ROW_ID = 'db';
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs'];
-const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1 } };
+const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
+const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], equipchecks: [], equipment: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1, equipchecks: 1, equipment: 1 } };
 
 const sbHeaders = () => ({ apikey: SB_KEY, Authorization: `Bearer ${SB_KEY}`, 'Content-Type': 'application/json' });
 

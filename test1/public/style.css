@@ -180,6 +180,20 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 /* 전체 사양 보기 — 고객사 그룹 */
 .ov-group { margin-bottom: 18px; }
 .ov-group-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; margin-bottom: 6px; background: #f4f6fa; border-left: 3px solid var(--brand); border-radius: 6px; font-size: 14px; }
+/* 카드 허브 (홈) */
+.hub { max-width: 960px; margin: 0 auto; }
+.hub-head { text-align: center; margin: 12px 0 26px; }
+.hub-head h1 { margin: 0 0 6px; }
+.hub-group-label { font-size: 13px; font-weight: 700; color: var(--muted); margin: 18px 4px 10px; }
+.hub-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+.hub-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; cursor: pointer; transition: box-shadow .12s, transform .12s, border-color .12s; }
+.hub-card:hover { box-shadow: 0 6px 20px rgba(31,94,255,.12); transform: translateY(-2px); border-color: var(--brand); }
+.hub-card.admin { border-left: 3px solid #8b3ff0; }
+.hub-ico { font-size: 30px; margin-bottom: 8px; }
+.hub-card h3 { margin: 0 0 6px; font-size: 17px; }
+.hub-card p { margin: 0 0 12px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.hub-open { color: var(--brand); font-weight: 600; font-size: 13px; }
+.home-btn { font-weight: 700; margin-bottom: 6px; }
 /* 생산 시작 점검 (라벨·LOT) */
 .sc-row { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
 .sc-title { font-size: 15px; margin-bottom: 8px; }
