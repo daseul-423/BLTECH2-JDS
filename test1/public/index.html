@@ -864,10 +864,12 @@
         <div class="form-grid">
           <label>설비명 *<input type="text" name="name" required></label>
           <label>모델<input type="text" name="model"></label>
+          <label>업체명<input type="text" name="vendor" list="dl-eqVendors"></label>
           <label>관리번호<input type="text" name="serialNo"></label>
           <label>구입일<input type="date" name="buyDate"></label>
           <label>담당자<input type="text" name="manager" list="dl-workers"></label>
           <label>위치<input type="text" name="location"></label>
+          <label>정기점검 주기<input type="text" name="inspCycle" list="dl-eqInspCycle"></label>
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
       </fieldset>
@@ -943,6 +945,8 @@
 <datalist id="dl-qcItems"></datalist>
 <datalist id="dl-eqMethods"><option>육안검사</option><option>게이지 확인</option><option>작동 확인</option><option>측정</option><option>청소</option><option>급유</option></datalist>
 <datalist id="dl-eqCycles"><option>일일</option><option>주간</option><option>월간</option><option>분기</option><option>반기</option><option>연간</option></datalist>
+<datalist id="dl-eqVendors"><option>은하에어테크</option></datalist>
+<datalist id="dl-eqInspCycle"><option>매월 마지막 주 금요일</option><option>매주</option><option>매월</option><option>분기</option><option>반기</option><option>연간</option></datalist>
 
 <!-- AI 분석 챗봇 -->
 <button id="ai-fab" title="AI 분석 챗봇">🤖 AI 분석</button>

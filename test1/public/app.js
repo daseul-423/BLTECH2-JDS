@@ -1170,8 +1170,9 @@ function renderEquipDetail(id) {
   if (!e) { box.innerHTML = ''; return; }
   // 구버전 이력에 id 없으면 부여 (설비 내 고유)
   (e.history || []).forEach((h, i) => { if (h.id == null) h.id = i + 1; });
-  const meta = [['모델', e.model], ['관리번호', e.serialNo], ['구입일', e.buyDate], ['담당자', e.manager], ['위치', e.location]]
-    .map(([k, v]) => `<span class="eq-meta"><b>${esc(k)}</b> ${esc(v || '-')}</span>`).join('');
+  const meta = [['모델', e.model], ['업체명', e.vendor], ['관리번호', e.serialNo], ['구입일', e.buyDate], ['담당자', e.manager], ['위치', e.location], ['정기점검', e.inspCycle]]
+    .filter(([, v]) => v)
+    .map(([k, v]) => `<span class="eq-meta"><b>${esc(k)}</b> ${esc(v)}</span>`).join('');
   const cl = e.checklist || [];
   const clRows = cl.length ? cl.map(checklistRowHtml).join('') : '<div class="muted">점검항목이 없습니다. [＋ 점검항목 추가]로 등록하세요.</div>';
   const hist = (e.history || []).slice().sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
