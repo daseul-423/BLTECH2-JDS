@@ -27,87 +27,37 @@ const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
-/* ===================== 데이터 계층 (서버 API 우선, 없으면 localStorage) =====================
-   - 로컬에서 `node server.js`로 실행: 파일 DB(/api/*) 사용
-   - 정적 배포(Vercel 등 API 없음): 자동으로 브라우저 localStorage 사용, seed.json으로 최초 시드 */
-let LOCAL_MODE = false, LDB = null, _localInit = null;
-const LKEY = 'cast-mes-db-v1';
+/* ===================== 데이터 계층 (Firebase Firestore 전용) =====================
+   - 모든 읽기/쓰기는 dataService(Firestore)를 통함. localStorage 폴백 제거.
+   - api()/post() 규약(경로·반환형태)은 기존과 동일 → 화면·계산 코드는 무변경.
+   - /api/chat(OpenAI)은 api()를 거치지 않고 기존대로 fetch로 직접 호출됨(구조 유지). */
 const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
-const saveLocal = () => { try { localStorage.setItem(LKEY, JSON.stringify(LDB)); } catch (e) { /* quota */ } };
-async function initLocal() {
-  const cached = localStorage.getItem(LKEY);
-  if (cached) { LDB = JSON.parse(cached); }
-  else { LDB = await (await fetch('seed.json')).json(); }
-  LDB.seqs = LDB.seqs || { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1 };
-  ['custspecs', 'equipchecks', 'equipment'].forEach((c) => { if (LDB.seqs[c] == null) LDB.seqs[c] = 1; });
-  COLLECTIONS.forEach((c) => { if (!LDB[c]) LDB[c] = []; });
-  LDB.masters = LDB.masters || {};
-  if (cached) await healStandardImages();  // 옛 /uploads 경로 → 내장 사진(dataURL) 자동 교체
-  if (!cached) saveLocal();
-  LOCAL_MODE = true;
-}
-/* 배포 환경에서 서빙 불가한 /uploads 이미지 경로를 seed.json의 내장 dataURL로 치환 */
-async function healStandardImages() {
-  const stds = LDB.standards || [];
-  const hasStale = stds.some((s) => Object.values(s.images || {}).some((v) => typeof v === 'string' && v.startsWith('/uploads/')));
-  if (!hasStale) return;
-  let seedById = {};
-  try { (await (await fetch('seed.json')).json()).standards.forEach((s) => (seedById[s.id] = s)); } catch (e) { return; }
-  let changed = false;
-  stds.forEach((s) => {
-    const im = s.images || (s.images = {});
-    ['pouch', 'inBox', 'outBox'].forEach((k) => {
-      if (typeof im[k] === 'string' && im[k].startsWith('/uploads/')) {
-        const seeded = seedById[s.id] && seedById[s.id].images ? seedById[s.id].images[k] : '';
-        im[k] = (typeof seeded === 'string' && seeded.startsWith('data:')) ? seeded : '';
-        changed = true;
-      }
-    });
-  });
-  if (changed) saveLocal();
-}
-function localApi(path, opts = {}) {
+async function api(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : null;
   const url = new URL(path, location.origin);
   const p = url.pathname;
-  if (p === '/api/upload' && method === 'POST') return { url: body.dataUrl }; // 이미지=dataURL 직접 사용
+  if (p === '/api/upload' && method === 'POST') return { url: body.dataUrl }; // 사진=dataURL 내장(Storage 미사용)
   if (p === '/api/masters') {
-    if (method === 'GET') return LDB.masters;
-    if (method === 'PUT') { LDB.masters = body; saveLocal(); return LDB.masters; }
+    if (method === 'GET') return dataService.getMasters();
+    if (method === 'PUT') return dataService.putMasters(body);
   }
   const m = p.match(/^\/api\/(\w+)(?:\/(\d+))?$/);
   if (m && COLLECTIONS.includes(m[1])) {
-    const col = m[1], id = m[2] ? Number(m[2]) : null, items = LDB[col];
+    const col = m[1], id = m[2] ? Number(m[2]) : null;
     if (id == null && method === 'GET') {
-      let out = items.slice();
+      let out = await dataService.list(col);
       const from = url.searchParams.get('from'), to = url.searchParams.get('to');
       if (from) out = out.filter((r) => r.date >= from);
       if (to) out = out.filter((r) => r.date <= to);
       out.sort((a, b) => (a.date === b.date ? String(a.machine ?? '').localeCompare(String(b.machine ?? '')) : a.date < b.date ? 1 : -1));
       return out;
     }
-    if (id == null && method === 'POST') { body.id = LDB.seqs[col]++; items.push(body); saveLocal(); return body; }
-    if (id != null) {
-      const idx = items.findIndex((r) => r.id === id);
-      if (idx === -1) throw new Error('not found');
-      if (method === 'PUT') { body.id = id; items[idx] = body; saveLocal(); return body; }
-      if (method === 'DELETE') { items.splice(idx, 1); saveLocal(); return { ok: true }; }
-    }
+    if (id == null && method === 'POST') return dataService.create(col, body);
+    if (id != null && method === 'PUT') return dataService.update(col, id, body);
+    if (id != null && method === 'DELETE') return dataService.remove(col, id);
   }
   throw new Error('unknown route: ' + p);
-}
-async function api(path, opts) {
-  if (LOCAL_MODE) return localApi(path, opts);
-  try {
-    const res = await fetch(path, opts);
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-  } catch (e) {
-    if (!_localInit) _localInit = initLocal();   // 서버 API 없음 → localStorage 모드 1회 전환
-    await _localInit;
-    return localApi(path, opts);
-  }
 }
 const post = (path, body, method = 'POST') => api(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 const loadRecords = async () => { RECORDS = await api('/api/records'); };
@@ -3387,8 +3337,10 @@ $('#a-reset').addEventListener('click', () => {
 ['p-from', 'p-to', 'p-machine', 'p-status'].forEach((id) => $('#' + id).addEventListener('input', renderPlans));
 ['s-month', 's-machine'].forEach((id) => $('#' + id).addEventListener('input', renderSheets));
 
-/* ===================== 초기화 ===================== */
-(async function init() {
+/* ===================== 초기화 (Firebase 로그인 후 부팅) ===================== */
+let __booted = false;
+async function bootApp() {
+  if (__booted) return; __booted = true;
   await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadMasters()]);
   fillMasterInputs();
   updateMetricLabels();
@@ -3398,4 +3350,42 @@ $('#a-reset').addEventListener('click', () => {
   $('#s-month').value = latest.slice(0, 7);
   applyAdminMode();
   showPage('home');
+}
+
+/* --- 로그인 게이트: 인증 성공 시에만 앱 부팅 (미인증 = 업무화면·데이터 접근 불가) --- */
+(function initAuthGate() {
+  if (!window.dataService || !dataService.auth) {
+    const err = $('#login-error');
+    if (err) err.textContent = 'Firebase 초기화 실패 — firebase-config.js 설정을 확인하세요.';
+    return;
+  }
+  const auth = dataService.auth;
+  const loginScreen = $('#login-screen');
+  const form = $('#login-form');
+  const errBox = $('#login-error');
+  const submitBtn = $('#login-submit');
+  const logoutBtn = $('#logout-btn');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errBox.textContent = '';
+    submitBtn.disabled = true;
+    try {
+      await auth.signInWithEmailAndPassword(form.email.value.trim(), form.password.value);
+    } catch (err) {
+      errBox.textContent = '로그인 실패: 이메일 또는 비밀번호를 확인하세요.';
+    } finally { submitBtn.disabled = false; }
+  });
+  if (logoutBtn) logoutBtn.addEventListener('click', async () => { try { await auth.signOut(); } catch (e) {} location.reload(); });
+
+  auth.onAuthStateChanged((user) => {
+    if (user) {
+      loginScreen.hidden = true;
+      if (logoutBtn) { logoutBtn.hidden = false; const u = $('#logout-user'); if (u) u.textContent = user.email || ''; }
+      bootApp();
+    } else {
+      loginScreen.hidden = false;
+      if (logoutBtn) logoutBtn.hidden = true;
+    }
+  });
 })();

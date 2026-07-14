@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// 배포 방법: Firebase 콘솔 → Firestore Database → 규칙(Rules) 탭에 붙여넣고 게시,
+//           또는 Firebase CLI: firebase deploy --only firestore:rules
+//
+// 초기 정책: "로그인한(승인된) 사용자만" 전체 업무 데이터 읽기/쓰기 가능.
+//           미인증 사용자는 읽기·쓰기 모두 차단.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 로그인 사용자 전체 허용 (records/sheets/plans/standards/custspecs/equipchecks/equipment/masters/meta ...)
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // ── 후속(역할 기반) 확장 예시 ────────────────────────────────
+    // users/{uid}.role = 'admin' | 'manager' | 'worker' | 'viewer'
+    //
+    // function role() {
+    //   return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    // }
+    // match /{col}/{doc} {
+    //   allow read:  if request.auth != null;                       // 로그인하면 조회
+    //   allow write: if request.auth != null && role() in ['admin','manager','worker'];
+    // }
+  }
+}

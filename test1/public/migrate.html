@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Firestore 데이터 이전 도구 (1회성)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 760px; margin: 30px auto; padding: 0 16px; color: #1b2436; }
+    h1 { font-size: 20px; } .muted { color: #6b7688; }
+    .card { border: 1px solid #dbe0ea; border-radius: 10px; padding: 16px; margin: 14px 0; }
+    label { display: block; margin: 8px 0 4px; font-size: 13px; }
+    input { padding: 8px; border: 1px solid #cdd3df; border-radius: 6px; width: 100%; max-width: 360px; }
+    button { padding: 9px 16px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; font-weight: 600; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    pre { background: #0f1728; color: #cfe0ff; padding: 12px; border-radius: 8px; overflow: auto; max-height: 380px; font-size: 12px; }
+    .warn { background: #fff7ed; border: 1px solid #fed7aa; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Firestore 데이터 이전 도구 <span class="muted">(1회성 · 로컬 실행)</span></h1>
+  <div class="warn">
+    이 페이지는 <b>db.json 파일을 브라우저에서 직접 선택</b>해 Firestore로 옮깁니다.
+    파일은 이 PC → Firestore로만 전송되며 서버·GitHub에 올라가지 않습니다.
+    <b>이미 존재하는 id는 건너뜁니다(중복 방지)</b>. 이전 전/후 개수를 함께 표시합니다.
+  </div>
+
+  <div class="card" id="login-card">
+    <h3>1) 승인된 계정으로 로그인</h3>
+    <form id="login-form">
+      <label>이메일<input type="email" id="email" required></label>
+      <label>비밀번호<input type="password" id="password" required></label>
+      <p><button type="submit">로그인</button> <span id="login-state" class="muted"></span></p>
+    </form>
+  </div>
+
+  <div class="card" id="run-card" style="opacity:.5; pointer-events:none">
+    <h3>2) db.json 선택 후 이전 실행</h3>
+    <label>db.json 파일 (기본 위치: <code>test1/data/db.json</code>)</label>
+    <input type="file" id="dbfile" accept="application/json,.json">
+    <p style="margin-top:12px">
+      <button id="dry" type="button">미리보기(쓰기 안 함)</button>
+      <button id="run" type="button">이전 실행</button>
+    </p>
+    <pre id="log">대기 중…</pre>
+  </div>
+
+  <!-- Firebase compat SDK + 설정 + 데이터서비스 재사용 -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="dataService.js"></script>
+  <script>
+    const COLS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
+    const logEl = document.getElementById('log');
+    const log = (m) => { logEl.textContent += '\n' + m; };
+    let PARSED = null;
+
+    dataService.auth.onAuthStateChanged((u) => {
+      document.getElementById('login-state').textContent = u ? ('로그인됨: ' + (u.email || u.uid)) : '';
+      const run = document.getElementById('run-card');
+      run.style.opacity = u ? '1' : '.5';
+      run.style.pointerEvents = u ? 'auto' : 'none';
+    });
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      try { await dataService.auth.signInWithEmailAndPassword(email.value.trim(), password.value); }
+      catch (err) { alert('로그인 실패: ' + err.message); }
+    });
+    document.getElementById('dbfile').addEventListener('change', (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const r = new FileReader();
+      r.onload = () => { try { PARSED = JSON.parse(r.result); logEl.textContent = 'db.json 읽음 ✓'; COLS.forEach((c) => log(`  ${c}: ${(PARSED[c] || []).length}건`)); log(`  masters: ${PARSED.masters ? 'O' : 'X'}`); } catch (err) { alert('JSON 파싱 실패: ' + err.message); } };
+      r.readAsText(f);
+    });
+
+    async function migrate(dry) {
+      if (!PARSED) return alert('먼저 db.json 파일을 선택하세요.');
+      logEl.textContent = (dry ? '[미리보기] ' : '[실행] ') + '시작…';
+      let totalAdded = 0;
+      for (const col of COLS) {
+        const arr = PARSED[col] || [];
+        const existing = new Set(await dataService.listIds(col));
+        const before = existing.size;
+        let added = 0, maxId = 0;
+        for (const obj of arr) {
+          maxId = Math.max(maxId, Number(obj.id) || 0);
+          if (existing.has(Number(obj.id))) continue;      // 중복 방지
+          if (!dry) await dataService.importDoc(col, Object.assign({}, obj, { migratedAt: new Date().toISOString() }));
+          added++;
+        }
+        if (!dry && maxId) await dataService.setCounterAtLeast(col, maxId);
+        const after = dry ? before : (await dataService.listIds(col)).length;
+        totalAdded += added;
+        log(`${col}: db=${arr.length}, 기존=${before}, 추가=${added}, 이후=${after}`);
+      }
+      if (!dry && PARSED.masters) { await dataService.putMasters(PARSED.masters); log('masters: 저장됨'); }
+      log(dry ? `\n미리보기 완료 — 추가 예정 ${totalAdded}건 (쓰기 안 함)` : `\n✅ 이전 완료 — 총 추가 ${totalAdded}건`);
+    }
+    document.getElementById('dry').addEventListener('click', () => migrate(true).catch((e) => log('오류: ' + e.message)));
+    document.getElementById('run').addEventListener('click', () => { if (confirm('Firestore로 이전을 실행할까요? (기존 id는 건너뜀)')) migrate(false).catch((e) => log('오류: ' + e.message)); });
+  </script>
+</body>
+</html>

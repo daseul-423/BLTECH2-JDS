@@ -444,6 +444,29 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 #order-modal { z-index: 80; }
 #startcheck-modal { z-index: 80; }
 
+/* ===== 로그인 게이트 ===== */
+.login-screen[hidden] { display: none; }
+.login-screen {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  background: linear-gradient(135deg, #16213a, #24365c);
+}
+.login-card {
+  width: 100%; max-width: 360px; background: #fff; border-radius: 16px;
+  padding: 30px 26px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.login-card .login-mark {
+  width: 46px; height: 46px; border-radius: 12px; background: var(--brand); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; margin-bottom: 6px;
+}
+.login-card h1 { font-size: 20px; }
+.login-card .muted { font-size: 13px; margin-bottom: 10px; }
+.login-card label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-top: 8px; }
+.login-card input { padding: 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 15px; }
+.login-card button { margin-top: 16px; padding: 11px; font-size: 15px; }
+.login-error { color: #e03131; font-size: 13px; min-height: 18px; margin-top: 8px; }
+
 /* ===== 설비 대장: 설비 탭 + 상세 패널 ===== */
 .eq-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .eq-tab {
