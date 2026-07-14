@@ -45,10 +45,10 @@
       <button class="nav-btn" data-page="equipment">📒 설비 대장</button>
       <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
+      <button class="nav-btn" data-page="users">👤 사용자 관리</button>
     </div>
   </nav>
-  <button class="btn small" id="admin-toggle" style="margin:10px">🔒 관리자 모드</button>
-  <button class="btn small" id="logout-btn" style="margin:0 10px 10px" hidden>로그아웃 <span id="logout-user" class="muted"></span></button>
+  <button class="btn small" id="logout-btn" style="margin:10px" hidden>로그아웃 <span id="logout-user" class="muted"></span></button>
   <div class="sidebar-foot">BL-TECH 생산1팀</div>
 </aside>
 
@@ -360,7 +360,43 @@
     </div>
     <div class="card" id="masters-form"></div>
   </section>
+
+  <!-- 사용자 관리 (admin 전용) -->
+  <section id="page-users" class="page" hidden>
+    <div class="page-head">
+      <h1>사용자 관리</h1>
+      <div class="head-actions">
+        <input type="text" id="user-search" placeholder="이메일·이름·역할 검색">
+        <button class="btn primary" id="btn-new-user">＋ users 문서 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">Firebase Authentication 계정은 콘솔에서 생성합니다. 여기서는 해당 UID의 <b>users 문서(역할·활성)</b>를 등록·수정합니다.</p>
+      <div class="table-wrap" id="users-list"></div>
+    </div>
+  </section>
 </main>
+
+<!-- 사용자(users 문서) 모달 -->
+<div class="modal-back" id="user-modal" hidden>
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head"><h2 id="user-modal-title">users 문서</h2><button class="btn icon" id="user-close">✕</button></div>
+    <form id="user-form">
+      <fieldset><legend>직원 계정(Auth) + 권한 문서(users)</legend>
+        <div class="form-grid">
+          <label class="wide" id="user-uid-row" hidden>Auth UID<input type="text" name="uid" readonly></label>
+          <label>이메일 *<input type="email" name="email"></label>
+          <label id="user-pw-row">초기 비밀번호 *<input type="password" name="password" minlength="6" autocomplete="new-password" placeholder="6자 이상"></label>
+          <label>이름<input type="text" name="name"></label>
+          <label>역할<select name="role"><option value="worker">worker</option><option value="manager">manager</option><option value="admin">admin</option></select></label>
+          <label>활성 상태<select name="active"><option value="true">활성 (true)</option><option value="false">비활성 (false)</option></select></label>
+        </div>
+        <div class="muted" id="user-updated" style="margin-top:8px"></div>
+      </fieldset>
+      <div class="modal-foot"><button type="button" class="btn" id="user-reset-pw" hidden>🔑 비밀번호 재설정 메일</button><span class="spacer"></span><button type="button" class="btn" id="user-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
+    </form>
+  </div>
+</div>
 
 <!-- 생산실적 입력/수정 모달 -->
 <div class="modal-back" id="modal" hidden>

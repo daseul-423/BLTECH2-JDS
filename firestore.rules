@@ -1,27 +1,63 @@
 rules_version = '2';
 
-// 배포 방법: Firebase 콘솔 → Firestore Database → 규칙(Rules) 탭에 붙여넣고 게시,
-//           또는 Firebase CLI: firebase deploy --only firestore:rules
+// 배포: Firebase 콘솔 → Firestore Database → 규칙(Rules) 붙여넣고 게시
+//       또는 CLI: firebase deploy --only firestore:rules
 //
-// 초기 정책: "로그인한(승인된) 사용자만" 전체 업무 데이터 읽기/쓰기 가능.
-//           미인증 사용자는 읽기·쓰기 모두 차단.
+// 역할(users/{uid}.role): admin | manager | worker,  활성: users/{uid}.active == true
+// - 미인증: 전부 차단
+// - users 문서 없음 / active=false: 업무 데이터 접근 차단
+// - 삭제(delete)는 admin 전용 (설비 등 모든 최상위 문서)
+// - worker: 지정 컬렉션 읽기만 / 공정일지·설비점검 생성 / 본인(createdBy==uid) 문서만 수정
+// - users 컬렉션: 본인 문서 읽기 + admin만 쓰기
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 로그인 사용자 전체 허용 (records/sheets/plans/standards/custspecs/equipchecks/equipment/masters/meta ...)
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+    function signedIn() { return request.auth != null; }
+    function hasUser() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)); }
+    function udoc() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function active() { return hasUser() && udoc().active == true; }
+    function role() { return udoc().role; }
+    function isAdmin() { return active() && role() == 'admin'; }
+    function isManager() { return active() && role() == 'manager'; }
+    function isWorker() { return active() && role() == 'worker'; }
+    function isStaff() { return isAdmin() || isManager(); }   // 등록·수정 가능(삭제 제외)
+    function ownsExisting() { return isWorker() && resource.data.createdBy == request.auth.uid; }
+
+    // 조회 전용(worker read-only) + 관리자·매니저 등록/수정, 삭제는 admin
+    match /records/{id}   { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
+    match /plans/{id}     { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
+    match /standards/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
+    match /custspecs/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
+
+    // 설비: manager 등록·수정 가능, 삭제는 admin
+    match /equipment/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
+
+    // 마스터(기준정보·OEM/회사 포함): manager 조회·수정
+    match /masters/{id}   { allow read: if active(); allow write: if isStaff(); }
+
+    // id 시퀀스 카운터: 문서 생성 권한자(worker 포함)가 증가시켜야 하므로 활성 사용자 쓰기 허용
+    match /meta/{id}      { allow read: if active(); allow write: if active(); }
+
+    // 공정일지: worker 생성 + 본인 문서만 수정, 삭제 admin
+    match /sheets/{id} {
+      allow read:   if active();
+      allow create: if active();
+      allow update: if isStaff() || ownsExisting();
+      allow delete: if isAdmin();
+    }
+    // 설비 일상점검: worker 생성 + 본인 문서만 수정, 삭제 admin
+    match /equipchecks/{id} {
+      allow read:   if active();
+      allow create: if active();
+      allow update: if isStaff() || ownsExisting();
+      allow delete: if isAdmin();
     }
 
-    // ── 후속(역할 기반) 확장 예시 ────────────────────────────────
-    // users/{uid}.role = 'admin' | 'manager' | 'worker' | 'viewer'
-    //
-    // function role() {
-    //   return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-    // }
-    // match /{col}/{doc} {
-    //   allow read:  if request.auth != null;                       // 로그인하면 조회
-    //   allow write: if request.auth != null && role() in ['admin','manager','worker'];
-    // }
+    // 사용자 권한 문서: 본인 문서 읽기 가능, 생성·수정·삭제는 admin만
+    match /users/{uid} {
+      allow read:   if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
   }
 }

@@ -194,54 +194,175 @@ function splintWsCalc(r) {
 
 /* ===================== 네비게이션 ===================== */
 $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
-const ADMIN_PAGES = ['logs', 'analysis', 'overview', 'standards', 'custspecs', 'companies', 'equipment', 'masters'];
-function showPage(page) {
-  if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) page = 'home';  // 잠금 시 관리자 페이지 차단
-  $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
-  $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters }[page];
-  if (render) render();
+/* ===================== 역할 기반 권한 (RBAC) — PIN 관리자모드 대체 ===================== */
+let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
+
+const ROLE_PAGES = {
+  admin:   ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'users'],
+  manager: ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters'],
+  worker:  ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'overview'],
+};
+// 등록/수정 가능 역할 (컬렉션별). 삭제는 admin 전용. companies=masters.companies 문서 쓰기.
+const WRITE_ROLES = {
+  records: ['admin', 'manager'], plans: ['admin', 'manager'], standards: ['admin', 'manager'],
+  custspecs: ['admin', 'manager'], companies: ['admin', 'manager'], masters: ['admin', 'manager'],
+  equipment: ['admin', 'manager'],
+  sheets: ['admin', 'manager', 'worker'], equipchecks: ['admin', 'manager', 'worker'],
+  users: ['admin'],
+};
+const canAccessPage = (page) => !ME || (ROLE_PAGES[ME.role] || []).includes(page);
+function can(action, col, doc) {
+  if (!ME) return false;
+  const r = ME.role;
+  if (action === 'read') return true;
+  if (action === 'delete') return r === 'admin';
+  if (action === 'create') return (WRITE_ROLES[col] || []).includes(r);
+  if (action === 'update') {
+    if (r === 'admin') return true;
+    if (r === 'manager') return (WRITE_ROLES[col] || []).includes('manager');
+    if (r === 'worker') return (col === 'sheets' || col === 'equipchecks') && !!doc && doc.createdBy === ME.uid;
+  }
+  return false;
 }
-function refreshCurrentPage() {
-  showPage($('.nav-btn.active').dataset.page);
+/* 모달 저장/삭제 버튼 노출 제어 (권한 없으면 조회 전용) */
+function gateModal(formSel, canEdit, canDelete) {
+  const form = $(formSel);
+  if (!form) return;
+  form.querySelectorAll('button[type="submit"]').forEach((b) => (b.hidden = !canEdit));
+  form.querySelectorAll('.btn.danger').forEach((b) => { if (/delete|삭제/i.test((b.id || '') + b.textContent)) b.hidden = !canDelete; });
 }
 
-/* ===================== 관리자 모드 (PIN, 소프트 가드) ===================== */
-const ADMIN_DEFAULT_PIN = '268605';
-function isAdminUnlocked() { return sessionStorage.getItem('adminUnlocked') === '1'; }
-function applyAdminMode() {
-  const on = isAdminUnlocked();
-  $('#admin-nav').hidden = !on;
-  const btn = $('#admin-toggle');
-  btn.textContent = on ? '🔓 관리자 모드 해제' : '🔒 관리자 모드';
-  btn.classList.toggle('primary', on);
+$$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
+function showPage(page) {
+  if (!canAccessPage(page)) page = 'home';
+  $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
+  $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
+  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, users: renderUsers }[page];
+  if (render) render();
+  applyCreateButtons();
 }
-$('#admin-toggle').addEventListener('click', () => {
-  if (isAdminUnlocked()) {
-    sessionStorage.removeItem('adminUnlocked');
-    applyAdminMode();
-    const cur = $('.nav-btn.active');
-    if (cur && ADMIN_PAGES.includes(cur.dataset.page)) showPage('home');
-    return;
-  }
-  const input = prompt('관리자 PIN을 입력하세요');
-  if (input == null) return;
-  if (String(input).trim() === String(MASTERS.adminPin || ADMIN_DEFAULT_PIN)) {
-    sessionStorage.setItem('adminUnlocked', '1');
-    applyAdminMode();
-  } else { alert('PIN이 올바르지 않습니다.'); }
-});
-/* 카드 허브 → 영역 이동 (관리자 카드는 PIN 확인) */
-function goArea(page) {
-  if (ADMIN_PAGES.includes(page) && !isAdminUnlocked()) {
-    const input = prompt('관리자 PIN을 입력하세요');
-    if (input == null) return;
-    if (String(input).trim() === String(MASTERS.adminPin || ADMIN_DEFAULT_PIN)) { sessionStorage.setItem('adminUnlocked', '1'); applyAdminMode(); }
-    else { alert('PIN이 올바르지 않습니다.'); return; }
-  }
-  showPage(page);
+function refreshCurrentPage() {
+  const cur = $('.nav-btn.active');
+  showPage(cur ? cur.dataset.page : 'home');
 }
+
+/* 생성 버튼 노출(역할별) */
+const CREATE_BTNS = {
+  plans: '#btn-new-plan', standards: '#btn-new-standard', custspecs: '#btn-new-custspec',
+  companies: '#btn-new-company', equipchecks: '#btn-new-equipcheck', equipment: '#btn-new-equipment',
+  sheets: '#btn-new-sheet', users: '#btn-new-user',
+};
+function applyCreateButtons() {
+  Object.keys(CREATE_BTNS).forEach((col) => { const el = $(CREATE_BTNS[col]); if (el) el.hidden = !can('create', col); });
+}
+/* 역할에 따라 메뉴 표시 + 생성 버튼 노출 */
+function applyRolePerms() {
+  if (!ME) return;
+  document.body.dataset.role = ME.role;
+  const allowed = ROLE_PAGES[ME.role] || [];
+  $$('.nav-btn').forEach((b) => { const pg = b.dataset.page; if (pg) b.hidden = !allowed.includes(pg); });
+  $$('.nav-group').forEach((g) => { g.hidden = ![...g.querySelectorAll('.nav-btn')].some((b) => !b.hidden); });
+  $$('.hub-card[data-goto]').forEach((c) => { c.hidden = !allowed.includes(c.dataset.goto); });
+  applyCreateButtons();
+}
+/* 카드 허브 → 영역 이동 (권한 없으면 무시) */
+function goArea(page) { if (canAccessPage(page)) showPage(page); }
 document.addEventListener('click', (e) => { const c = e.target.closest('.hub-card[data-goto]'); if (c) goArea(c.dataset.goto); });
+
+/* ===================== 사용자 관리 (admin 전용) ===================== */
+let editingUserUid = null, LAST_USERS = [];
+const userRoleBadge = (r) => `<span class="badge ${r === 'admin' ? 'bad' : r === 'manager' ? 'warn' : 'ok'}">${esc(r || '-')}</span>`;
+async function renderUsers() {
+  const box = $('#users-list');
+  try { LAST_USERS = await dataService.listUsers(); }
+  catch (e) { box.innerHTML = '<div class="empty">사용자 목록을 불러오지 못했습니다. (admin 권한 필요)</div>'; return; }
+  let users = LAST_USERS.slice();
+  const q = ($('#user-search').value || '').trim().toLowerCase();
+  if (q) users = users.filter((u) => [u.email, u.name, u.role].some((v) => String(v || '').toLowerCase().includes(q)));
+  users.sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')));
+  const rows = users.map((u) => `<tr class="user-row" data-uid="${esc(u.uid)}" style="cursor:pointer">
+    <td>${esc(u.email || '-')}</td><td>${esc(u.name || '-')}</td><td>${userRoleBadge(u.role)}</td>
+    <td>${u.active === false ? '<span class="badge bad">비활성</span>' : '<span class="badge ok">활성</span>'}</td>
+    <td>${esc((u.updatedAt || '').slice(0, 16).replace('T', ' '))}</td>
+    <td><button type="button" class="btn small user-edit" data-uid="${esc(u.uid)}">수정</button></td>
+  </tr>`).join('');
+  box.innerHTML = users.length
+    ? `<table><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>활성</th><th>마지막 수정</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">등록된 users 문서가 없습니다. [＋ users 문서 등록]으로 추가하세요.</div>';
+}
+function friendlyAuthError(err) {
+  const c = (err && err.code) || '';
+  const map = {
+    'auth/email-already-in-use': '이미 사용 중인 이메일입니다. (해당 계정은 Firebase 콘솔에서 확인하세요)',
+    'auth/invalid-email': '이메일 형식이 올바르지 않습니다.',
+    'auth/weak-password': '비밀번호가 너무 약합니다. (6자 이상)',
+    'auth/operation-not-allowed': '이메일/비밀번호 로그인이 콘솔에서 비활성 상태입니다.',
+    'auth/network-request-failed': '네트워크 오류입니다. 잠시 후 다시 시도하세요.',
+    'permission-denied': '권한이 없습니다. (admin만 가능)',
+  };
+  return map[c] || (err && err.message) || String(err);
+}
+function openUserModal(uid = null) {
+  editingUserUid = uid;
+  const isNew = !uid;
+  const f = $('#user-form'); f.reset();
+  $('#user-modal-title').textContent = isNew ? '직원 추가 (Auth 계정 + 권한 문서)' : '직원 정보 수정';
+  const u = uid ? LAST_USERS.find((x) => x.uid === uid) : null;
+  // 신규: 이메일·초기 비밀번호 입력 → 계정 생성 / 수정: 문서만(이메일 변경은 콘솔)
+  $('#user-uid-row').hidden = isNew;
+  $('#user-pw-row').hidden = !isNew;
+  $('#user-reset-pw').hidden = isNew;
+  f.elements.email.readOnly = !isNew;
+  f.elements.email.required = isNew;
+  f.elements.password.required = isNew;
+  if (u) {
+    f.elements.uid.value = u.uid;
+    f.elements.email.value = u.email || '';
+    f.elements.name.value = u.name || '';
+    f.elements.role.value = u.role || 'worker';
+    f.elements.active.value = String(u.active !== false);
+  } else { f.elements.role.value = 'worker'; f.elements.active.value = 'true'; }
+  $('#user-updated').textContent = u
+    ? `UID: ${u.uid} · 마지막 수정 ${(u.updatedAt || '').slice(0, 16).replace('T', ' ')} (${esc(u.updatedByEmail || u.updatedBy || '')})`
+    : '이메일과 초기 비밀번호로 Firebase 계정과 권한 문서를 함께 생성합니다. (직원은 최초 로그인 후 비밀번호 변경 권장)';
+  $('#user-modal').hidden = false;
+}
+if ($('#btn-new-user')) $('#btn-new-user').addEventListener('click', () => openUserModal());
+if ($('#user-close')) $('#user-close').addEventListener('click', () => ($('#user-modal').hidden = true));
+if ($('#user-cancel')) $('#user-cancel').addEventListener('click', () => ($('#user-modal').hidden = true));
+if ($('#user-search')) $('#user-search').addEventListener('input', renderUsers);
+document.addEventListener('click', (e) => { const r = e.target.closest('.user-row'); if (r) openUserModal(r.dataset.uid); });
+if ($('#user-reset-pw')) $('#user-reset-pw').addEventListener('click', async () => {
+  const email = ($('#user-form').elements.email.value || '').trim();
+  if (!email) return alert('이메일이 없습니다.');
+  if (!confirm(`${email} 로 비밀번호 재설정 메일을 보낼까요?`)) return;
+  try { await dataService.sendPasswordReset(email); alert('재설정 메일을 발송했습니다.'); }
+  catch (err) { alert('메일 발송 실패: ' + friendlyAuthError(err)); }
+});
+if ($('#user-form')) $('#user-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const email = (f.elements.email.value || '').trim();
+  const name = (f.elements.name.value || '').trim() || null;
+  const role = f.elements.role.value;
+  const active = f.elements.active.value === 'true';
+  const submitBtn = f.querySelector('button[type="submit"]');
+  submitBtn.disabled = true;
+  try {
+    if (!editingUserUid) {
+      const pw = f.elements.password.value;
+      if (!email) throw new Error('이메일을 입력하세요.');
+      if (!pw || pw.length < 6) throw new Error('초기 비밀번호는 6자 이상이어야 합니다.');
+      await dataService.createEmployee(email, pw, { name, role, active });
+      alert('직원 계정과 권한 문서가 생성되었습니다.');
+    } else {
+      await dataService.saveUser(editingUserUid, { email: email || null, name, role, active }, false);
+    }
+    $('#user-modal').hidden = true;
+    renderUsers();
+  } catch (err) { alert('저장 실패: ' + friendlyAuthError(err)); }
+  finally { submitBtn.disabled = false; }
+});
 
 /* ===================== AI 분석 챗봇 (서버 /api/chat 프록시) ===================== */
 function buildAiContext() {
@@ -395,6 +516,7 @@ function openPlanModal(id = null) {
     planForm.elements.date.value = todayStr();
     planForm.elements.part.value = PART;
   }
+  gateModal('#plan-form', id ? can('update', 'plans') : can('create', 'plans'), !!id && can('delete', 'plans'));
   $('#plan-modal').hidden = false;
 }
 $('#btn-new-plan').addEventListener('click', () => openPlanModal());
@@ -743,6 +865,7 @@ function openStandardModal(id = null) {
     standardForm.elements.part.value = PART;
   }
   $$('#standard-form .photo-slot').forEach((slot) => slot._setUrl((s && s.images && s.images[slot.dataset.img]) || ''));
+  gateModal('#standard-form', id ? can('update', 'standards') : can('create', 'standards'), !!id && can('delete', 'standards'));
   $('#standard-modal').hidden = false;
 }
 $('#btn-new-standard').addEventListener('click', () => openStandardModal());
@@ -840,6 +963,7 @@ function openCustSpecModal(id = null) {
     custspecForm.elements.specTarget.value = '__NEAL__';
   }
   $$('#custspec-form .photo-slot').forEach((slot) => slot._setUrl((s && s.images && s.images[slot.dataset.img]) || ''));
+  gateModal('#custspec-form', id ? can('update', 'custspecs') : can('create', 'custspecs'), !!id && can('delete', 'custspecs'));
   $('#custspec-modal').hidden = false;
 }
 $('#btn-new-custspec').addEventListener('click', () => openCustSpecModal());
@@ -976,6 +1100,7 @@ function openCompanyModal(id = null) {
   const c = id ? (MASTERS.companies || []).find((x) => x.id === id) : null;
   if (c) [...companyForm.elements].forEach((el) => { if (el.name && c[el.name] != null) el.value = c[el.name]; });
   companyForm.elements.specType.value = c ? (c.specType || 'NEAL') : 'NEAL';
+  gateModal('#company-form', id ? can('update', 'companies') : can('create', 'companies'), !!id && can('delete', 'companies'));
   $('#company-modal').hidden = false;
 }
 $('#btn-new-company').addEventListener('click', () => openCompanyModal());
@@ -1047,6 +1172,7 @@ function openEquipCheckModal(id = null) {
     [...equipcheckForm.elements].forEach((el) => { if (!el.name) return; if (el.type === 'checkbox') el.checked = !!x[el.name]; else if (x[el.name] != null) el.value = x[el.name]; });
   } else { equipcheckForm.elements.date.value = todayStr(); equipcheckForm.elements.part.value = PART; }
   $$('#equipcheck-form .photo-slot').forEach((slot) => slot._setUrl((x && x.images && x.images[slot.dataset.img]) || ''));
+  gateModal('#equipcheck-form', id ? can('update', 'equipchecks', EQUIPCHECKS.find((e) => e.id === id)) : can('create', 'equipchecks'), !!id && can('delete', 'equipchecks'));
   $('#equipcheck-modal').hidden = false;
 }
 $('#btn-new-equipcheck').addEventListener('click', () => openEquipCheckModal());
@@ -1220,6 +1346,7 @@ function openEquipmentModal(id = null) {
   $('#equipment-delete').hidden = !id;
   const x = id ? EQUIPMENT.find((e) => e.id === id) : null;
   if (x) [...equipmentForm.elements].forEach((el) => { if (el.name && x[el.name] != null && typeof x[el.name] !== 'object') el.value = x[el.name]; });
+  gateModal('#equipment-form', id ? can('update', 'equipment') : can('create', 'equipment'), !!id && can('delete', 'equipment'));
   $('#equipment-modal').hidden = false;
 }
 $('#btn-new-equipment').addEventListener('click', () => openEquipmentModal());
@@ -1264,6 +1391,7 @@ function openRecordModal(equipId, recId) {
   f.elements.detail.value = (rec && rec.detail) || '';
   eqrPhotos = rec && Array.isArray(rec.photos) ? rec.photos.map((p) => ({ ...p })) : [];
   renderEqrPhotos();
+  gateModal('#equip-record-form', can('update', 'equipment'), can('update', 'equipment'));
   $('#equip-record-modal').hidden = false;
 }
 function harvestEqrLabels() {
@@ -1968,7 +2096,7 @@ const HYBRID_TIMES = [
   { key: 'e', label: 'E time (18:00 ~ 21:00)' },
 ];
 
-let WS = null, wsPart = 'CAST', wsForm = 'CAST', wsTab = 'basic', wsIsNew = false, wsSaveTimer = null, wsOrigRecordIds = [];
+let WS = null, wsPart = 'CAST', wsForm = 'CAST', wsTab = 'basic', wsIsNew = false, wsSaveTimer = null, wsOrigRecordIds = [], wsCanEdit = true;
 
 /* --- 블록 렌더링 --- */
 function wsFieldHtml(f) {
@@ -2446,7 +2574,11 @@ function renderWsTab() {
   const endBtn = panel.querySelector('#ws-end');
   if (endBtn) endBtn.addEventListener('click', () => { harvestWs(); WS.endTime = nowTime(); saveWsNow(); renderWsTab(); });
   const finishBtn = panel.querySelector('#ws-finish');
-  if (finishBtn) finishBtn.addEventListener('click', wsFinish);
+  if (finishBtn) { finishBtn.hidden = !wsCanEdit; finishBtn.addEventListener('click', wsFinish); }
+  const endBtn2 = panel.querySelector('#ws-end');
+  if (endBtn2) endBtn2.hidden = !wsCanEdit;
+  const startBtn2 = panel.querySelector('#ws-start');
+  if (startBtn2) startBtn2.hidden = !wsCanEdit;
   updateSplintLive();
 }
 
@@ -2475,11 +2607,13 @@ function harvestWs() {
 
 /* --- 자동저장 --- */
 function scheduleWsSave() {
+  if (!wsCanEdit) return;   // 조회 전용(권한 없음)
   $('#ws-save-status').textContent = '저장 중…';
   clearTimeout(wsSaveTimer);
   wsSaveTimer = setTimeout(saveWsNow, 700);
 }
 async function saveWsNow() {
+  if (!wsCanEdit) return;   // 조회 전용(권한 없음)
   if (!WS || !WS.id) return;
   clearTimeout(wsSaveTimer);
   try { await post('/api/sheets/' + WS.id, WS, 'PUT'); $('#ws-save-status').textContent = '저장됨 ✓'; }
@@ -2515,14 +2649,17 @@ async function openWorkspace(part, id = null) {
     WS.part = part;
     wsIsNew = false;
     wsOrigRecordIds = (WS.lines || []).map((l) => l.recordId).filter(Boolean);
+    wsCanEdit = can('update', 'sheets', WS);   // worker는 본인 작성 일지만 수정
     // 구버전 SPLINT 일지 호환: writer만 있고 호기장 비었으면 채움
     if (partBase(part) === 'SPLINT' && !WS.leader && WS.writer) WS.leader = WS.writer;
   } else {
+    if (!can('create', 'sheets')) return;   // 신규 작성 권한 없음
     WS = { part, date: todayStr(), status: '작성중', lines: [] };
     const saved = await post('/api/sheets', WS);
-    WS.id = saved.id; wsIsNew = true; wsOrigRecordIds = [];
+    WS.id = saved.id; WS.createdBy = saved.createdBy; wsIsNew = true; wsOrigRecordIds = []; wsCanEdit = true;
   }
   $('#sheet-workspace').hidden = false;
+  $('#ws-delete').hidden = !can('delete', 'sheets');   // 일지 삭제는 admin만
   renderWorkspace();
 }
 function isEmptyWs() {
@@ -2761,6 +2898,7 @@ function openSplintModal(id = null) {
     splintForm.elements.rollLen.value = 4.55;
   }
   updateSplintCalc();
+  gateModal('#splint-form', id ? can('update', 'records') : can('create', 'records'), !!id && can('delete', 'records'));
   $('#splint-modal').hidden = false;
 }
 
@@ -3149,6 +3287,7 @@ function openModal(id = null) {
     form.elements.date.value = todayStr();
   }
   updateCalcFields();
+  gateModal('#log-form', id ? can('update', 'records') : can('create', 'records'), !!id && can('delete', 'records'));
   $('#modal').hidden = false;
 }
 function closeModal() { $('#modal').hidden = true; editingId = null; }
@@ -3240,9 +3379,6 @@ function renderMasters() {
     '<h3 style="margin:20px 0 6px">고객사 사양 구분 (NEAL / OEM)</h3>' +
     '<p class="muted" style="margin-bottom:10px">작업지시에서 이 설정에 따라 <b>기본 NEAL 사양</b> 또는 <b>고객사 OEM 사양</b>을 적용합니다.</p>' +
     custRows +
-    '<h3 style="margin:20px 0 6px">관리자 PIN</h3>' +
-    '<p class="muted" style="margin-bottom:10px">관리자 모드 진입 PIN입니다. 비우면 기본값(268605).</p>' +
-    `<div class="m-row"><label>관리자 PIN</label><input type="text" id="admin-pin-input" value="${esc(MASTERS.adminPin || '')}" placeholder="기본 268605"></div>` +
     '<div style="margin-top:16px"><button class="btn primary" id="btn-save-masters">기준정보 저장</button></div>';
   $('#btn-save-masters').addEventListener('click', async () => {
     const next = { ...MASTERS };
@@ -3252,8 +3388,6 @@ function renderMasters() {
     const types = {};
     $$('#masters-form select[data-custtype]').forEach((el) => { if (el.value === 'OEM') types[el.dataset.custtype] = 'OEM'; });
     next.customerTypes = types;
-    const pinv = $('#admin-pin-input').value.trim();
-    if (pinv) next.adminPin = pinv; else delete next.adminPin;
     MASTERS = await post('/api/masters', next, 'PUT');
     fillMasterInputs();
     renderMasters();
@@ -3344,11 +3478,10 @@ async function bootApp() {
   await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadMasters()]);
   fillMasterInputs();
   updateMetricLabels();
-  applyAdminMode();
+  applyRolePerms();
   const latest = RECORDS.length ? RECORDS[0].date : todayStr();
   $('#dash-month').value = latest.slice(0, 7);
   $('#s-month').value = latest.slice(0, 7);
-  applyAdminMode();
   showPage('home');
 }
 
@@ -3376,16 +3509,27 @@ async function bootApp() {
       errBox.textContent = '로그인 실패: 이메일 또는 비밀번호를 확인하세요.';
     } finally { submitBtn.disabled = false; }
   });
-  if (logoutBtn) logoutBtn.addEventListener('click', async () => { try { await auth.signOut(); } catch (e) {} location.reload(); });
+  if (logoutBtn) logoutBtn.addEventListener('click', async () => { ME = null; try { await auth.signOut(); } catch (e) {} location.reload(); });
 
-  auth.onAuthStateChanged((user) => {
-    if (user) {
-      loginScreen.hidden = true;
-      if (logoutBtn) { logoutBtn.hidden = false; const u = $('#logout-user'); if (u) u.textContent = user.email || ''; }
-      bootApp();
-    } else {
-      loginScreen.hidden = false;
-      if (logoutBtn) logoutBtn.hidden = true;
-    }
+  // 로그인 후: users/{uid}의 role·active 확인 → 통과해야만 데이터 로드/부팅
+  async function block(msg) {
+    errBox.textContent = msg;
+    loginScreen.hidden = false;
+    if (logoutBtn) logoutBtn.hidden = true;
+    ME = null;
+    try { await auth.signOut(); } catch (e) {}
+  }
+  auth.onAuthStateChanged(async (user) => {
+    if (!user) { loginScreen.hidden = false; if (logoutBtn) logoutBtn.hidden = true; return; }
+    let udoc;
+    try { udoc = await dataService.getUser(user.uid); }
+    catch (e) { return block('권한 정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요.'); }
+    if (!udoc) return block('등록되지 않은 사용자입니다. 관리자에게 users 문서 등록을 요청하세요.');
+    if (udoc.active === false) return block('비활성화된 계정입니다. 관리자에게 문의하세요.');
+    if (!['admin', 'manager', 'worker'].includes(udoc.role)) return block('권한(role)이 올바르지 않습니다. 관리자에게 문의하세요.');
+    ME = { uid: user.uid, email: user.email, name: udoc.name || '', role: udoc.role, active: true };
+    loginScreen.hidden = true;
+    if (logoutBtn) { logoutBtn.hidden = false; const u = $('#logout-user'); if (u) u.textContent = `${ME.name || user.email} · ${ME.role}`; }
+    await bootApp();   // 권한 확인 후에만 업무 데이터 로드
   });
 })();
