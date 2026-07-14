@@ -19,6 +19,9 @@
   firebase.initializeApp(window.firebaseConfig);
   var _db = firebase.firestore();
   var _auth = firebase.auth();
+  // 로그인 지속성: 세션 단위 → 브라우저(탭) 닫으면 자동 로그아웃 (공용 PC 보안)
+  try { _auth.setPersistence(firebase.auth.Auth.Persistence.SESSION); }
+  catch (e) { console.warn('[dataService] persistence 설정 실패', e); }
 
   var _uid = function () { var u = _auth.currentUser; return u ? u.uid : null; };
   var _email = function () { var u = _auth.currentUser; return u ? (u.email || null) : null; };
