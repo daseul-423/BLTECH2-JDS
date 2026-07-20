@@ -3,6 +3,28 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+/* ---- .env 로더 (의존성 없음) ----------------------------------------------
+   KEY=VALUE 형식, # 주석·빈 줄 무시, 따옴표 제거.
+   이미 설정된 환경변수(셸/Vercel)는 덮어쓰지 않음 → 우선순위:
+     실제 환경변수  >  test1/.env  >  저장소 루트 .env  >  test1/.openai-key(구방식 폴백)
+   ⚠️ .env 는 .gitignore 로 제외되어 GitHub에 올라가지 않습니다.                */
+function loadEnvFile(p) {
+  try {
+    fs.readFileSync(p, 'utf-8').split(/\r?\n/).forEach((line) => {
+      const s = line.trim();
+      if (!s || s.startsWith('#')) return;
+      const i = s.indexOf('=');
+      if (i === -1) return;
+      const k = s.slice(0, i).trim();
+      let v = s.slice(i + 1).trim();
+      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
+      if (k && process.env[k] === undefined) process.env[k] = v;   // 기존 환경변수 우선
+    });
+  } catch (e) { /* 파일 없으면 무시 */ }
+}
+loadEnvFile(path.join(__dirname, '.env'));            // test1/.env
+loadEnvFile(path.join(__dirname, '..', '.env'));      // 저장소 루트 .env
+
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
