@@ -1,0 +1,28 @@
+{
+  "hosting": {
+    "public": "test1/public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "migrate.html",
+      "seed.json"
+    ],
+    "rewrites": [
+      { "source": "/api/chat", "function": "chat" }
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(js|css|html)",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      }
+    ]
+  },
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20"
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "bltech-functions",
+  "description": "BL-TECH 생산관리 - Cloud Functions (AI 챗봇 프록시)",
+  "engines": {
+    "node": "20"
+  },
+  "main": "index.js",
+  "private": true,
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.1"
+  }
+}

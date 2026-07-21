@@ -385,7 +385,10 @@ async function aiAsk(q) {
   loading.className = 'ai-msg bot'; loading.textContent = '분석 중…';
   msgs.appendChild(loading); msgs.scrollTop = msgs.scrollHeight;
   try {
-    const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question: q, context: buildAiContext() }) });
+    // 로그인 사용자만 호출 가능하도록 Firebase ID 토큰 첨부 (배포본 함수가 검증. 로컬 서버는 무시)
+    const headers = { 'Content-Type': 'application/json' };
+    try { const u = dataService.auth.currentUser; if (u) headers.Authorization = 'Bearer ' + (await u.getIdToken()); } catch (e) { /* 토큰 없어도 진행 */ }
+    const res = await fetch('/api/chat', { method: 'POST', headers, body: JSON.stringify({ question: q, context: buildAiContext() }) });
     const data = await res.json().catch(() => ({}));
     loading.innerHTML = res.ok ? aiFormat(data.answer || '(응답 없음)') : `<span class="ai-err">오류: ${esc(data.error || res.status)}</span>`;
   } catch (e) { loading.innerHTML = `<span class="ai-err">연결 실패: ${esc(e.message)}</span>`; }
