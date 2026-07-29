@@ -701,28 +701,227 @@ function buildAiContext() {
     equipment: (EQUIPMENT || []).map((e) => ({ name: e.name, model: e.model, manager: e.manager, 이력수: (e.history || []).length })),
   };
 }
-const aiFormat = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\n/g, '<br>');
-async function aiAsk(q) {
-  const msgs = $('#ai-messages');
-  msgs.insertAdjacentHTML('beforeend', `<div class="ai-msg user">${esc(q)}</div>`);
-  const loading = document.createElement('div');
-  loading.className = 'ai-msg bot'; loading.textContent = '분석 중…';
-  msgs.appendChild(loading); msgs.scrollTop = msgs.scrollHeight;
-  try {
-    // 로그인 사용자만 호출 가능하도록 Firebase ID 토큰 첨부 (배포본 함수가 검증. 로컬 서버는 무시)
-    const headers = { 'Content-Type': 'application/json' };
-    try { const u = dataService.auth.currentUser; if (u) headers.Authorization = 'Bearer ' + (await u.getIdToken()); } catch (e) { /* 토큰 없어도 진행 */ }
-    const res = await fetch('/api/chat', { method: 'POST', headers, body: JSON.stringify({ question: q, context: buildAiContext() }) });
-    const data = await res.json().catch(() => ({}));
-    loading.innerHTML = res.ok ? aiFormat(data.answer || '(응답 없음)') : `<span class="ai-err">오류: ${esc(data.error || res.status)}</span>`;
-  } catch (e) { loading.innerHTML = `<span class="ai-err">연결 실패: ${esc(e.message)}</span>`; }
-  msgs.scrollTop = msgs.scrollHeight;
+/* ---- 마크다운 → HTML (표·목록·코드·인용·강조 지원, XSS 방지를 위해 먼저 이스케이프) ---- */
+function mdInline(t) {
+  return t
+    .replace(/`([^`]+)`/g, '<code class="md-code">$1</code>')
+    .replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 }
-$('#ai-fab').addEventListener('click', () => { const p = $('#ai-panel'); p.hidden = !p.hidden; if (!p.hidden) $('#ai-q').focus(); });
+const mdRow = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+function mdToHtml(src) {
+  const codes = [];
+  let s = String(src == null ? '' : src).replace(/\r\n/g, '\n');
+  s = s.replace(/```(\w*)\n?([\s\S]*?)```/g, (m, lang, code) => {
+    codes.push(`<pre class="md-pre"><code>${esc(code.replace(/\n$/, ''))}</code></pre>`);
+    return ` C${codes.length - 1} `;
+  });
+  s = esc(s);
+  const L = s.split('\n'), out = [];
+  let i = 0;
+  const isList = (x) => /^\s*([-*+]|\d+\.)\s+/.test(x);
+  while (i < L.length) {
+    const line = L[i];
+    if (/^ C\d+ $/.test(line.trim())) { out.push(line.trim()); i++; continue; }
+    // 표
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < L.length && /^\s*\|[\s:|-]+\|\s*$/.test(L[i + 1])) {
+      const head = mdRow(line);
+      const al = mdRow(L[i + 1]).map((c) => (c.endsWith(':') ? (c.startsWith(':') ? 'center' : 'right') : 'left'));
+      i += 2; const body = [];
+      while (i < L.length && /^\s*\|.*\|\s*$/.test(L[i])) { body.push(mdRow(L[i])); i++; }
+      out.push(`<div class="md-tablewrap"><table class="md-table"><thead><tr>${head.map((h, k) => `<th style="text-align:${al[k] || 'left'}">${mdInline(h)}</th>`).join('')}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c, k) => `<td style="text-align:${al[k] || 'left'}">${mdInline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+      continue;
+    }
+    let m = /^(#{1,4})\s+(.*)$/.exec(line);
+    if (m) { out.push(`<h${m[1].length + 2} class="md-h md-h${m[1].length}">${mdInline(m[2])}</h${m[1].length + 2}>`); i++; continue; }
+    if (/^\s*([-*_])\1{2,}\s*$/.test(line)) { out.push('<hr class="md-hr">'); i++; continue; }
+    if (/^\s*&gt;\s?/.test(line)) {
+      const buf = [];
+      while (i < L.length && /^\s*&gt;\s?/.test(L[i])) { buf.push(L[i].replace(/^\s*&gt;\s?/, '')); i++; }
+      out.push(`<blockquote class="md-quote">${mdInline(buf.join(' '))}</blockquote>`); continue;
+    }
+    if (isList(line)) {
+      const ol = /^\s*\d+\./.test(line), items = [];
+      const same = (x) => isList(x) && /^\s*\d+\./.test(x) === ol;   // 불릿/번호 목록이 섞이면 분리
+      while (i < L.length && same(L[i])) {
+        items.push(L[i].replace(/^\s*([-*+]|\d+\.)\s+/, '')); i++;
+        while (i < L.length && L[i].trim() && !isList(L[i]) && !/^\s*[#|]/.test(L[i])) { items[items.length - 1] += ' ' + L[i].trim(); i++; }
+      }
+      out.push(`<${ol ? 'ol' : 'ul'} class="md-list">${items.map((t) => `<li>${mdInline(t)}</li>`).join('')}</${ol ? 'ol' : 'ul'}>`);
+      continue;
+    }
+    if (!line.trim()) { i++; continue; }
+    const buf = [line]; i++;
+    while (i < L.length && L[i].trim() && !isList(L[i]) && !/^(#{1,4})\s/.test(L[i]) && !/^\s*[|]/.test(L[i]) && !/^\s*&gt;/.test(L[i]) && !/^ C/.test(L[i])) { buf.push(L[i]); i++; }
+    out.push(`<p class="md-p">${mdInline(buf.join('\n')).replace(/\n/g, '<br>')}</p>`);
+  }
+  return out.join('').replace(/ C(\d+) /g, (m2, n) => codes[n]);
+}
+
+/* ---- 챗봇 공통 ---- */
+let AI_IMAGES = [];          // 첨부한 이미지(dataURL)
+const aiMsgs = () => $('#ai-messages');
+function aiHideHero() { const h = $('#ai-hero'); if (h) h.remove(); }
+function aiScroll() { const m = aiMsgs(); m.scrollTop = m.scrollHeight; }
+function aiPush(cls, html) {
+  aiHideHero();
+  const d = document.createElement('div');
+  d.className = 'ai-msg ' + cls; d.innerHTML = html;
+  aiMsgs().appendChild(d); aiScroll(); return d;
+}
+async function aiHeaders() {
+  const h = { 'Content-Type': 'application/json' };
+  try { const u = dataService.auth.currentUser; if (u) h.Authorization = 'Bearer ' + (await u.getIdToken()); } catch (e) { /* noop */ }
+  return h;
+}
+/* 이미지 축소 (전송량·비용 절감) */
+function aiShrink(file, max = 1024) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const sc = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * sc); c.height = Math.round(img.height * sc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => rej(new Error('이미지를 읽을 수 없습니다.'));
+      img.src = fr.result;
+    };
+    fr.onerror = () => rej(new Error('파일을 읽을 수 없습니다.'));
+    fr.readAsDataURL(file);
+  });
+}
+function aiRenderAttach() {
+  const box = $('#ai-attach');
+  if (!box) return;
+  box.innerHTML = AI_IMAGES.map((src, i) => `<span class="ai-thumb"><img src="${esc(src)}" alt=""><button type="button" data-arm="${i}" aria-label="첨부 제거">✕</button></span>`).join('');
+  box.hidden = !AI_IMAGES.length;
+}
+
+/* ---- 질문 전송 (이미지 첨부 지원) ---- */
+async function aiAsk(q) {
+  const imgs = AI_IMAGES.slice();
+  AI_IMAGES = []; aiRenderAttach();
+  aiPush('user', (imgs.length ? `<div class="ai-msg-imgs">${imgs.map((s) => `<img src="${esc(s)}" alt="첨부 이미지">`).join('')}</div>` : '') + esc(q).replace(/\n/g, '<br>'));
+  const loading = aiPush('bot', '<div class="ai-typing"><i></i><i></i><i></i></div>');
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: await aiHeaders(),
+      body: JSON.stringify({ question: q, context: buildAiContext(), images: imgs }),
+    });
+    const data = await res.json().catch(() => ({}));
+    loading.innerHTML = res.ok ? mdToHtml(data.answer || '(응답 없음)') : `<span class="ai-err">오류: ${esc(data.error || res.status)}</span>`;
+  } catch (e) { loading.innerHTML = `<span class="ai-err">연결 실패: ${esc(e.message)}</span>`; }
+  aiScroll();
+}
+
+/* ---- 이미지 생성 (gpt-image-2) ---- */
+const AI_RATIOS = [
+  { key: '1:1',  label: '정사각 1:1',  s: { std: '1024x1024', big: '1536x1536', max: '2048x2048' } },
+  { key: '3:2',  label: '가로 3:2',    s: { std: '1536x1024', big: '1920x1280', max: '2496x1664' } },
+  { key: '2:3',  label: '세로 2:3',    s: { std: '1024x1536', big: '1280x1920', max: '1664x2496' } },
+  { key: '16:9', label: '와이드 16:9', s: { std: '1280x720',  big: '1920x1088', max: '3840x2160' } },
+  { key: '9:16', label: '세로 9:16',   s: { std: '720x1280',  big: '1088x1920', max: '2160x3840' } },
+];
+const AI_SIZES = [{ key: 'std', label: '표준' }, { key: 'big', label: '크게' }, { key: 'max', label: '최대' }];
+let aiRatio = '1:1', aiSize = 'std', aiQuality = 'high';
+const aiPickedSize = () => (AI_RATIOS.find((r) => r.key === aiRatio) || AI_RATIOS[0]).s[aiSize];
+
+function aiRenderGenBar() {
+  const r = $('#ai-gen-ratios'), s = $('#ai-gen-sizes'), o = $('#ai-gen-out');
+  if (r) r.innerHTML = AI_RATIOS.map((x) => `<button type="button" class="ai-opt ${x.key === aiRatio ? 'on' : ''}" data-ratio="${x.key}">${esc(x.label)}</button>`).join('');
+  if (s) s.innerHTML = AI_SIZES.map((x) => `<button type="button" class="ai-opt ${x.key === aiSize ? 'on' : ''}" data-size="${x.key}">${esc(x.label)}</button>`).join('');
+  if (o) o.textContent = aiPickedSize() + ' px';
+}
+function aiToggleGen(on) {
+  const g = $('#ai-gen');
+  if (!g) return;
+  g.hidden = on === undefined ? !g.hidden : !on;
+  $('#ai-gen-btn').classList.toggle('on', !g.hidden);
+  if (!g.hidden) { aiRenderGenBar(); $('#ai-gen-q').focus(); }
+}
+async function aiGenerate(prompt) {
+  const size = aiPickedSize();
+  aiPush('user', `🎨 <b>이미지 생성</b><br>${esc(prompt)}<br><span class="ai-meta">${esc(aiRatio)} · ${esc(size)} · ${esc(aiQuality)}</span>`);
+  const loading = aiPush('bot', '<div class="ai-typing"><i></i><i></i><i></i></div><div class="ai-meta" style="margin-top:6px">이미지를 만드는 중… (최대 1분)</div>');
+  try {
+    const res = await fetch('/api/image', {
+      method: 'POST', headers: await aiHeaders(),
+      body: JSON.stringify({ prompt, size, quality: aiQuality }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { loading.innerHTML = `<span class="ai-err">오류: ${esc(data.error || res.status)}</span>`; }
+    else {
+      const url = data.image || '';
+      loading.innerHTML = `<figure class="ai-gen-img"><img src="${esc(url)}" alt="${esc(prompt)}">
+        <figcaption>${esc(size)} · ${esc(aiRatio)}</figcaption></figure>
+        <a class="ai-dl" href="${esc(url)}" download="ai-image-${Date.now()}.png">⬇ 이미지 저장</a>`;
+    }
+  } catch (e) { loading.innerHTML = `<span class="ai-err">연결 실패: ${esc(e.message)}</span>`; }
+  aiScroll();
+}
+
+/* ---- 이벤트 ---- */
+$('#ai-fab').addEventListener('click', () => {
+  const p = $('#ai-panel'); p.hidden = !p.hidden;
+  if (!p.hidden) { $('#ai-q').focus(); aiRenderGenBar(); }
+});
 $('#ai-close').addEventListener('click', () => ($('#ai-panel').hidden = true));
-const aiSend = () => { const q = $('#ai-q').value.trim(); if (q) { aiAsk(q); $('#ai-q').value = ''; } };
+const aiTA = $('#ai-q');
+function aiAutoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 108) + 'px'; }
+const aiSend = () => {
+  const q = aiTA.value.trim();
+  if (!q && !AI_IMAGES.length) return;
+  aiAsk(q || '이 이미지를 설명해줘.');
+  aiTA.value = ''; aiAutoGrow(aiTA);
+};
 $('#ai-send').addEventListener('click', aiSend);
-$('#ai-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') aiSend(); });
+aiTA.addEventListener('input', () => aiAutoGrow(aiTA));
+aiTA.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); aiSend(); } });
+// 추천 질문
+$('#ai-messages').addEventListener('click', (e) => {
+  const c = e.target.closest('.ai-chip'); if (c) { aiAsk(c.dataset.q); return; }
+});
+// 이미지 첨부
+$('#ai-attach-btn').addEventListener('click', () => $('#ai-file').click());
+$('#ai-file').addEventListener('change', async (e) => {
+  for (const f of [...e.target.files].slice(0, 3)) {
+    try { AI_IMAGES.push(await aiShrink(f)); } catch (err) { alert(err.message); }
+  }
+  e.target.value = ''; aiRenderAttach();
+});
+$('#ai-attach').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-arm]'); if (!b) return;
+  AI_IMAGES.splice(Number(b.dataset.arm), 1); aiRenderAttach();
+});
+// 붙여넣기로 이미지 첨부
+aiTA.addEventListener('paste', async (e) => {
+  const items = [...(e.clipboardData?.items || [])].filter((it) => it.type.startsWith('image/'));
+  if (!items.length) return;
+  e.preventDefault();
+  for (const it of items) { const f = it.getAsFile(); if (f) { try { AI_IMAGES.push(await aiShrink(f)); } catch (err) { /* noop */ } } }
+  aiRenderAttach();
+});
+// 이미지 생성 패널
+$('#ai-gen-btn').addEventListener('click', () => aiToggleGen());
+$('#ai-gen-close').addEventListener('click', () => aiToggleGen(false));
+$('#ai-gen').addEventListener('click', (e) => {
+  const r = e.target.closest('[data-ratio]'); if (r) { aiRatio = r.dataset.ratio; aiRenderGenBar(); return; }
+  const s = e.target.closest('[data-size]'); if (s) { aiSize = s.dataset.size; aiRenderGenBar(); return; }
+});
+const aiGenRun = () => {
+  const p = $('#ai-gen-q').value.trim();
+  if (!p) return $('#ai-gen-q').focus();
+  aiGenerate(p); $('#ai-gen-q').value = ''; aiToggleGen(false);
+};
+$('#ai-gen-run').addEventListener('click', aiGenRun);
+$('#ai-gen-q').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); aiGenRun(); } });
 
 /* ===================== 대시보드 ===================== */
 function renderDashboard() {

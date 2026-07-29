@@ -9,7 +9,8 @@
       "seed.json"
     ],
     "rewrites": [
-      { "source": "/api/chat", "function": "chat" }
+      { "source": "/api/chat", "function": "chat" },
+      { "source": "/api/image", "function": "image" }
     ],
     "headers": [
       {

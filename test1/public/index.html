@@ -1043,16 +1043,98 @@
 <datalist id="dl-eqVendors"><option>은하에어테크</option></datalist>
 <datalist id="dl-eqInspCycle"><option>매월 마지막 주 금요일</option><option>매주</option><option>매월</option><option>분기</option><option>반기</option><option>연간</option></datalist>
 
-<!-- AI 분석 챗봇 -->
-<button id="ai-fab" title="AI 분석 챗봇">🤖 AI 분석</button>
-<div id="ai-panel" hidden>
-  <div class="ai-head"><b>🤖 AI 생산분석</b><button class="btn icon" id="ai-close">✕</button></div>
-  <div id="ai-messages">
-    <div class="ai-msg bot">안녕하세요! 입력된 생산 데이터(실적·불량·작업자·설비 등)를 분석해 드립니다. 예: <i>"이번달 호기별 불량률 알려줘"</i>, <i>"작업자별 총로스율 순위"</i>, <i>"SIGMAX 실적 요약해줘"</i></div>
+<!-- AI 어시스턴트 -->
+<button id="ai-fab" aria-label="AI 어시스턴트 열기">
+  <span class="ai-fab-ico" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none">
+      <path d="M12 3.2l1.9 4.3 4.6.5-3.4 3.1.9 4.6L12 13.4l-4 2.3.9-4.6L5.5 8l4.6-.5L12 3.2z" fill="currentColor"/>
+      <circle cx="18.5" cy="17.5" r="1.6" fill="currentColor" opacity=".85"/>
+      <circle cx="6" cy="18" r="1" fill="currentColor" opacity=".6"/>
+    </svg>
+  </span>
+  <span class="ai-fab-label">AI 어시스턴트</span>
+</button>
+
+<div id="ai-panel" hidden role="dialog" aria-label="AI 어시스턴트">
+  <div class="ai-head">
+    <span class="ai-avatar" aria-hidden="true">
+      <svg viewBox="0 0 40 40" fill="none">
+        <circle cx="20" cy="20" r="20" fill="url(#aiAv)"/>
+        <path d="M25.5 24.2a8 8 0 01-9.9-10.6 8.5 8.5 0 1010 10.6z" fill="#FDE68A"/>
+        <circle cx="28" cy="12" r="1.6" fill="#fff" opacity=".95"/>
+        <circle cx="11" cy="13" r="1" fill="#fff" opacity=".7"/>
+        <circle cx="30" cy="27" r="1" fill="#fff" opacity=".6"/>
+        <defs><linearGradient id="aiAv" x1="0" y1="0" x2="40" y2="40">
+          <stop stop-color="#6D5CFF"/><stop offset="1" stop-color="#B478F5"/>
+        </linearGradient></defs>
+      </svg>
+    </span>
+    <span class="ai-title">
+      <b>AI 어시스턴트</b>
+      <em>생산 데이터 · 사내 규정 안내</em>
+    </span>
+    <button class="ai-x" id="ai-close" aria-label="닫기">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
   </div>
+
+  <div id="ai-messages">
+    <div class="ai-hero" id="ai-hero">
+      <svg class="ai-hero-art" viewBox="0 0 220 120" fill="none" aria-hidden="true">
+        <ellipse cx="110" cy="104" rx="86" ry="10" fill="#7C5CFF" opacity=".10"/>
+        <path d="M132 44a26 26 0 11-24.6-25.9A20 20 0 00132 44z" fill="url(#moonG)"/>
+        <circle cx="60" cy="30" r="2.6" fill="#FCD34D"/>
+        <circle cx="176" cy="26" r="2" fill="#F9A8D4"/>
+        <circle cx="46" cy="66" r="1.8" fill="#A78BFA"/>
+        <circle cx="186" cy="72" r="2.2" fill="#FCD34D" opacity=".8"/>
+        <path d="M84 18l1.4 3.2 3.2 1.4-3.2 1.4L84 27.2l-1.4-3.2-3.2-1.4 3.2-1.4L84 18z" fill="#fff" opacity=".9"/>
+        <path d="M158 84l1.6 3.6 3.6 1.6-3.6 1.6-1.6 3.6-1.6-3.6-3.6-1.6 3.6-1.6 1.6-3.6z" fill="#FCD34D" opacity=".85"/>
+        <rect x="62" y="76" width="96" height="26" rx="13" fill="#fff"/>
+        <rect x="74" y="84" width="44" height="4" rx="2" fill="#C7BFFF"/>
+        <rect x="74" y="92" width="26" height="4" rx="2" fill="#E4E0FF"/>
+        <defs><linearGradient id="moonG" x1="80" y1="18" x2="132" y2="70">
+          <stop stop-color="#FDE68A"/><stop offset="1" stop-color="#FBBF77"/>
+        </linearGradient></defs>
+      </svg>
+      <h3>무엇을 도와드릴까요?</h3>
+      <p>생산 실적·불량 분석부터 사내 규정까지 물어보세요.</p>
+      <div class="ai-chips">
+        <button type="button" class="ai-chip" data-q="이번 달 호기별 불량률 알려줘">📊 이번 달 호기별 불량률</button>
+        <button type="button" class="ai-chip" data-q="작업자별 총로스율 순위 알려줘">🏆 작업자별 로스율 순위</button>
+        <button type="button" class="ai-chip" data-q="연차 휴가 규정 알려줘">📕 연차 휴가 규정</button>
+        <button type="button" class="ai-chip" data-q="최근 설비 점검 이력 요약해줘">🛠 설비 점검 이력</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 이미지 생성 패널 -->
+  <div class="ai-gen" id="ai-gen" hidden>
+    <div class="ai-gen-head">
+      <b>🎨 이미지 생성</b>
+      <span class="ai-gen-out" id="ai-gen-out"></span>
+      <button type="button" class="ai-gen-x" id="ai-gen-close" aria-label="닫기">✕</button>
+    </div>
+    <input type="text" id="ai-gen-q" placeholder="만들고 싶은 이미지를 설명하세요…" autocomplete="off">
+    <div class="ai-gen-row"><span class="ai-gen-label">비율</span><div class="ai-opts" id="ai-gen-ratios"></div></div>
+    <div class="ai-gen-row"><span class="ai-gen-label">크기</span><div class="ai-opts" id="ai-gen-sizes"></div></div>
+    <button type="button" class="ai-gen-run" id="ai-gen-run">✨ 생성하기</button>
+  </div>
+
+  <!-- 첨부 이미지 미리보기 -->
+  <div class="ai-attach" id="ai-attach" hidden></div>
+
   <div class="ai-input">
-    <input type="text" id="ai-q" placeholder="질문을 입력하세요…" autocomplete="off">
-    <button class="btn primary" id="ai-send">전송</button>
+    <button type="button" class="ai-tool" id="ai-attach-btn" aria-label="이미지 첨부" title="이미지 첨부">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M18.5 11.5l-6.8 6.8a4.5 4.5 0 01-6.4-6.4l7.6-7.6a3 3 0 014.3 4.3l-7.6 7.6a1.5 1.5 0 01-2.2-2.2l6.8-6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button type="button" class="ai-tool" id="ai-gen-btn" aria-label="이미지 생성" title="이미지 생성">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M12 4l1.5 3.5L17 9l-3.5 1.5L12 14l-1.5-3.5L7 9l3.5-1.5L12 4z" fill="currentColor"/><path d="M18 14l.9 2.1L21 17l-2.1.9L18 20l-.9-2.1L15 17l2.1-.9L18 14z" fill="currentColor" opacity=".75"/></svg>
+    </button>
+    <textarea id="ai-q" rows="1" placeholder="무엇이든 물어보세요…" autocomplete="off"></textarea>
+    <button id="ai-send" aria-label="전송">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M4 12l16-8-6.4 16-2.2-6.2L4 12z" fill="currentColor"/></svg>
+    </button>
+    <input type="file" id="ai-file" accept="image/*" multiple hidden>
   </div>
 </div>
 

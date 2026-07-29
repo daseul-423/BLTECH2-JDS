@@ -32,6 +32,16 @@ const SEED_PATH = path.join(__dirname, 'public', 'seed.json');
 const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], equipchecks: [], equipment: [], policies: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1, equipchecks: 1, equipment: 1, policies: 1 } };
 const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
+const DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+// 클라이언트가 보낼 수 있는 이미지 크기 (비율 × 크기 프리셋) — 그 외는 기본값으로 대체
+const ALLOWED_SIZES = new Set([
+  'auto', '1024x1024', '1536x1536', '2048x2048',
+  '1536x1024', '1920x1280', '2496x1664',
+  '1024x1536', '1280x1920', '1664x2496',
+  '1280x720', '1920x1088', '3840x2160',
+  '720x1280', '1088x1920', '2160x3840',
+]);
 function openaiKey() {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY.trim();
   try { return fs.readFileSync(path.join(__dirname, '.openai-key'), 'utf-8').trim(); } catch (e) { return ''; }
@@ -101,24 +111,56 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 201, { url: '/uploads/' + fname });
     }
 
-    // ---- AI 분석 챗봇 (OpenAI 프록시, 키는 서버에서만) ----
+    // ---- AI 어시스턴트 (OpenAI 프록시, 키는 서버에서만) ----
+    // 로컬 개발용이라 로그인 검증은 하지 않음 (배포본 Cloud Function은 ID토큰 검증함)
     if (p === '/api/chat' && req.method === 'POST') {
       const key = openaiKey();
       if (!key) return sendJSON(res, 500, { error: 'OPENAI_API_KEY 미설정 (env 또는 test1/.openai-key)' });
       const body = await readBody(req);
       const question = String(body.question || '').slice(0, 4000);
       const context = body.context ? JSON.stringify(body.context).slice(0, 60000) : '';
-      if (!question) return sendJSON(res, 400, { error: 'question 필요' });
-      const sys = `당신은 BL-TECH 생산1팀의 생산데이터 분석 도우미입니다. 아래 JSON 데이터(생산실적·불량·사양·설비 등)를 근거로 한국어로 간결하고 정확하게 답합니다. 숫자는 데이터에서 계산해 제시하고, 근거가 없으면 모른다고 하세요. 표/목록으로 보기 좋게 정리하세요.\n\n[데이터]\n${context}`;
+      const images = Array.isArray(body.images) ? body.images.filter((u) => DATA_URL_RE.test(u)).slice(0, 4) : [];
+      if (!question && !images.length) return sendJSON(res, 400, { error: 'question 필요' });
+      const sys = `당신은 BL-TECH 생산1팀의 생산데이터 분석 도우미입니다. 아래 JSON 데이터(생산실적·불량·사양·설비·사내규정 등)를 근거로 한국어로 간결하고 정확하게 답합니다. 숫자는 데이터에서 계산해 제시하고, 근거가 없으면 모른다고 하세요.
+답변은 **마크다운**으로 작성하세요: 비교·집계는 표(|---|)로, 목록은 -, 핵심 수치는 **굵게**, 필요하면 ## 소제목을 쓰고 적절한 이모지로 가독성을 높이세요. 사용자가 이미지를 첨부하면 그 이미지를 함께 해석해 답하세요.
+
+[데이터]
+${context}`;
+      const userContent = images.length
+        ? [{ type: 'text', text: question || '이 이미지를 설명해줘.' }, ...images.map((u) => ({ type: 'image_url', image_url: { url: u } }))]
+        : question;
       try {
         const r = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: OPENAI_MODEL, temperature: 0.2, messages: [{ role: 'system', content: sys }, { role: 'user', content: question }] }),
+          body: JSON.stringify({ model: OPENAI_MODEL, temperature: 0.2, messages: [{ role: 'system', content: sys }, { role: 'user', content: userContent }] }),
         });
         const data = await r.json();
         if (!r.ok) return sendJSON(res, 502, { error: 'OpenAI 오류: ' + ((data.error && data.error.message) || r.status) });
         return sendJSON(res, 200, { answer: (data.choices && data.choices[0] && data.choices[0].message.content) || '(응답 없음)' });
+      } catch (e) { return sendJSON(res, 500, { error: String((e && e.message) || e) }); }
+    }
+
+    // ---- 이미지 생성 (gpt-image-2) ----
+    if (p === '/api/image' && req.method === 'POST') {
+      const key = openaiKey();
+      if (!key) return sendJSON(res, 500, { error: 'OPENAI_API_KEY 미설정 (env 또는 test1/.openai-key)' });
+      const body = await readBody(req);
+      const prompt = String(body.prompt || '').slice(0, 4000).trim();
+      const size = ALLOWED_SIZES.has(body.size) ? body.size : '1024x1024';
+      const quality = ['low', 'medium', 'high', 'auto'].includes(body.quality) ? body.quality : 'high';
+      if (!prompt) return sendJSON(res, 400, { error: '생성할 이미지 설명(prompt)이 필요합니다.' });
+      try {
+        const r = await fetch('https://api.openai.com/v1/images/generations', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: OPENAI_IMAGE_MODEL, prompt, size, quality, n: 1 }),
+        });
+        const data = await r.json();
+        if (!r.ok) return sendJSON(res, 502, { error: 'OpenAI 오류: ' + ((data.error && data.error.message) || r.status) });
+        const b64 = data.data && data.data[0] && data.data[0].b64_json;
+        if (!b64) return sendJSON(res, 502, { error: '이미지를 받지 못했습니다.' });
+        return sendJSON(res, 200, { image: 'data:image/png;base64,' + b64, size, quality });
       } catch (e) { return sendJSON(res, 500, { error: String((e && e.message) || e) }); }
     }
 
