@@ -453,11 +453,39 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .policy-tab:hover { border-color: var(--brand); }
 .policy-tab.active { background: var(--brand); border-color: var(--brand); color: #fff; }
 .policy-tab.active .muted { color: #dbe6ff; }
+.policy-tab .ptab-n {
+  display: inline-block; min-width: 20px; padding: 1px 6px; margin-left: 4px;
+  border-radius: 10px; background: #eef2f9; color: var(--muted); font-size: 12px; font-weight: 700;
+}
+.policy-tab.active .ptab-n { background: rgba(255,255,255,.25); color: #fff; }
 .policy-content {
   white-space: pre-wrap; color: var(--muted); font-size: 13px;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
-#policy-form textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; resize: vertical; }
+
+/* 규정 입력 그리드 (표에서 바로 입력) */
+.pg-hint { margin-bottom: 10px; }
+.policy-grid { width: 100%; border-collapse: collapse; }
+.policy-grid th {
+  text-align: left; font-size: 13px; color: var(--muted); font-weight: 600;
+  padding: 8px 10px; border-bottom: 1px solid var(--line);
+}
+.policy-grid td { padding: 8px 10px; border-bottom: 1px solid #eef1f6; vertical-align: top; }
+.policy-grid tr:hover td { background: #fafbfe; }
+.pg-no { color: var(--muted); font-size: 13px; text-align: center; padding-top: 16px !important; }
+.pg-del { text-align: center; }
+.pg-input {
+  width: 100%; padding: 10px 12px; border: 1px solid transparent; border-radius: 8px;
+  background: #f4f6fc; font: inherit; font-size: 14px; line-height: 1.5;
+  resize: vertical; min-height: 44px; transition: border-color .12s, background .12s;
+}
+.pg-input:hover { background: #eef2fb; }
+.pg-input:focus { outline: none; background: #fff; border-color: var(--brand); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.pg-input::placeholder { color: #a8b2c5; }
+.pg-input:disabled { background: #f5f6f8; color: var(--muted); }
+.pg-foot { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.pg-foot .spacer { flex: 1; }
+#policy-save:disabled { opacity: .55; }
 
 /* ===== 로그인 게이트 ===== */
 .login-screen[hidden] { display: none; }

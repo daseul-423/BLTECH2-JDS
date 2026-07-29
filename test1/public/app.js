@@ -252,7 +252,7 @@ function refreshCurrentPage() {
 const CREATE_BTNS = {
   plans: '#btn-new-plan', standards: '#btn-new-standard', custspecs: '#btn-new-custspec',
   companies: '#btn-new-company', equipchecks: '#btn-new-equipcheck', equipment: '#btn-new-equipment',
-  sheets: '#btn-new-sheet', policies: '#btn-new-policy', users: '#btn-new-user',
+  sheets: '#btn-new-sheet', users: '#btn-new-user',
 };
 function applyCreateButtons() {
   Object.keys(CREATE_BTNS).forEach((col) => { const el = $(CREATE_BTNS[col]); if (el) el.hidden = !can('create', col); });
@@ -278,13 +278,42 @@ const POLICY_TYPES = [
   { key: 'regulation', label: '기본 규정',   t: '제목', c: '내용', cats: ['안전', '품질', '설비', '환경', '위생', '문서관리', '기타'] },
 ];
 const policyType = (k) => POLICY_TYPES.find((t) => t.key === k) || POLICY_TYPES[0];
-let policyTab = 'qna', editingPolicyId = null;
+let policyTab = 'qna';
+let policyDraft = null;      // 현재 탭의 편집중 행 [{id?, title, content, src}]
+let policyDirty = false;     // 저장하지 않은 변경 여부
 
+const policyResetDraft = () => { policyDraft = null; policyDirty = false; };
+function policyBuildDraft() {
+  policyDraft = POLICIES.filter((p) => (p.type || 'qna') === policyTab)
+    .slice().sort((a, b) => a.id - b.id)
+    .map((p) => ({ id: p.id, title: p.title || '', content: p.content || '', src: p }));
+  policyEnsureBlank();
+  policyDirty = false;
+}
+// 마지막에 항상 빈 행 1개 유지 (바로 입력할 수 있게)
+function policyEnsureBlank() {
+  const last = policyDraft[policyDraft.length - 1];
+  if (!last || last.title.trim() || last.content.trim()) policyDraft.push({ title: '', content: '' });
+}
+/* 화면의 입력값 → draft (재렌더 없이 값만 수집) */
+function policyHarvest() {
+  if (!policyDraft) return;
+  $$('#policies-list tr[data-pi]').forEach((tr) => {
+    const i = Number(tr.dataset.pi);
+    if (!policyDraft[i]) return;
+    const t = tr.querySelector('[data-pf="title"]'), c = tr.querySelector('[data-pf="content"]');
+    if (t) policyDraft[i].title = t.value;
+    if (c) policyDraft[i].content = c.value;
+  });
+}
+function policyUpdateSaveState() {
+  const btn = $('#policy-save');
+  if (btn) { btn.disabled = !policyDirty; btn.textContent = policyDirty ? '💾 저장 (변경됨)' : '💾 저장'; }
+}
 function renderPolicies() {
   const box = $('#policies-list');
   if (!box) return;
-  // 업로드·내보내기는 규정 편집 권한(admin)에서만
-  const mayEdit = can('create', 'policies');
+  const mayEdit = can('create', 'policies');   // 업로드·내보내기·편집 (admin)
   if ($('#btn-policy-import')) $('#btn-policy-import').hidden = !mayEdit;
   if ($('#btn-policy-export')) $('#btn-policy-export').hidden = !mayEdit;
   // 유형 탭
@@ -292,79 +321,125 @@ function renderPolicies() {
   if (tabs) {
     tabs.innerHTML = POLICY_TYPES.map((t) => {
       const n = POLICIES.filter((p) => (p.type || 'qna') === t.key).length;
-      return `<button type="button" class="policy-tab ${t.key === policyTab ? 'active' : ''}" data-ptab="${t.key}">${esc(t.label)} <span class="muted">${n}</span></button>`;
+      return `<button type="button" class="policy-tab ${t.key === policyTab ? 'active' : ''}" data-ptab="${t.key}">${esc(t.label)} <span class="ptab-n">${n}</span></button>`;
     }).join('');
   }
+  if (!policyDraft) policyBuildDraft();
   const def = policyType(policyTab);
-  let items = POLICIES.filter((p) => (p.type || 'qna') === policyTab);
-  const q = ($('#policy-search').value || '').trim().toLowerCase();
-  if (q) items = items.filter((p) => [p.title, p.content, p.category].some((v) => String(v || '').toLowerCase().includes(q)));
-  items.sort((a, b) => String(a.category || '').localeCompare(String(b.category || '')) || (a.id - b.id));
-  const rows = items.map((p) => `<tr class="policy-row" data-id="${p.id}" style="cursor:pointer">
-    <td>${esc(p.category || '-')}</td>
-    <td><b>${esc(p.title || '')}</b></td>
-    <td class="policy-content">${esc(p.content || '')}</td>
-    <td>${p.active === false ? '<span class="badge bad">미사용</span>' : '<span class="badge ok">사용</span>'}</td>
-    <td>${esc((p.updatedAt || '').slice(0, 10))}</td>
+  const hint = { qna: '자주 묻는 질문과 그에 대한 답변을 입력하세요.', rule: '회사 운영에 관한 규칙을 입력하세요. (근태·복장·보고 등)', regulation: '현장에서 지켜야 할 기본 규정을 입력하세요. (안전·품질·설비 등)' }[policyTab];
+  const rows = policyDraft.map((r, i) => `<tr data-pi="${i}">
+    <td class="pg-no">${i + 1}</td>
+    <td><textarea class="pg-input" data-pf="title" rows="2" placeholder="${esc(def.t)} 입력">${esc(r.title)}</textarea></td>
+    <td><textarea class="pg-input" data-pf="content" rows="2" placeholder="${esc(def.c)} 입력">${esc(r.content)}</textarea></td>
+    <td class="pg-del"><button type="button" class="btn small danger" data-pdel="${i}">삭제</button></td>
   </tr>`).join('');
-  box.innerHTML = items.length
-    ? `<table><thead><tr><th style="width:110px">분류</th><th style="width:24%">${esc(def.t)}</th><th>${esc(def.c)}</th><th style="width:80px">사용</th><th style="width:100px">수정일</th></tr></thead><tbody>${rows}</tbody></table>`
-    : `<div class="empty">등록된 ${esc(def.label)}이(가) 없습니다. [＋ 항목 추가]로 등록하세요.</div>`;
+  box.innerHTML = `<p class="muted pg-hint">${esc(hint)}</p>
+    <table class="policy-grid"><thead><tr>
+      <th style="width:44px">#</th><th style="width:34%">${esc(def.t)}</th><th>${esc(def.c)}</th><th style="width:62px">삭제</th>
+    </tr></thead><tbody>${rows}</tbody></table>
+    <div class="pg-foot">
+      <button type="button" class="btn" id="policy-add-row">＋ 행 추가</button>
+      <span class="spacer"></span>
+      <span class="muted" id="policy-save-state"></span>
+      <button type="button" class="btn primary" id="policy-save">💾 저장</button>
+    </div>`;
+  if (!mayEdit) {
+    box.querySelectorAll('textarea, button').forEach((el) => { el.disabled = true; });
+  }
+  policyUpdateSaveState();
 }
-function openPolicyModal(id = null) {
-  editingPolicyId = id;
-  const p = id ? POLICIES.find((x) => x.id === id) : null;
-  const def = policyType(p ? (p.type || 'qna') : policyTab);
-  const f = $('#policy-form'); f.reset();
-  $('#policy-modal-title').textContent = id ? `${def.label} 수정` : `${def.label} 추가`;
-  f.elements.type.value = p ? (p.type || 'qna') : policyTab;
-  f.elements.category.innerHTML = '<option value="">선택</option>' + def.cats.map((c) => `<option>${esc(c)}</option>`).join('');
-  $('#policy-title-label').textContent = def.t;
-  $('#policy-content-label').textContent = def.c;
-  if (p) {
-    f.elements.category.value = p.category || '';
-    f.elements.title.value = p.title || '';
-    f.elements.content.value = p.content || '';
-    f.elements.active.value = String(p.active !== false);
-  } else { f.elements.active.value = 'true'; }
-  $('#policy-delete').hidden = !id || !can('delete', 'policies');
-  gateModal('#policy-form', id ? can('update', 'policies') : can('create', 'policies'), !!id && can('delete', 'policies'));
-  $('#policy-modal').hidden = false;
-}
-if ($('#policy-tabs')) $('#policy-tabs').addEventListener('click', (e) => {
+/* --- 이벤트 (정적 부모에 위임) --- */
+if ($('#policy-tabs')) $('#policy-tabs').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-ptab]'); if (!b) return;
-  policyTab = b.dataset.ptab; renderPolicies();
+  if (b.dataset.ptab === policyTab) return;
+  policyHarvest();
+  if (policyDirty && !(await policyConfirmLeave())) return;
+  policyTab = b.dataset.ptab; policyResetDraft(); renderPolicies();
 });
-if ($('#btn-new-policy')) $('#btn-new-policy').addEventListener('click', () => openPolicyModal());
-if ($('#policy-search')) $('#policy-search').addEventListener('input', renderPolicies);
-if ($('#policy-close')) $('#policy-close').addEventListener('click', () => ($('#policy-modal').hidden = true));
-if ($('#policy-cancel')) $('#policy-cancel').addEventListener('click', () => ($('#policy-modal').hidden = true));
-document.addEventListener('click', (e) => { const r = e.target.closest('.policy-row'); if (r) openPolicyModal(Number(r.dataset.id)); });
-if ($('#policy-form')) $('#policy-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const f = e.target;
-  const obj = {
-    type: f.elements.type.value,
-    category: f.elements.category.value || null,
-    title: (f.elements.title.value || '').trim(),
-    content: (f.elements.content.value || '').trim(),
-    active: f.elements.active.value === 'true',
-  };
-  if (!obj.title || !obj.content) return alert('제목(질문)과 내용(답변)을 입력하세요.');
+async function policyConfirmLeave() {
+  const r = confirm('저장하지 않은 변경이 있습니다.\n[확인] 저장하고 이동  /  [취소] 이동하지 않음');
+  if (!r) return false;
+  return await policySave();          // 저장 성공해야 이동
+}
+if ($('#policies-list')) {
+  $('#policies-list').addEventListener('input', (e) => {
+    if (!e.target.closest('[data-pf]')) return;
+    policyDirty = true; policyUpdateSaveState();
+  });
+  $('#policies-list').addEventListener('click', async (e) => {
+    const del = e.target.closest('[data-pdel]');
+    if (del) {
+      policyHarvest();
+      const i = Number(del.dataset.pdel);
+      const row = policyDraft[i];
+      if ((row.title.trim() || row.content.trim()) && !confirm('이 행을 삭제할까요?\n(저장을 눌러야 최종 반영됩니다)')) return;
+      policyDraft.splice(i, 1);
+      policyEnsureBlank(); policyDirty = true; renderPolicies();
+      return;
+    }
+    if (e.target.closest('#policy-add-row')) {
+      policyHarvest(); policyDraft.push({ title: '', content: '' }); renderPolicies();
+      const tas = $$('#policies-list [data-pf="title"]');
+      if (tas.length) tas[tas.length - 1].focus();
+      return;
+    }
+    if (e.target.closest('#policy-save')) { await policySave(); }
+  });
+}
+/* --- 저장: 현재 탭 전체를 한 번에 반영 (신규/수정/삭제) --- */
+async function policySave() {
+  if (!can('create', 'policies')) return false;
+  policyHarvest();
+  const st = $('#policy-save-state');
+  const rows = policyDraft.filter((r) => r.title.trim() || r.content.trim());
+  const bad = rows.find((r) => !r.title.trim() || !r.content.trim());
+  if (bad) { alert(`${policyType(policyTab).t}와(과) ${policyType(policyTab).c}을(를) 모두 입력해야 저장됩니다.\n(한쪽만 적힌 행이 있습니다)`); return false; }
+  const btn = $('#policy-save'); if (btn) btn.disabled = true;
+  if (st) st.textContent = '저장 중…';
+  let added = 0, updated = 0, removed = 0, failed = 0;
   try {
-    if (editingPolicyId) {
-      const old = POLICIES.find((x) => x.id === editingPolicyId) || {};
-      await post('/api/policies/' + editingPolicyId, { ...old, ...obj }, 'PUT');
-    } else await post('/api/policies', obj);
-    await loadPolicies(); $('#policy-modal').hidden = true; renderPolicies();
-  } catch (err) { alert('저장 실패: ' + err.message); }
-});
-if ($('#policy-delete')) $('#policy-delete').addEventListener('click', async () => {
-  if (!editingPolicyId || !confirm('이 항목을 삭제하시겠습니까?')) return;
-  try {
-    await api('/api/policies/' + editingPolicyId, { method: 'DELETE' });
-    await loadPolicies(); $('#policy-modal').hidden = true; renderPolicies();
-  } catch (err) { alert('삭제 실패: ' + err.message); }
+    // 삭제: 기존에 있었으나 draft에서 빠진 항목
+    const keep = new Set(rows.map((r) => r.id).filter(Boolean));
+    for (const p of POLICIES.filter((x) => (x.type || 'qna') === policyTab)) {
+      if (!keep.has(p.id)) {
+        try { await api('/api/policies/' + p.id, { method: 'DELETE' }); removed++; } catch (e) { failed++; }
+      }
+    }
+    // 신규 / 수정
+    for (const r of rows) {
+      const title = r.title.trim(), content = r.content.trim();
+      try {
+        if (r.id) {
+          const old = r.src || {};
+          if ((old.title || '') === title && (old.content || '') === content && old.active !== false) continue;  // 변경 없음
+          await post('/api/policies/' + r.id, { ...old, type: policyTab, title, content, active: true }, 'PUT');
+          updated++;
+        } else {
+          await post('/api/policies', { type: policyTab, category: null, title, content, active: true });
+          added++;
+        }
+      } catch (e) { failed++; }
+    }
+    await loadPolicies();
+    policyResetDraft(); renderPolicies();
+    const s = $('#policy-save-state');
+    if (s) s.textContent = failed ? `저장됨 (실패 ${failed}건)` : `저장됨 ✓ 추가 ${added} · 수정 ${updated} · 삭제 ${removed}`;
+    return failed === 0;
+  } catch (e) {
+    if (st) st.textContent = '저장 실패';
+    alert('저장 실패: ' + e.message);
+    if (btn) btn.disabled = false;
+    return false;
+  }
+}
+if ($('#policy-search')) $('#policy-search').addEventListener('input', () => {
+  const q = ($('#policy-search').value || '').trim().toLowerCase();
+  $$('#policies-list tr[data-pi]').forEach((tr) => {
+    if (!q) { tr.hidden = false; return; }
+    const t = (tr.querySelector('[data-pf="title"]') || {}).value || '';
+    const c = (tr.querySelector('[data-pf="content"]') || {}).value || '';
+    tr.hidden = !(t + ' ' + c).toLowerCase().includes(q);
+  });
 });
 
 /* ---- 엑셀 업로드 / 내보내기 (SheetJS는 필요할 때만 CDN 로드) ---- */
@@ -493,7 +568,7 @@ if ($('#policy-import-run')) $('#policy-import-run').addEventListener('click', a
   }
   await loadPolicies();
   $('#policy-import-modal').hidden = true;
-  renderPolicies();
+  policyResetDraft(); renderPolicies();
   alert(`등록 완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건\n· 건너뜀 ${skipped}건${failed ? `\n· 실패 ${failed}건` : ''}`);
 });
 if ($('#btn-policy-export')) $('#btn-policy-export').addEventListener('click', async () => {
