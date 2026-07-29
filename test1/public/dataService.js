@@ -73,6 +73,42 @@
         return _db.collection(col).doc(String(id)).set(rec).then(function () { return rec; });
       });
     },
+    // 대량 등록: id를 한 번에 예약하고 배치(400건)로 기록 → 한 건씩 넣는 것보다 훨씬 빠름
+    createMany: function (col, objs, onProgress) {
+      var list = objs || [];
+      if (!list.length) return Promise.resolve([]);
+      var ref = _db.collection('meta').doc('counters');
+      return _db.runTransaction(function (tx) {
+        return tx.get(ref).then(function (snap) {
+          var cur = Number((snap.exists ? snap.data() : {})[col] || 0);
+          var start = cur + 1;
+          tx.set(ref, (function (o) { o[col] = cur + list.length; return o; })({}), { merge: true });
+          return start;
+        });
+      }).then(function (start) {
+        var now = _now(), uid = _uid(), email = _email();
+        var recs = list.map(function (o, i) {
+          return Object.assign({}, o, {
+            id: start + i,
+            createdBy: uid, createdByEmail: email, createdAt: now,
+            updatedBy: uid, updatedByEmail: email, updatedAt: now,
+          });
+        });
+        var chunks = [];
+        for (var i = 0; i < recs.length; i += 400) chunks.push(recs.slice(i, i + 400));
+        var done = 0;
+        return chunks.reduce(function (p, chunk) {
+          return p.then(function () {
+            var batch = _db.batch();
+            chunk.forEach(function (r) { batch.set(_db.collection(col).doc(String(r.id)), r); });
+            return batch.commit().then(function () {
+              done += chunk.length;
+              if (onProgress) onProgress(done, recs.length);
+            });
+          });
+        }, Promise.resolve()).then(function () { return recs; });
+      });
+    },
     update: function (col, id, obj) {
       // 전체 치환(기존 PUT 의미 유지). createdBy/createdByEmail/createdAt은 obj에 실려 오면 보존됨.
       var rec = Object.assign({}, obj, {

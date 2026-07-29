@@ -738,6 +738,32 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .pg-foot .spacer { flex: 1; }
 #policy-save:disabled { opacity: .55; }
 
+/* ===== 엑셀 업로드 ===== */
+.imp-step { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.imp-step:last-child { border-bottom: none; padding-bottom: 4px; }
+.imp-step h3 { font-size: 15px; color: var(--brand); margin-bottom: 10px; }
+.imp-step h3 .muted { font-weight: 400; font-size: 12.5px; }
+.imp-types { display: flex; gap: 8px; flex-wrap: wrap; }
+.imp-type {
+  border: 1.5px solid var(--line); background: #fff; color: var(--text);
+  border-radius: 10px; padding: 10px 16px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all .14s;
+}
+.imp-type:hover { border-color: var(--brand); color: var(--brand); }
+.imp-type.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.imp-note { font-size: 12.5px; margin-top: 8px; }
+.imp-map { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px 14px; }
+.imp-mrow { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.imp-mrow span { width: 116px; flex-shrink: 0; color: var(--muted); }
+.imp-mrow select { flex: 1; min-width: 0; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
+.imp-table { width: 100%; border-collapse: collapse; font-size: 12.5px; white-space: nowrap; }
+.imp-table th { background: #f4f6fa; padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.imp-table td { padding: 7px 10px; border-bottom: 1px solid #eef1f6; }
+.imp-table tr.imp-bad td { background: #fff5f5; }
+.imp-sum { margin-top: 10px; font-size: 13.5px; }
+.imp-sum b { color: var(--brand); }
+.imp-sum .imp-err { color: var(--danger); }
+.imp-run { display: flex; align-items: center; gap: 12px; justify-content: flex-end; margin-top: 14px; }
+
 /* ===== 로그인 게이트 ===== */
 .login-screen[hidden] { display: none; }
 .login-screen {

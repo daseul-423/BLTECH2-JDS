@@ -45,6 +45,7 @@
       <button class="nav-btn" data-page="equipment">📒 설비 대장</button>
       <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
+      <button class="nav-btn" data-page="import">📥 엑셀 업로드</button>
       <button class="nav-btn" data-page="policies">📕 규정 · Q&amp;A 관리</button>
       <button class="nav-btn" data-page="users">👤 사용자 관리</button>
     </div>
@@ -360,6 +361,15 @@
       <p class="muted">입력 화면의 선택 목록으로 사용됩니다. 항목은 쉼표(,)로 구분해 수정하세요.</p>
     </div>
     <div class="card" id="masters-form"></div>
+  </section>
+
+  <!-- 엑셀 데이터 업로드 (admin/manager) -->
+  <section id="page-import" class="page" hidden>
+    <div class="page-head">
+      <h1>엑셀 업로드</h1>
+      <p class="muted">엑셀 파일의 열을 앱 항목에 연결해 한 번에 등록합니다. 파일은 서버에 올라가지 않고 <b>내용만</b> 저장됩니다.</p>
+    </div>
+    <div class="card" id="import-body"></div>
   </section>
 
   <!-- 규정 · Q&A 관리 (admin 전용) -->

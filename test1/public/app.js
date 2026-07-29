@@ -200,8 +200,8 @@ $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.datas
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
 const ROLE_PAGES = {
-  admin:   ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'policies', 'users'],
-  manager: ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters'],
+  admin:   ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import', 'policies', 'users'],
+  manager: ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import'],
   worker:  ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'overview'],
 };
 // 등록/수정 가능 역할 (컬렉션별). 삭제는 admin 전용. companies=masters.companies 문서 쓰기.
@@ -239,7 +239,7 @@ function showPage(page) {
   if (!canAccessPage(page)) page = 'home';
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, policies: renderPolicies, users: renderUsers }[page];
+  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, import: renderImport, policies: renderPolicies, users: renderUsers }[page];
   if (render) render();
   applyCreateButtons();
 }
@@ -588,6 +588,281 @@ if ($('#btn-policy-export')) $('#btn-policy-export').addEventListener('click', a
     XLSX.writeFile(wb, `BL-TECH_규정_QnA_${todayStr()}.xlsx`);
   } catch (err) { alert('내보내기 실패: ' + err.message); }
 });
+
+/* ===================== 엑셀 데이터 업로드 (admin/manager) =====================
+   엑셀의 열을 앱 항목에 연결해 대량 등록. 계산 항목(로스율·투입기재 등)은
+   엑셀 값을 쓰지 않고 앱 계산식으로 다시 계산해 기존 데이터와 일관성을 유지한다. */
+const F = (k, label, alias, type) => ({ k, label, alias: alias || [], type: type || 'text' });
+const IMPORT_DEFS = {
+  records: {
+    label: '생산실적', coll: 'records', hasPart: true,
+    dupKey: (r) => [r.date, r.machine, r.product, r.orderNo ?? ''].join('|'),
+    dupLabel: '생산일+호기+제품+차수',
+    fields: [
+      F('date', '생산일', ['생산일', '일자', '날짜'], 'date'), F('lotNo', 'LOT NO', ['lotno', 'lot']),
+      F('machine', '호기', ['호기']), F('sealer', '실링기', ['실링기']),
+      F('bandDate', '밴드 교체일', ['밴드교체일'], 'date'), F('customer', '업체명', ['업체명', '고객사']),
+      F('orderNo', '주문 차수', ['주문차수', '차수'], 'num'), F('product', '제품명', ['제품명', '품명']),
+      F('color', '칼라', ['칼라', '색상']), F('length', '길이', ['길이'], 'num'),
+      F('coating', '코팅량', ['코팅량'], 'num'), F('weight', '무게', ['무게'], 'num'),
+      F('planQty', '계획수량', ['계획수량'], 'num'), F('repouch', '재파우치', ['재파우치'], 'num'),
+      F('prodQty', '생산수량(정품)', ['생산수량정품', '생산수량', '정품수량'], 'num'),
+      F('remainQty', '잔량', ['잔량'], 'num'),
+      F('processDefect', '공정불량', ['공정불량'], 'num'), F('prodDefect', '생산불량', ['생산불량'], 'num'),
+      F('productCode', '제품코드', ['제품코드']), F('baseType', '기재타입', ['기재타입']),
+      F('size', '사이즈', ['사이즈'], 'num'), F('baseLength', '기재 길이', ['기재길이'], 'num'),
+      F('baseTypeLen', '기재타입/길이', ['기재타입길이']), F('rollProd', '1롤 생산량', ['1롤생산량'], 'num'),
+      F('resinType', '수지 종류', ['수지종류']), F('resinPerEa', '투입량 1ea(g)', ['투입량1eag', '투입량1ea'], 'num'),
+      F('pouchType', '파우치 종류', ['파우치종류']), F('pouchExtra', '파우치 추가', ['파우치추가'], 'num'),
+      F('inBox', 'In Box', ['inbox']), F('outBox', 'Out Box', ['outbox']),
+      F('workers', '작업자', ['작업자']), F('earlyQty', '조출수량', ['조출수량'], 'num'),
+      F('earlyWorker', '조출자', ['조출자']), F('remarks', '특이사항', ['특이사항', '비고']),
+    ],
+    // 엑셀에 있어도 무시(앱이 계산) — 검증용으로만 비교
+    calcCols: ['총생산량', '총생산량loss포함', '총로스', '공정로스율', '생산로스율', '총로스율', '투입기재m', '총사용량롤', '총투입량kg', '파우치총수량', '비교', '비교2', '요일'],
+  },
+  plans: {
+    label: '생산계획 · 작업지시', coll: 'plans', hasPart: true,
+    dupKey: (r) => [r.date, r.machine, r.product, r.orderNo ?? ''].join('|'),
+    dupLabel: '생산일+호기+제품+차수',
+    fields: [
+      F('date', '생산일', ['생산일', '일자', '날짜'], 'date'), F('machine', '호기', ['호기']),
+      F('customer', '업체명', ['업체명', '고객사']), F('orderNo', '주문 차수', ['주문차수', '차수'], 'num'),
+      F('product', '제품명', ['제품명', '품명']), F('color', '칼라', ['칼라', '색상']),
+      F('length', '길이', ['길이'], 'num'), F('planQty', '계획수량', ['계획수량'], 'num'),
+      F('status', '상태', ['상태']), F('note', '비고', ['비고', '특이사항']),
+    ],
+    calcCols: [],
+  },
+  standards: {
+    label: '제품표준서', coll: 'standards', hasPart: true,
+    dupKey: (r) => [r.part, r.product, r.color ?? '', r.customer ?? ''].join('|'),
+    dupLabel: '공정+제품+색상+업체',
+    fields: [
+      F('product', '제품명', ['제품명', '품명']), F('productCode', '제품코드', ['제품코드']),
+      F('color', '칼라', ['칼라', '색상']), F('customer', '업체명', ['업체명', '고객사']),
+      F('brand', '브랜드', ['브랜드']), F('sizeSpec', '규격', ['규격', '사이즈']),
+      F('category', '분류', ['분류', '카테고리']), F('baseType', '기재타입', ['기재타입', '기재']),
+      F('resinType', '수지 종류', ['수지종류', '수지']), F('catalyst', '촉매', ['촉매']),
+      F('core', '코어', ['코어']), F('note', '비고', ['비고', '특이사항']),
+    ],
+    calcCols: [],
+  },
+  custspecs: {
+    label: '고객사별 사양', coll: 'custspecs', hasPart: true,
+    dupKey: (r) => [r.part, r.product, r.color ?? '', r.variant ?? ''].join('|'),
+    dupLabel: '공정+제품+색상+구분',
+    fields: [
+      F('product', '제품명', ['제품명', '품명']), F('color', '칼라', ['칼라', '색상']),
+      F('variant', '구분', ['구분']), F('coatingMin', '코팅량 하한', ['코팅량하한', '코팅하한'], 'num'),
+      F('coatingMid', '코팅량 중심', ['코팅량중심', '코팅량'], 'num'), F('coatingMax', '코팅량 상한', ['코팅량상한', '코팅상한'], 'num'),
+      F('toner', '토너', ['토너']), F('pouchType', '파우치 종류', ['파우치종류', '파우치']),
+      F('labelSpec', '라벨 표기', ['라벨표기', '라벨']), F('inBoxSpec', 'In Box 기준', ['inbox기준', 'inbox']),
+      F('outBoxSpec', 'Out Box 기준', ['outbox기준', 'outbox']), F('manualSpec', '사용설명서', ['사용설명서']),
+      F('enclosures', '동봉물', ['동봉물']), F('packingNote', '포장 비고', ['포장비고']),
+      F('note', '비고', ['비고', '특이사항']),
+    ],
+    calcCols: [],
+  },
+};
+const impNorm = (s) => String(s == null ? '' : s).toLowerCase().replace(/[\s\n\r()%/\-_.]/g, '');
+let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip' };
+
+/* 엑셀 날짜(문자열·일련번호·Date) → YYYY-MM-DD */
+function impDate(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !isNaN(v)) {
+    return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
+  }
+  if (typeof v === 'number') {                       // 엑셀 일련번호
+    const d = new Date(Math.round((v - 25569) * 86400000));
+    return isNaN(d) ? null : d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim().replace(/[.\/]/g, '-').replace(/\s+/g, '');
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  return null;
+}
+const impNum = (v) => { if (v == null || v === '') return null; const n = parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? null : n; };
+
+function renderImport() {
+  const box = $('#import-body');
+  if (!box) return;
+  const def = IMPORT_DEFS[IMP.key];
+  const types = Object.entries(IMPORT_DEFS).map(([k, d]) =>
+    `<button type="button" class="imp-type ${k === IMP.key ? 'on' : ''}" data-imptype="${k}">${esc(d.label)}</button>`).join('');
+  const parts = PARTS.map((p) => `<button type="button" class="ai-opt ${p === IMP.part ? 'on' : ''}" data-imppart="${p}">${esc(p)}</button>`).join('');
+
+  let step2 = '';
+  if (IMP.headers.length) {
+    const opts = (sel) => '<option value="">— 사용 안 함 —</option>' + IMP.headers.map((h, i) =>
+      `<option value="${i}" ${String(sel) === String(i) ? 'selected' : ''}>${esc(h || '(빈 열 ' + (i + 1) + ')')}</option>`).join('');
+    step2 = `<div class="imp-step"><h3>3. 열 연결 <span class="muted">엑셀 열 → 앱 항목 (자동 추천됨)</span></h3>
+      <div class="imp-map">${def.fields.map((f) => `<label class="imp-mrow"><span>${esc(f.label)}</span>
+        <select data-impmap="${f.k}">${opts(IMP.map[f.k])}</select></label>`).join('')}</div>
+      ${def.calcCols.length ? `<p class="muted imp-note">※ 총로스·로스율·투입기재·총투입량·파우치총수량 등 <b>계산 항목은 앱이 다시 계산</b>합니다. (엑셀 값과 다르면 미리보기에 표시)</p>` : ''}
+    </div>`;
+  }
+  let step3 = '';
+  if (IMP.parsed.length) {
+    const shown = IMP.parsed.slice(0, 30);
+    const cols = def.fields.filter((f) => IMP.map[f.k] !== undefined && IMP.map[f.k] !== '').slice(0, 7);
+    step3 = `<div class="imp-step"><h3>4. 미리보기 <span class="muted">${IMP.parsed.length}건 (앞 30건 표시)</span></h3>
+      <div class="chk-row" style="margin-bottom:10px">
+        <label><input type="radio" name="imp-dup" value="skip" ${IMP.dupMode === 'skip' ? 'checked' : ''}> 중복 <b>건너뛰기</b></label>
+        <label><input type="radio" name="imp-dup" value="update" ${IMP.dupMode === 'update' ? 'checked' : ''}> 중복 <b>덮어쓰기</b></label>
+        <span class="muted">중복 판정: ${esc(def.dupLabel)}</span>
+      </div>
+      <div class="table-wrap"><table class="imp-table"><thead><tr><th>#</th>${cols.map((c) => `<th>${esc(c.label)}</th>`).join('')}<th>상태</th></tr></thead><tbody>
+      ${shown.map((r, i) => `<tr class="${r._err ? 'imp-bad' : ''}"><td>${i + 1}</td>
+        ${cols.map((c) => `<td>${esc(r.obj[c.k] == null ? '' : r.obj[c.k])}</td>`).join('')}
+        <td>${r._err ? `<span class="badge bad">${esc(r._err)}</span>` : r._dup ? '<span class="badge warn">중복</span>' : '<span class="badge ok">신규</span>'}${r._diff ? ` <span class="badge warn" title="${esc(r._diff)}">계산값 차이</span>` : ''}</td>
+      </tr>`).join('')}</tbody></table></div>
+      <div class="imp-sum">신규 <b>${IMP.parsed.filter((r) => !r._dup && !r._err).length}</b>건 ·
+        중복 <b>${IMP.parsed.filter((r) => r._dup && !r._err).length}</b>건 ·
+        오류 <b class="imp-err">${IMP.parsed.filter((r) => r._err).length}</b>건
+        ${IMP.parsed.filter((r) => r._diff).length ? ` · 계산값 차이 <b>${IMP.parsed.filter((r) => r._diff).length}</b>건` : ''}</div>
+      <div class="imp-run"><span class="muted" id="imp-progress"></span>
+        <button type="button" class="btn primary" id="imp-run">⬆ ${esc(def.label)} 등록하기</button></div>
+    </div>`;
+  }
+  box.innerHTML = `
+    <div class="imp-step"><h3>1. 데이터 종류</h3><div class="imp-types">${types}</div>
+      ${def.hasPart ? `<div class="ai-gen-row" style="margin-top:10px"><span class="ai-gen-label">공정</span><div class="ai-opts">${parts}</div></div>` : ''}
+    </div>
+    <div class="imp-step"><h3>2. 엑셀 파일</h3>
+      <input type="file" id="imp-file" accept=".xlsx,.xlsm,.xls">
+      ${IMP.wb ? `<div style="margin-top:10px"><span class="muted">시트</span>
+        <select id="imp-sheet">${IMP.wb.SheetNames.map((n) => `<option ${n === IMP.sheet ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+        <span class="muted" style="margin-left:8px">데이터 ${IMP.rows.length}행 · 열 ${IMP.headers.length}개</span></div>` : ''}
+      <div class="muted imp-note" id="imp-state"></div>
+    </div>
+    ${step2}${step3}`;
+}
+/* 시트 → 헤더/행 추출 + 열 자동 매칭 */
+function impLoadSheet(name) {
+  IMP.sheet = name;
+  const ws = IMP.wb.Sheets[name];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+  // 헤더 행 = 비어있지 않은 셀이 가장 많은 앞쪽 행
+  let hi = 0, best = -1;
+  for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+    const n = aoa[i].filter((c) => String(c).trim()).length;
+    if (n > best) { best = n; hi = i; }
+  }
+  IMP.headers = (aoa[hi] || []).map((h) => String(h).replace(/\s+/g, ' ').trim());
+  IMP.rows = aoa.slice(hi + 1).filter((r) => r.some((c) => String(c).trim()));
+  // 자동 매칭
+  const def = IMPORT_DEFS[IMP.key];
+  IMP.map = {};
+  const used = new Set();
+  def.fields.forEach((f) => {
+    const cand = [impNorm(f.label), ...f.alias.map(impNorm)];
+    const idx = IMP.headers.findIndex((h, i) => !used.has(i) && cand.includes(impNorm(h)));
+    if (idx >= 0) { IMP.map[f.k] = idx; used.add(idx); }
+  });
+  IMP.parsed = [];
+}
+/* 매핑 → 실제 객체 + 검증 + 중복/계산차이 표시 */
+function impParse() {
+  const def = IMPORT_DEFS[IMP.key];
+  const existing = { records: RECORDS, plans: PLANS, standards: STANDARDS, custspecs: CUSTSPECS }[IMP.key] || [];
+  const dupSet = new Map();
+  existing.filter((x) => !def.hasPart || (x.part || 'CAST') === IMP.part).forEach((x) => dupSet.set(def.dupKey(x), x));
+  const hdrIdx = (label) => IMP.headers.findIndex((h) => impNorm(h) === impNorm(label));
+  IMP.parsed = IMP.rows.map((row) => {
+    const obj = {};
+    def.fields.forEach((f) => {
+      const ci = IMP.map[f.k];
+      if (ci === undefined || ci === '') return;
+      const raw = row[ci];
+      const v = f.type === 'date' ? impDate(raw) : f.type === 'num' ? impNum(raw) : (String(raw == null ? '' : raw).trim() || null);
+      if (v !== null && v !== '') obj[f.k] = v;
+    });
+    if (def.hasPart) obj.part = IMP.part;
+    // 계산 항목 적용 (엑셀 값 대신 앱 계산식)
+    let diff = '';
+    if (IMP.key === 'records') {
+      const c = partBase(IMP.part) === 'SPLINT' ? splintCalc(obj) : calc(obj);
+      const xi = hdrIdx('총로스율(%)') >= 0 ? hdrIdx('총로스율(%)') : hdrIdx('총로스율');
+      if (xi >= 0) {
+        const x = impNum(row[xi]);
+        if (x != null && c.totalLossRate != null && Math.abs(x - c.totalLossRate) > 0.05) diff = `엑셀 ${x}% / 계산 ${c.totalLossRate}%`;
+      }
+      Object.assign(obj, c);
+    }
+    // 검증
+    let err = '';
+    if (IMP.key === 'records' || IMP.key === 'plans') {
+      if (!obj.date) err = '생산일 없음';
+      else if (!obj.product) err = '제품명 없음';
+    } else if (!obj.product) err = '제품명 없음';
+    const key = def.dupKey(obj);
+    return { obj, _dup: dupSet.has(key), _err: err, _diff: diff, _old: dupSet.get(key) };
+  });
+}
+if ($('#page-import')) {
+  $('#page-import').addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-imptype]');
+    if (t) { IMP.key = t.dataset.imptype; IMP.headers = []; IMP.rows = []; IMP.parsed = []; IMP.wb = null; renderImport(); return; }
+    const p = e.target.closest('[data-imppart]');
+    if (p) { IMP.part = p.dataset.imppart; if (IMP.headers.length) impParse(); renderImport(); return; }
+    if (e.target.closest('#imp-run')) { await impRun(); return; }
+  });
+  $('#page-import').addEventListener('change', async (e) => {
+    if (e.target.id === 'imp-file') {
+      const f = e.target.files[0]; if (!f) return;
+      const st = $('#imp-state'); if (st) st.textContent = '파일을 읽는 중…';
+      try {
+        await loadXLSX();
+        IMP.wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+        impLoadSheet(IMP.wb.SheetNames[0]);
+        impParse(); renderImport();
+        const s2 = $('#imp-state'); if (s2) s2.textContent = `읽기 완료 — 자동 연결 ${Object.keys(IMP.map).length}개 열`;
+      } catch (err) { const s3 = $('#imp-state'); if (s3) s3.textContent = '읽기 실패: ' + err.message; }
+      return;
+    }
+    if (e.target.id === 'imp-sheet') { impLoadSheet(e.target.value); impParse(); renderImport(); return; }
+    if (e.target.dataset.impmap !== undefined) {
+      const v = e.target.value;
+      if (v === '') delete IMP.map[e.target.dataset.impmap]; else IMP.map[e.target.dataset.impmap] = Number(v);
+      impParse(); renderImport(); return;
+    }
+    if (e.target.name === 'imp-dup') { IMP.dupMode = e.target.value; return; }
+  });
+}
+async function impRun() {
+  const def = IMPORT_DEFS[IMP.key];
+  const ok = IMP.parsed.filter((r) => !r._err);
+  const news = ok.filter((r) => !r._dup), dups = ok.filter((r) => r._dup);
+  const willUpdate = IMP.dupMode === 'update';
+  if (!news.length && !(willUpdate && dups.length)) return alert('등록할 항목이 없습니다.');
+  if (!confirm(`${def.label} 등록\n· 신규 ${news.length}건\n· 중복 ${dups.length}건 → ${willUpdate ? '덮어쓰기' : '건너뜀'}\n\n진행할까요?`)) return;
+  const btn = $('#imp-run'), pg = $('#imp-progress');
+  if (btn) btn.disabled = true;
+  let added = 0, updated = 0, failed = 0;
+  try {
+    if (news.length) {
+      await dataService.createMany(def.coll, news.map((r) => r.obj), (d, t) => { if (pg) pg.textContent = `등록 중… ${d}/${t}`; });
+      added = news.length;
+    }
+    if (willUpdate) {
+      for (let i = 0; i < dups.length; i++) {
+        try { await post(`/api/${def.coll}/${dups[i]._old.id}`, { ...dups[i]._old, ...dups[i].obj }, 'PUT'); updated++; }
+        catch (e) { failed++; }
+        if (pg) pg.textContent = `덮어쓰는 중… ${i + 1}/${dups.length}`;
+      }
+    }
+    await { records: loadRecords, plans: loadPlans, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
+    if (pg) pg.textContent = '';
+    alert(`완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건${failed ? `\n· 실패 ${failed}건` : ''}`);
+    IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
+    renderImport();
+  } catch (e) {
+    alert('등록 실패: ' + e.message);
+    if (btn) btn.disabled = false;
+  }
+}
 
 /* ===================== 사용자 관리 (admin 전용) ===================== */
 let editingUserUid = null, LAST_USERS = [];
