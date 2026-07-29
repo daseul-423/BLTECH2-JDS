@@ -368,6 +368,8 @@
       <h1>규정 · Q&amp;A 관리</h1>
       <div class="head-actions">
         <input type="text" id="policy-search" placeholder="제목 · 내용 · 분류 검색">
+        <button class="btn" id="btn-policy-export">📥 엑셀 내보내기</button>
+        <button class="btn" id="btn-policy-import">📤 엑셀 업로드</button>
         <button class="btn primary" id="btn-new-policy">＋ 항목 추가</button>
       </div>
     </div>
@@ -411,6 +413,34 @@
       </fieldset>
       <div class="modal-foot"><button type="button" class="btn danger" id="policy-delete" hidden>삭제</button><span class="spacer"></span><button type="button" class="btn" id="policy-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
     </form>
+  </div>
+</div>
+
+<!-- 규정 엑셀 업로드 모달 -->
+<div class="modal-back" id="policy-import-modal" hidden>
+  <div class="modal" style="max-width:900px">
+    <div class="modal-head"><h2>규정 · Q&amp;A 엑셀 업로드</h2><button class="btn icon" id="policy-import-close">✕</button></div>
+    <fieldset><legend>1. 엑셀 파일 선택</legend>
+      <p class="muted" style="margin-bottom:8px">배포한 <b>BL-TECH_규정_QnA_작성양식.xlsx</b>를 그대로 사용하세요. 「질문과 답변 · 회사 규칙 · 기본 규정」 시트를 자동으로 읽습니다.</p>
+      <input type="file" id="policy-import-file" accept=".xlsx,.xlsm,.xls">
+      <div id="policy-import-state" class="muted" style="margin-top:8px"></div>
+    </fieldset>
+    <fieldset><legend>2. 중복 처리 · 미리보기</legend>
+      <div class="chk-row" style="margin-bottom:10px">
+        <label><input type="radio" name="policy-dup" value="skip" checked> 이미 있는 항목은 <b>건너뛰기</b></label>
+        <label><input type="radio" name="policy-dup" value="update"> 이미 있는 항목은 <b>덮어쓰기</b></label>
+        <span class="spacer"></span>
+        <button type="button" class="btn small" id="policy-import-all">전체 선택</button>
+        <button type="button" class="btn small" id="policy-import-none">전체 해제</button>
+      </div>
+      <div class="table-wrap" id="policy-import-preview"><div class="empty">엑셀 파일을 선택하면 내용이 표시됩니다.</div></div>
+    </fieldset>
+    <div class="modal-foot">
+      <span class="muted" id="policy-import-count"></span>
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="policy-import-cancel">취소</button>
+      <button type="button" class="btn primary" id="policy-import-run" disabled>선택 항목 등록</button>
+    </div>
   </div>
 </div>
 

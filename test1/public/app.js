@@ -283,6 +283,10 @@ let policyTab = 'qna', editingPolicyId = null;
 function renderPolicies() {
   const box = $('#policies-list');
   if (!box) return;
+  // 업로드·내보내기는 규정 편집 권한(admin)에서만
+  const mayEdit = can('create', 'policies');
+  if ($('#btn-policy-import')) $('#btn-policy-import').hidden = !mayEdit;
+  if ($('#btn-policy-export')) $('#btn-policy-export').hidden = !mayEdit;
   // 유형 탭
   const tabs = $('#policy-tabs');
   if (tabs) {
@@ -361,6 +365,150 @@ if ($('#policy-delete')) $('#policy-delete').addEventListener('click', async () 
     await api('/api/policies/' + editingPolicyId, { method: 'DELETE' });
     await loadPolicies(); $('#policy-modal').hidden = true; renderPolicies();
   } catch (err) { alert('삭제 실패: ' + err.message); }
+});
+
+/* ---- 엑셀 업로드 / 내보내기 (SheetJS는 필요할 때만 CDN 로드) ---- */
+let IMPORT_ROWS = [];
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  if (!window.__xlsxLoading) {
+    window.__xlsxLoading = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+      s.onload = res;
+      s.onerror = () => rej(new Error('엑셀 라이브러리를 불러오지 못했습니다. (인터넷 연결 확인)'));
+      document.head.appendChild(s);
+    });
+  }
+  return window.__xlsxLoading;
+}
+// 양식의 예시 행 — 기본 해제 처리
+const POLICY_SAMPLES = ['연차는 어떻게 신청하나요?', '출퇴근 시간', '보호구 착용'];
+const SHEET_TYPE = { '질문과답변': 'qna', '회사규칙': 'rule', '기본규정': 'regulation' };
+
+function parsePolicySheet(ws, type) {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+  const isHdr = (r) => r.some((c) => String(c).trim() === '분류') && r.some((c) => ['질문', '제목'].includes(String(c).trim()));
+  const hi = rows.findIndex(isHdr);
+  if (hi === -1) return [];
+  const hdr = rows[hi].map((c) => String(c).trim());
+  const idx = (names) => hdr.findIndex((h) => names.includes(h));
+  const cCat = idx(['분류']), cTitle = idx(['질문', '제목']), cCont = idx(['답변', '내용']);
+  const out = [];
+  for (let i = hi + 1; i < rows.length; i++) {
+    const r = rows[i];
+    const title = String(r[cTitle] ?? '').trim();
+    const content = String(r[cCont] ?? '').trim();
+    if (!title || !content) continue;                     // 제목·내용 둘 다 있어야 등록
+    out.push({ type, category: String(r[cCat] ?? '').trim() || null, title, content });
+  }
+  return out;
+}
+function renderImportPreview() {
+  const box = $('#policy-import-preview');
+  if (!IMPORT_ROWS.length) { box.innerHTML = '<div class="empty">읽을 수 있는 항목이 없습니다. 양식의 시트 이름·머리글을 확인하세요.</div>'; }
+  else {
+    box.innerHTML = `<table><thead><tr>
+      <th style="width:44px"></th><th style="width:110px">유형</th><th style="width:90px">분류</th>
+      <th style="width:26%">제목 / 질문</th><th>내용 / 답변</th><th style="width:80px">상태</th></tr></thead><tbody>
+      ${IMPORT_ROWS.map((r, i) => `<tr>
+        <td class="num"><input type="checkbox" data-imp="${i}" ${r.checked ? 'checked' : ''}></td>
+        <td>${esc(policyType(r.type).label)}</td>
+        <td>${esc(r.category || '-')}</td>
+        <td><b>${esc(r.title)}</b></td>
+        <td class="policy-content">${esc(r.content)}</td>
+        <td>${r.dup ? '<span class="badge warn">중복</span>' : '<span class="badge ok">신규</span>'}</td>
+      </tr>`).join('')}</tbody></table>`;
+  }
+  const sel = IMPORT_ROWS.filter((r) => r.checked).length;
+  $('#policy-import-count').textContent = `읽은 항목 ${IMPORT_ROWS.length}건 · 선택 ${sel}건 (중복 ${IMPORT_ROWS.filter((r) => r.dup).length}건)`;
+  $('#policy-import-run').disabled = sel === 0;
+}
+function markDuplicates() {
+  IMPORT_ROWS.forEach((r) => {
+    r.dup = POLICIES.some((p) => (p.type || 'qna') === r.type && String(p.title || '').trim() === r.title);
+  });
+}
+if ($('#btn-policy-import')) $('#btn-policy-import').addEventListener('click', () => {
+  IMPORT_ROWS = [];
+  $('#policy-import-file').value = '';
+  $('#policy-import-state').textContent = '';
+  renderImportPreview();
+  $('#policy-import-modal').hidden = false;
+});
+if ($('#policy-import-close')) $('#policy-import-close').addEventListener('click', () => ($('#policy-import-modal').hidden = true));
+if ($('#policy-import-cancel')) $('#policy-import-cancel').addEventListener('click', () => ($('#policy-import-modal').hidden = true));
+if ($('#policy-import-preview')) $('#policy-import-preview').addEventListener('change', (e) => {
+  const c = e.target.closest('[data-imp]'); if (!c) return;
+  IMPORT_ROWS[Number(c.dataset.imp)].checked = c.checked;
+  renderImportPreview();
+});
+if ($('#policy-import-all')) $('#policy-import-all').addEventListener('click', () => { IMPORT_ROWS.forEach((r) => (r.checked = true)); renderImportPreview(); });
+if ($('#policy-import-none')) $('#policy-import-none').addEventListener('click', () => { IMPORT_ROWS.forEach((r) => (r.checked = false)); renderImportPreview(); });
+if ($('#policy-import-file')) $('#policy-import-file').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  const st = $('#policy-import-state');
+  st.textContent = '파일을 읽는 중…';
+  try {
+    await loadXLSX();
+    const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+    IMPORT_ROWS = [];
+    const found = [];
+    wb.SheetNames.forEach((name) => {
+      const key = name.replace(/\s/g, '');
+      const type = SHEET_TYPE[key];
+      if (!type) return;
+      const rows = parsePolicySheet(wb.Sheets[name], type);
+      if (rows.length) found.push(`${name} ${rows.length}건`);
+      IMPORT_ROWS.push(...rows);
+    });
+    markDuplicates();
+    // 양식 예시행은 기본 해제
+    IMPORT_ROWS.forEach((r) => { r.checked = !POLICY_SAMPLES.includes(r.title); });
+    st.textContent = IMPORT_ROWS.length
+      ? `읽기 완료 — ${found.join(' / ')}  ※ 양식 예시행은 자동으로 선택 해제했습니다.`
+      : '읽을 수 있는 시트가 없습니다. 시트 이름이 「질문과 답변 / 회사 규칙 / 기본 규정」인지 확인하세요.';
+    renderImportPreview();
+  } catch (err) {
+    st.textContent = '읽기 실패: ' + err.message;
+    IMPORT_ROWS = []; renderImportPreview();
+  }
+});
+if ($('#policy-import-run')) $('#policy-import-run').addEventListener('click', async () => {
+  const sel = IMPORT_ROWS.filter((r) => r.checked);
+  if (!sel.length) return;
+  const mode = (document.querySelector('input[name="policy-dup"]:checked') || {}).value || 'skip';
+  if (!confirm(`선택한 ${sel.length}건을 등록합니다.\n중복 항목은 ${mode === 'skip' ? '건너뜁니다' : '덮어씁니다'}.\n진행할까요?`)) return;
+  const btn = $('#policy-import-run'); btn.disabled = true;
+  let added = 0, updated = 0, skipped = 0, failed = 0;
+  for (const r of sel) {
+    try {
+      const dup = POLICIES.find((p) => (p.type || 'qna') === r.type && String(p.title || '').trim() === r.title);
+      const body = { type: r.type, category: r.category, title: r.title, content: r.content, active: true };
+      if (dup) {
+        if (mode === 'skip') { skipped++; continue; }
+        await post('/api/policies/' + dup.id, { ...dup, ...body }, 'PUT'); updated++;
+      } else { await post('/api/policies', body); added++; }
+    } catch (e) { failed++; }
+  }
+  await loadPolicies();
+  $('#policy-import-modal').hidden = true;
+  renderPolicies();
+  alert(`등록 완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건\n· 건너뜀 ${skipped}건${failed ? `\n· 실패 ${failed}건` : ''}`);
+});
+if ($('#btn-policy-export')) $('#btn-policy-export').addEventListener('click', async () => {
+  try {
+    await loadXLSX();
+    const wb = XLSX.utils.book_new();
+    POLICY_TYPES.forEach((t) => {
+      const list = POLICIES.filter((p) => (p.type || 'qna') === t.key);
+      const rows = list.map((p, i) => ({ 번호: i + 1, 분류: p.category || '', [t.t]: p.title || '', [t.c]: p.content || '', 사용여부: p.active === false ? '미사용' : '사용' }));
+      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 번호: '', 분류: '', [t.t]: '', [t.c]: '', 사용여부: '' }]);
+      ws['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 34 }, { wch: 64 }, { wch: 10 }];
+      XLSX.utils.book_append_sheet(wb, ws, t.label);
+    });
+    XLSX.writeFile(wb, `BL-TECH_규정_QnA_${todayStr()}.xlsx`);
+  } catch (err) { alert('내보내기 실패: ' + err.message); }
 });
 
 /* ===================== 사용자 관리 (admin 전용) ===================== */
