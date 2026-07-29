@@ -759,6 +759,11 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .imp-table th { background: #f4f6fa; padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
 .imp-table td { padding: 7px 10px; border-bottom: 1px solid #eef1f6; }
 .imp-table tr.imp-bad td { background: #fff5f5; }
+.imp-range {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+  padding: 10px 12px; background: #f4f6fa; border-radius: 8px; font-size: 13px;
+}
+.imp-range input[type="date"] { padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; font-size: 13px; }
 .imp-sum { margin-top: 10px; font-size: 13.5px; }
 .imp-sum b { color: var(--brand); }
 .imp-sum .imp-err { color: var(--danger); }

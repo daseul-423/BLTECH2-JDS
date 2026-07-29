@@ -666,7 +666,8 @@ const IMPORT_DEFS = {
   },
 };
 const impNorm = (s) => String(s == null ? '' : s).toLowerCase().replace(/[\s\n\r()%/\-_.]/g, '');
-let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip' };
+let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip', from: '', to: '' };
+const impHasDate = () => (IMPORT_DEFS[IMP.key].fields || []).some((f) => f.k === 'date');
 
 /* 엑셀 날짜(문자열·일련번호·Date) → YYYY-MM-DD */
 function impDate(v) {
@@ -705,9 +706,20 @@ function renderImport() {
   }
   let step3 = '';
   if (IMP.parsed.length) {
-    const shown = IMP.parsed.slice(0, 30);
+    const inRange = IMP.parsed.filter((r) => !r._out);
+    const shown = inRange.slice(0, 30);
     const cols = def.fields.filter((f) => IMP.map[f.k] !== undefined && IMP.map[f.k] !== '').slice(0, 7);
-    step3 = `<div class="imp-step"><h3>4. 미리보기 <span class="muted">${IMP.parsed.length}건 (앞 30건 표시)</span></h3>
+    const rg = impDateRange();
+    const outN = IMP.parsed.filter((r) => r._out).length;
+    const dateBar = impHasDate() ? `<div class="imp-range">
+        <span class="ai-gen-label" style="width:auto">기간</span>
+        <input type="date" id="imp-from" value="${esc(IMP.from)}"> ~ <input type="date" id="imp-to" value="${esc(IMP.to)}">
+        <button type="button" class="btn small" id="imp-range-clear">전체</button>
+        ${rg ? `<span class="muted">파일 안의 기간: <b>${esc(rg.min)} ~ ${esc(rg.max)}</b></span>` : ''}
+        ${outN ? `<span class="badge plain">기간 밖 ${outN}건 제외</span>` : ''}
+      </div>` : '';
+    step3 = `<div class="imp-step"><h3>4. 미리보기 <span class="muted">등록 대상 ${inRange.length}건 (앞 30건 표시)</span></h3>
+      ${dateBar}
       <div class="chk-row" style="margin-bottom:10px">
         <label><input type="radio" name="imp-dup" value="skip" ${IMP.dupMode === 'skip' ? 'checked' : ''}> 중복 <b>건너뛰기</b></label>
         <label><input type="radio" name="imp-dup" value="update" ${IMP.dupMode === 'update' ? 'checked' : ''}> 중복 <b>덮어쓰기</b></label>
@@ -718,12 +730,13 @@ function renderImport() {
         ${cols.map((c) => `<td>${esc(r.obj[c.k] == null ? '' : r.obj[c.k])}</td>`).join('')}
         <td>${r._err ? `<span class="badge bad">${esc(r._err)}</span>` : r._dup ? '<span class="badge warn">중복</span>' : '<span class="badge ok">신규</span>'}${r._diff ? ` <span class="badge warn" title="${esc(r._diff)}">계산값 차이</span>` : ''}</td>
       </tr>`).join('')}</tbody></table></div>
-      <div class="imp-sum">신규 <b>${IMP.parsed.filter((r) => !r._dup && !r._err).length}</b>건 ·
-        중복 <b>${IMP.parsed.filter((r) => r._dup && !r._err).length}</b>건 ·
-        오류 <b class="imp-err">${IMP.parsed.filter((r) => r._err).length}</b>건
-        ${IMP.parsed.filter((r) => r._diff).length ? ` · 계산값 차이 <b>${IMP.parsed.filter((r) => r._diff).length}</b>건` : ''}</div>
+      <div class="imp-sum">신규 <b>${inRange.filter((r) => !r._dup && !r._err).length}</b>건 ·
+        중복 <b>${inRange.filter((r) => r._dup && !r._err).length}</b>건 ·
+        오류 <b class="imp-err">${inRange.filter((r) => r._err).length}</b>건
+        ${outN ? ` · 기간 밖 제외 <b>${outN}</b>건` : ''}
+        ${inRange.filter((r) => r._diff).length ? ` · 계산값 차이 <b>${inRange.filter((r) => r._diff).length}</b>건` : ''}</div>
       <div class="imp-run"><span class="muted" id="imp-progress"></span>
-        <button type="button" class="btn primary" id="imp-run">⬆ ${esc(def.label)} 등록하기</button></div>
+        <button type="button" class="btn primary" id="imp-run">⬆ ${esc(def.label)} ${inRange.filter((r) => !r._err).length}건 등록하기</button></div>
     </div>`;
   }
   box.innerHTML = `
@@ -798,8 +811,19 @@ function impParse() {
       else if (!obj.product) err = '제품명 없음';
     } else if (!obj.product) err = '제품명 없음';
     const key = def.dupKey(obj);
-    return { obj, _dup: dupSet.has(key), _err: err, _diff: diff, _old: dupSet.get(key) };
+    // 기간 필터 (지정 시 범위 밖 행은 등록 대상에서 제외)
+    let out = false;
+    if (impHasDate() && obj.date) {
+      if (IMP.from && obj.date < IMP.from) out = true;
+      if (IMP.to && obj.date > IMP.to) out = true;
+    }
+    return { obj, _dup: dupSet.has(key), _err: err, _diff: diff, _out: out, _old: dupSet.get(key) };
   });
+}
+/* 파일에 들어있는 날짜 범위 (안내용) */
+function impDateRange() {
+  const ds = IMP.parsed.map((r) => r.obj.date).filter(Boolean).sort();
+  return ds.length ? { min: ds[0], max: ds[ds.length - 1] } : null;
 }
 if ($('#page-import')) {
   $('#page-import').addEventListener('click', async (e) => {
@@ -808,6 +832,7 @@ if ($('#page-import')) {
     const p = e.target.closest('[data-imppart]');
     if (p) { IMP.part = p.dataset.imppart; if (IMP.headers.length) impParse(); renderImport(); return; }
     if (e.target.closest('#imp-run')) { await impRun(); return; }
+    if (e.target.closest('#imp-range-clear')) { IMP.from = ''; IMP.to = ''; impParse(); renderImport(); return; }
   });
   $('#page-import').addEventListener('change', async (e) => {
     if (e.target.id === 'imp-file') {
@@ -829,15 +854,21 @@ if ($('#page-import')) {
       impParse(); renderImport(); return;
     }
     if (e.target.name === 'imp-dup') { IMP.dupMode = e.target.value; return; }
+    if (e.target.id === 'imp-from' || e.target.id === 'imp-to') {
+      IMP[e.target.id === 'imp-from' ? 'from' : 'to'] = e.target.value;
+      impParse(); renderImport(); return;
+    }
   });
 }
 async function impRun() {
   const def = IMPORT_DEFS[IMP.key];
-  const ok = IMP.parsed.filter((r) => !r._err);
+  const ok = IMP.parsed.filter((r) => !r._err && !r._out);   // 오류·기간 밖 제외
   const news = ok.filter((r) => !r._dup), dups = ok.filter((r) => r._dup);
+  const outN = IMP.parsed.filter((r) => r._out).length;
   const willUpdate = IMP.dupMode === 'update';
   if (!news.length && !(willUpdate && dups.length)) return alert('등록할 항목이 없습니다.');
-  if (!confirm(`${def.label} 등록\n· 신규 ${news.length}건\n· 중복 ${dups.length}건 → ${willUpdate ? '덮어쓰기' : '건너뜀'}\n\n진행할까요?`)) return;
+  const period = (IMP.from || IMP.to) ? `\n· 기간: ${IMP.from || '처음'} ~ ${IMP.to || '끝'} (범위 밖 ${outN}건 제외)` : '';
+  if (!confirm(`${def.label} 등록${period}\n· 신규 ${news.length}건\n· 중복 ${dups.length}건 → ${willUpdate ? '덮어쓰기' : '건너뜀'}\n\n진행할까요?`)) return;
   const btn = $('#imp-run'), pg = $('#imp-progress');
   if (btn) btn.disabled = true;
   let added = 0, updated = 0, failed = 0;
