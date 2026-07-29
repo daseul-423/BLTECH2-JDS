@@ -36,6 +36,11 @@ service cloud.firestore {
     // 마스터(기준정보·OEM/회사 포함): manager 조회·수정
     match /masters/{id}   { allow read: if active(); allow write: if isStaff(); }
 
+    // 규정·회사규칙·Q&A: 등록/수정/삭제는 admin만.
+    // 읽기는 활성 사용자 전체 허용 — worker가 AI 챗봇으로 규정을 질문·확인해야 하므로 필요.
+    // (worker는 규정 관리 화면 자체에 접근 불가 — 화면 권한으로 차단)
+    match /policies/{id}  { allow read: if active(); allow write: if isAdmin(); }
+
     // id 시퀀스 카운터: 문서 생성 권한자(worker 포함)가 증가시켜야 하므로 활성 사용자 쓰기 허용
     match /meta/{id}      { allow read: if active(); allow write: if active(); }
 

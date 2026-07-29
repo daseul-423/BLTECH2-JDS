@@ -444,6 +444,21 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 #order-modal { z-index: 80; }
 #startcheck-modal { z-index: 80; }
 
+/* ===== 규정 · Q&A 관리 ===== */
+.policy-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.policy-tab {
+  border: 1px solid var(--line); background: #fff; border-radius: 8px;
+  padding: 9px 16px; cursor: pointer; font-size: 14px; font-weight: 600; color: var(--text);
+}
+.policy-tab:hover { border-color: var(--brand); }
+.policy-tab.active { background: var(--brand); border-color: var(--brand); color: #fff; }
+.policy-tab.active .muted { color: #dbe6ff; }
+.policy-content {
+  white-space: pre-wrap; color: var(--muted); font-size: 13px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+#policy-form textarea { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; resize: vertical; }
+
 /* ===== 로그인 게이트 ===== */
 .login-screen[hidden] { display: none; }
 .login-screen {

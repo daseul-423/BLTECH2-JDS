@@ -8,6 +8,7 @@ let STANDARDS = [];
 let CUSTSPECS = [];         // 고객사별 생산사양 (NEAL / OEM)
 let EQUIPCHECKS = [];       // 설비 일상점검
 let EQUIPMENT = [];         // 설비 대장 (+ 점검이력)
+let POLICIES = [];          // 회사 규칙·기본 규정·Q&A (챗봇 지식베이스)
 let MASTERS = {};
 let editingStandardId = null;
 let PART = 'CAST';          // 공정 구분 (CAST / SPLINT / PRE-CUT / HYBRID)
@@ -31,7 +32,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
    - 모든 읽기/쓰기는 dataService(Firestore)를 통함. localStorage 폴백 제거.
    - api()/post() 규약(경로·반환형태)은 기존과 동일 → 화면·계산 코드는 무변경.
    - /api/chat(OpenAI)은 api()를 거치지 않고 기존대로 fetch로 직접 호출됨(구조 유지). */
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
+const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
 async function api(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : null;
@@ -67,6 +68,7 @@ const loadStandards = async () => { STANDARDS = await api('/api/standards'); };
 const loadCustSpecs = async () => { CUSTSPECS = await api('/api/custspecs'); };
 const loadEquipChecks = async () => { EQUIPCHECKS = await api('/api/equipchecks'); };
 const loadEquipment = async () => { EQUIPMENT = await api('/api/equipment'); };
+const loadPolicies = async () => { POLICIES = await api('/api/policies'); };
 const loadMasters = async () => { MASTERS = await api('/api/masters'); };
 
 /* ===================== 자동계산 (엑셀 수식 동일) ===================== */
@@ -198,7 +200,7 @@ $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.datas
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
 const ROLE_PAGES = {
-  admin:   ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'users'],
+  admin:   ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'policies', 'users'],
   manager: ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters'],
   worker:  ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'overview'],
 };
@@ -208,7 +210,7 @@ const WRITE_ROLES = {
   custspecs: ['admin', 'manager'], companies: ['admin', 'manager'], masters: ['admin', 'manager'],
   equipment: ['admin', 'manager'],
   sheets: ['admin', 'manager', 'worker'], equipchecks: ['admin', 'manager', 'worker'],
-  users: ['admin'],
+  policies: ['admin'], users: ['admin'],
 };
 const canAccessPage = (page) => !ME || (ROLE_PAGES[ME.role] || []).includes(page);
 function can(action, col, doc) {
@@ -237,7 +239,7 @@ function showPage(page) {
   if (!canAccessPage(page)) page = 'home';
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, users: renderUsers }[page];
+  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, policies: renderPolicies, users: renderUsers }[page];
   if (render) render();
   applyCreateButtons();
 }
@@ -250,7 +252,7 @@ function refreshCurrentPage() {
 const CREATE_BTNS = {
   plans: '#btn-new-plan', standards: '#btn-new-standard', custspecs: '#btn-new-custspec',
   companies: '#btn-new-company', equipchecks: '#btn-new-equipcheck', equipment: '#btn-new-equipment',
-  sheets: '#btn-new-sheet', users: '#btn-new-user',
+  sheets: '#btn-new-sheet', policies: '#btn-new-policy', users: '#btn-new-user',
 };
 function applyCreateButtons() {
   Object.keys(CREATE_BTNS).forEach((col) => { const el = $(CREATE_BTNS[col]); if (el) el.hidden = !can('create', col); });
@@ -268,6 +270,98 @@ function applyRolePerms() {
 /* 카드 허브 → 영역 이동 (권한 없으면 무시) */
 function goArea(page) { if (canAccessPage(page)) showPage(page); }
 document.addEventListener('click', (e) => { const c = e.target.closest('.hub-card[data-goto]'); if (c) goArea(c.dataset.goto); });
+
+/* ===================== 규정 · Q&A 관리 (admin 전용, 챗봇 지식베이스) ===================== */
+const POLICY_TYPES = [
+  { key: 'qna',        label: '질문과 답변', t: '질문', c: '답변', cats: ['근태', '휴가', '급여', '안전', '품질', '설비', '생산', '기타'] },
+  { key: 'rule',       label: '회사 규칙',   t: '제목', c: '내용', cats: ['근태', '복장', '보고', '휴가', '교육', '인사', '기타'] },
+  { key: 'regulation', label: '기본 규정',   t: '제목', c: '내용', cats: ['안전', '품질', '설비', '환경', '위생', '문서관리', '기타'] },
+];
+const policyType = (k) => POLICY_TYPES.find((t) => t.key === k) || POLICY_TYPES[0];
+let policyTab = 'qna', editingPolicyId = null;
+
+function renderPolicies() {
+  const box = $('#policies-list');
+  if (!box) return;
+  // 유형 탭
+  const tabs = $('#policy-tabs');
+  if (tabs) {
+    tabs.innerHTML = POLICY_TYPES.map((t) => {
+      const n = POLICIES.filter((p) => (p.type || 'qna') === t.key).length;
+      return `<button type="button" class="policy-tab ${t.key === policyTab ? 'active' : ''}" data-ptab="${t.key}">${esc(t.label)} <span class="muted">${n}</span></button>`;
+    }).join('');
+  }
+  const def = policyType(policyTab);
+  let items = POLICIES.filter((p) => (p.type || 'qna') === policyTab);
+  const q = ($('#policy-search').value || '').trim().toLowerCase();
+  if (q) items = items.filter((p) => [p.title, p.content, p.category].some((v) => String(v || '').toLowerCase().includes(q)));
+  items.sort((a, b) => String(a.category || '').localeCompare(String(b.category || '')) || (a.id - b.id));
+  const rows = items.map((p) => `<tr class="policy-row" data-id="${p.id}" style="cursor:pointer">
+    <td>${esc(p.category || '-')}</td>
+    <td><b>${esc(p.title || '')}</b></td>
+    <td class="policy-content">${esc(p.content || '')}</td>
+    <td>${p.active === false ? '<span class="badge bad">미사용</span>' : '<span class="badge ok">사용</span>'}</td>
+    <td>${esc((p.updatedAt || '').slice(0, 10))}</td>
+  </tr>`).join('');
+  box.innerHTML = items.length
+    ? `<table><thead><tr><th style="width:110px">분류</th><th style="width:24%">${esc(def.t)}</th><th>${esc(def.c)}</th><th style="width:80px">사용</th><th style="width:100px">수정일</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="empty">등록된 ${esc(def.label)}이(가) 없습니다. [＋ 항목 추가]로 등록하세요.</div>`;
+}
+function openPolicyModal(id = null) {
+  editingPolicyId = id;
+  const p = id ? POLICIES.find((x) => x.id === id) : null;
+  const def = policyType(p ? (p.type || 'qna') : policyTab);
+  const f = $('#policy-form'); f.reset();
+  $('#policy-modal-title').textContent = id ? `${def.label} 수정` : `${def.label} 추가`;
+  f.elements.type.value = p ? (p.type || 'qna') : policyTab;
+  f.elements.category.innerHTML = '<option value="">선택</option>' + def.cats.map((c) => `<option>${esc(c)}</option>`).join('');
+  $('#policy-title-label').textContent = def.t;
+  $('#policy-content-label').textContent = def.c;
+  if (p) {
+    f.elements.category.value = p.category || '';
+    f.elements.title.value = p.title || '';
+    f.elements.content.value = p.content || '';
+    f.elements.active.value = String(p.active !== false);
+  } else { f.elements.active.value = 'true'; }
+  $('#policy-delete').hidden = !id || !can('delete', 'policies');
+  gateModal('#policy-form', id ? can('update', 'policies') : can('create', 'policies'), !!id && can('delete', 'policies'));
+  $('#policy-modal').hidden = false;
+}
+if ($('#policy-tabs')) $('#policy-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ptab]'); if (!b) return;
+  policyTab = b.dataset.ptab; renderPolicies();
+});
+if ($('#btn-new-policy')) $('#btn-new-policy').addEventListener('click', () => openPolicyModal());
+if ($('#policy-search')) $('#policy-search').addEventListener('input', renderPolicies);
+if ($('#policy-close')) $('#policy-close').addEventListener('click', () => ($('#policy-modal').hidden = true));
+if ($('#policy-cancel')) $('#policy-cancel').addEventListener('click', () => ($('#policy-modal').hidden = true));
+document.addEventListener('click', (e) => { const r = e.target.closest('.policy-row'); if (r) openPolicyModal(Number(r.dataset.id)); });
+if ($('#policy-form')) $('#policy-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target;
+  const obj = {
+    type: f.elements.type.value,
+    category: f.elements.category.value || null,
+    title: (f.elements.title.value || '').trim(),
+    content: (f.elements.content.value || '').trim(),
+    active: f.elements.active.value === 'true',
+  };
+  if (!obj.title || !obj.content) return alert('제목(질문)과 내용(답변)을 입력하세요.');
+  try {
+    if (editingPolicyId) {
+      const old = POLICIES.find((x) => x.id === editingPolicyId) || {};
+      await post('/api/policies/' + editingPolicyId, { ...old, ...obj }, 'PUT');
+    } else await post('/api/policies', obj);
+    await loadPolicies(); $('#policy-modal').hidden = true; renderPolicies();
+  } catch (err) { alert('저장 실패: ' + err.message); }
+});
+if ($('#policy-delete')) $('#policy-delete').addEventListener('click', async () => {
+  if (!editingPolicyId || !confirm('이 항목을 삭제하시겠습니까?')) return;
+  try {
+    await api('/api/policies/' + editingPolicyId, { method: 'DELETE' });
+    await loadPolicies(); $('#policy-modal').hidden = true; renderPolicies();
+  } catch (err) { alert('삭제 실패: ' + err.message); }
+});
 
 /* ===================== 사용자 관리 (admin 전용) ===================== */
 let editingUserUid = null, LAST_USERS = [];
@@ -367,9 +461,16 @@ if ($('#user-form')) $('#user-form').addEventListener('submit', async (e) => {
 /* ===================== AI 분석 챗봇 (서버 /api/chat 프록시) ===================== */
 function buildAiContext() {
   const recs = (RECORDS || []).map((r) => ({ date: r.date, part: r.part || 'CAST', machine: r.machine, customer: r.customer, product: r.product, color: r.color, planQty: r.planQty, prodQty: r.prodQty, processDefect: r.processDefect, prodDefect: r.prodDefect, totalLossRate: r.totalLossRate, workers: r.workers }));
+  // 사용중인 규정·규칙·Q&A → 챗봇이 사내 규정 질문에 근거로 답변
+  const pol = (POLICIES || []).filter((p) => p.active !== false);
+  const polOf = (t) => pol.filter((p) => (p.type || 'qna') === t).map((p) => ({ 분류: p.category, 제목: p.title, 내용: p.content }));
   return {
     설명: 'BL-TECH 생산1팀 데이터. totalLossRate=총로스율(%), processDefect=공정불량, prodDefect=생산불량, prodQty=정품생산량, workers=작업조(/로 구분).',
-    건수: { records: RECORDS.length, sheets: SHEETS.length, plans: PLANS.length, standards: STANDARDS.length, custspecs: CUSTSPECS.length, equipchecks: EQUIPCHECKS.length, equipment: EQUIPMENT.length },
+    사내규정_안내: '아래 질문과답변·회사규칙·기본규정은 회사가 등록한 공식 내용입니다. 규정·규칙 관련 질문은 반드시 이 내용을 근거로 답하고, 없는 내용은 지어내지 말고 담당자에게 문의하라고 안내하세요.',
+    질문과답변: polOf('qna'),
+    회사규칙: polOf('rule'),
+    기본규정: polOf('regulation'),
+    건수: { records: RECORDS.length, sheets: SHEETS.length, plans: PLANS.length, standards: STANDARDS.length, custspecs: CUSTSPECS.length, equipchecks: EQUIPCHECKS.length, equipment: EQUIPMENT.length, policies: pol.length },
     records: recs,
     companies: (MASTERS.companies || []).map((c) => ({ name: c.name, specType: c.specType, country: c.country, toner: c.toner, colors: c.colors, notes: c.notes })),
     custspecs: (CUSTSPECS || []).map((s) => ({ product: s.product, customer: s.customer, specType: s.specType, coatingMid: s.coatingMid, toner: s.toner })),
@@ -3478,7 +3579,7 @@ $('#a-reset').addEventListener('click', () => {
 let __booted = false;
 async function bootApp() {
   if (__booted) return; __booted = true;
-  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadMasters()]);
+  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadPolicies(), loadMasters()]);
   fillMasterInputs();
   updateMetricLabels();
   applyRolePerms();

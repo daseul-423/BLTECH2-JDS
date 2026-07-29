@@ -29,8 +29,8 @@ const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'data', 'db.json');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SEED_PATH = path.join(__dirname, 'public', 'seed.json');
-const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], equipchecks: [], equipment: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1, equipchecks: 1, equipment: 1 } };
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment'];
+const EMPTY_DB = { records: [], sheets: [], plans: [], standards: [], custspecs: [], equipchecks: [], equipment: [], policies: [], masters: {}, seqs: { records: 1, sheets: 1, plans: 1, standards: 1, custspecs: 1, equipchecks: 1, equipment: 1, policies: 1 } };
+const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 function openaiKey() {
   if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY.trim();

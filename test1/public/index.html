@@ -45,6 +45,7 @@
       <button class="nav-btn" data-page="equipment">📒 설비 대장</button>
       <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
+      <button class="nav-btn" data-page="policies">📕 규정 · Q&amp;A 관리</button>
       <button class="nav-btn" data-page="users">👤 사용자 관리</button>
     </div>
   </nav>
@@ -361,6 +362,22 @@
     <div class="card" id="masters-form"></div>
   </section>
 
+  <!-- 규정 · Q&A 관리 (admin 전용) -->
+  <section id="page-policies" class="page" hidden>
+    <div class="page-head">
+      <h1>규정 · Q&amp;A 관리</h1>
+      <div class="head-actions">
+        <input type="text" id="policy-search" placeholder="제목 · 내용 · 분류 검색">
+        <button class="btn primary" id="btn-new-policy">＋ 항목 추가</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">여기 등록한 내용을 <b>AI 챗봇이 근거로 답변</b>합니다. 생산자는 이 화면에 접근할 수 없고, 챗봇으로 질문해 답을 받습니다.</p>
+      <div id="policy-tabs" class="policy-tabs"></div>
+      <div class="table-wrap" id="policies-list"></div>
+    </div>
+  </section>
+
   <!-- 사용자 관리 (admin 전용) -->
   <section id="page-users" class="page" hidden>
     <div class="page-head">
@@ -376,6 +393,26 @@
     </div>
   </section>
 </main>
+
+<!-- 규정 · Q&A 항목 모달 -->
+<div class="modal-back" id="policy-modal" hidden>
+  <div class="modal" style="max-width:640px">
+    <div class="modal-head"><h2 id="policy-modal-title">항목</h2><button class="btn icon" id="policy-close">✕</button></div>
+    <form id="policy-form">
+      <input type="hidden" name="type">
+      <fieldset><legend>내용</legend>
+        <div class="form-grid">
+          <label>분류<select name="category"></select></label>
+          <label>사용 여부<select name="active"><option value="true">사용</option><option value="false">미사용</option></select></label>
+          <label class="wide"><span id="policy-title-label">제목</span><input type="text" name="title" required></label>
+          <label class="wide"><span id="policy-content-label">내용</span><textarea name="content" rows="6" required></textarea></label>
+        </div>
+        <div class="muted" style="margin-top:8px">※ 숫자·기준을 명확히 적을수록 챗봇 답변이 정확해집니다. (예: "가급적 빨리" → "24시간 이내")</div>
+      </fieldset>
+      <div class="modal-foot"><button type="button" class="btn danger" id="policy-delete" hidden>삭제</button><span class="spacer"></span><button type="button" class="btn" id="policy-cancel">취소</button><button type="submit" class="btn primary">저장</button></div>
+    </form>
+  </div>
+</div>
 
 <!-- 사용자(users 문서) 모달 -->
 <div class="modal-back" id="user-modal" hidden>
