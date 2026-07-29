@@ -265,6 +265,9 @@ function applyRolePerms() {
   $$('.nav-btn').forEach((b) => { const pg = b.dataset.page; if (pg) b.hidden = !allowed.includes(pg); });
   $$('.nav-group').forEach((g) => { g.hidden = ![...g.querySelectorAll('.nav-btn')].some((b) => !b.hidden); });
   $$('.hub-card[data-goto]').forEach((c) => { c.hidden = !allowed.includes(c.dataset.goto); });
+  // 이미지 생성은 비용이 커 admin/manager 전용 (서버에서도 차단)
+  const genBtn = $('#ai-gen-btn');
+  if (genBtn) genBtn.hidden = !['admin', 'manager'].includes(ME.role);
   applyCreateButtons();
 }
 /* 카드 허브 → 영역 이동 (권한 없으면 무시) */
@@ -847,6 +850,7 @@ function aiToggleGen(on) {
   if (!g.hidden) { aiRenderGenBar(); $('#ai-gen-q').focus(); }
 }
 async function aiGenerate(prompt) {
+  if (ME && !['admin', 'manager'].includes(ME.role)) { alert('이미지 생성은 관리자·생산관리자만 사용할 수 있습니다.'); return; }
   const size = aiPickedSize();
   aiPush('user', `🎨 <b>이미지 생성</b><br>${esc(prompt)}<br><span class="ai-meta">${esc(aiRatio)} · ${esc(size)} · ${esc(aiQuality)}</span>`);
   const loading = aiPush('bot', '<div class="ai-typing"><i></i><i></i><i></i></div><div class="ai-meta" style="margin-top:6px">이미지를 만드는 중… (최대 1분)</div>');

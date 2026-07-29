@@ -30,21 +30,28 @@ const ALLOWED_SIZES = new Set([
   '720x1280', '1088x1920', '2160x3840',
 ]);
 
-/** 로그인 + 활성 사용자 확인. 통과하면 uid, 아니면 응답을 보내고 null 반환 */
-async function requireActiveUser(req, res) {
+/** 로그인 + 활성 사용자 확인. 통과하면 { uid, role }, 아니면 응답을 보내고 null 반환.
+ *  roles를 주면 그 역할만 허용 (예: 이미지 생성 = admin/manager 전용) */
+async function requireActiveUser(req, res, roles) {
   const m = (req.headers.authorization || '').match(/^Bearer (.+)$/);
   if (!m) { res.status(401).json({ error: '로그인이 필요합니다.' }); return null; }
   let uid;
   try { uid = (await admin.auth().verifyIdToken(m[1])).uid; }
   catch (e) { res.status(401).json({ error: '인증 토큰이 유효하지 않습니다.' }); return null; }
+  let role;
   try {
     const snap = await admin.firestore().collection('users').doc(uid).get();
     if (!snap.exists || snap.data().active === false) {
       res.status(403).json({ error: '접근 권한이 없습니다. (비활성 또는 미등록 사용자)' });
       return null;
     }
+    role = snap.data().role;
   } catch (e) { res.status(500).json({ error: '권한 확인 실패: ' + (e.message || e) }); return null; }
-  return uid;
+  if (roles && !roles.includes(role)) {
+    res.status(403).json({ error: '이 기능은 관리자·생산관리자만 사용할 수 있습니다.' });
+    return null;
+  }
+  return { uid, role };
 }
 
 /* ─────────────── 질의응답 (이미지 인식 지원) ─────────────── */
@@ -88,7 +95,8 @@ ${context}`;
 /* ─────────────── 이미지 생성 (gpt-image-2) ─────────────── */
 exports.image = onRequest({ secrets: ['OPENAI_API_KEY'], cors: false, timeoutSeconds: 300, memory: '512MiB' }, async (req, res) => {
   if (req.method !== 'POST') { res.status(405).json({ error: 'POST only' }); return; }
-  if (!(await requireActiveUser(req, res))) return;
+  // 이미지 생성은 비용이 크므로 admin/manager 전용
+  if (!(await requireActiveUser(req, res, ['admin', 'manager']))) return;
 
   const key = process.env.OPENAI_API_KEY;
   if (!key) { res.status(500).json({ error: 'OPENAI_API_KEY 미설정 (Secret Manager)' }); return; }
