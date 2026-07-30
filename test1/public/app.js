@@ -3804,14 +3804,24 @@ function recordTable(recs, full = false) {
     const kindOf = (r) => partOf(r) === 'HYBRID' ? '<span class="badge warn">하이브리드</span>' : '<span class="badge ok">프리컷</span>';
     const qtyOf = (r) => r.prodQty != null ? r.prodQty : r.rollQty;
     const rateOf = (r) => { const v = r.lossRate != null ? r.lossRate : r.totalLossRate; return v == null ? '<span class="muted">-</span>' : esc((+v).toFixed(2)) + '%'; };
+    // 같은 날 같은 인치·기재 type 원단을 함께 쓴 경우 투입·폐기는 그룹 첫 행에 합산 기재됨 → 빈 행에 안내 표시
+    const grouped = (r) => recs.some((o) => o !== r && o.date === r.date && String(o.size ?? '') === String(r.size ?? '') && String(o.baseType ?? '') === String(r.baseType ?? '') && o.fabricInput != null);
+    const fabCell = (r, v) => v != null ? fmt(v, 2) : grouped(r) ? '<span class="muted" title="같은 날 · 같은 인치 · 같은 기재 type 원단 사용 — 투입원단·폐기량은 그룹 첫 행에 합산 기재됨">↑ 합산</span>' : '<span class="muted">-</span>';
+    // 합계: 투입·폐기는 합산 기재 방식이라 총합·전체 LOSS율은 그대로 정확함
+    const tQty = recs.reduce((a, r) => a + num(qtyOf(r)), 0);
+    const tFab = recs.reduce((a, r) => a + num(r.fabricInput), 0);
+    const tWaste = recs.reduce((a, r) => a + num(r.totalWaste), 0);
+    const tM = recs.reduce((a, r) => a + num(r.finishedM), 0);
+    const tRoll = recs.reduce((a, r) => a + num(r.finishedRoll), 0);
+    const tRate = tFab ? (tWaste / tFab * 100).toFixed(2) + '%' : '-';
     const rows = recs.map((r) => `
       <tr data-id="${r.id}">
         <td>${esc(r.date)}</td>
         <td>${kindOf(r)}</td>
         <td><b>${esc(r.productCode ?? r.product ?? '')}</b>${r.size != null ? ' ' + esc(r.size) + '\"' : ''}</td>
         <td class="num"><b>${fmt(qtyOf(r))}</b></td>
-        <td class="num">${fmt(r.fabricInput, 2)}</td>
-        <td class="num">${fmt(r.totalWaste, 2)}</td>
+        <td class="num">${fabCell(r, r.fabricInput)}</td>
+        <td class="num">${fabCell(r, r.totalWaste)}</td>
         <td class="num">${rateOf(r)}</td>
         <td class="num">${fmt(r.finishedM, 2)}</td>
         <td class="num">${fmt(r.finishedRoll, 2)}</td>
@@ -3822,7 +3832,17 @@ function recordTable(recs, full = false) {
       <th class="num">투입원단(kg)</th><th class="num">총페기량(kg)</th><th class="num">LOSS율</th>
       <th class="num">완제품(m)</th><th class="num">완제품(roll)</th>
       ${full ? '<th>LOT</th><th>브랜드</th><th>작업자</th><th>특이사항</th>' : ''}
-    </tr></thead><tbody>${rows}</tbody></table>`;
+    </tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr class="prod-total">
+      <td colspan="3"><b>합계</b> <span class="muted">(LOSS율 = 총페기 ÷ 총투입)</span></td>
+      <td class="num"><b>${fmt(tQty)}</b></td>
+      <td class="num"><b>${fmt(tFab, 2)}</b></td>
+      <td class="num"><b>${fmt(tWaste, 2)}</b></td>
+      <td class="num"><b>${tRate}</b></td>
+      <td class="num"><b>${fmt(tM, 2)}</b></td>
+      <td class="num"><b>${fmt(tRoll, 2)}</b></td>
+      ${full ? '<td colspan="4"></td>' : ''}
+    </tr></tfoot></table>`;
   }
   if (partBase(PART) === 'SPLINT') {
     const rollOf = (r) => r.rollQty != null ? num(r.rollQty) : num(r.spDom) + num(r.spOvs);
