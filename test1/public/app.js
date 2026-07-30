@@ -2169,6 +2169,13 @@ function openEquipCheckModal(id = null) {
   $('#equipcheck-modal').hidden = false;
 }
 $('#btn-new-equipcheck').addEventListener('click', () => openEquipCheckModal());
+// 전체 정상 체크 (점검 항목 6종 일괄 체크)
+if ($('#eqc-all-ok')) $('#eqc-all-ok').addEventListener('click', () => {
+  ['clean', 'sealer', 'pressure', 'safety', 'dehum1', 'dehum2'].forEach((n) => {
+    const el = equipcheckForm.elements[n];
+    if (el) el.checked = true;
+  });
+});
 $('#equipcheck-close').addEventListener('click', () => ($('#equipcheck-modal').hidden = true));
 $('#equipcheck-cancel').addEventListener('click', () => ($('#equipcheck-modal').hidden = true));
 document.addEventListener('click', (e) => { const r = e.target.closest('.ec-row'); if (r) openEquipCheckModal(Number(r.dataset.id)); });
