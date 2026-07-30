@@ -3799,6 +3799,31 @@ $('#btn-del-filtered').addEventListener('click', async () => {
 
 function recordTable(recs, full = false) {
   if (!recs.length) return '<div class="empty">데이터가 없습니다.</div>';
+  // 프리컷·하이브리드 전용 목록 (전용 실적 양식 열)
+  if (PART === 'PRE-CUT' || PART === 'HYBRID') {
+    const kindOf = (r) => partOf(r) === 'HYBRID' ? '<span class="badge warn">하이브리드</span>' : '<span class="badge ok">프리컷</span>';
+    const qtyOf = (r) => r.prodQty != null ? r.prodQty : r.rollQty;
+    const rateOf = (r) => { const v = r.lossRate != null ? r.lossRate : r.totalLossRate; return v == null ? '<span class="muted">-</span>' : esc((+v).toFixed(2)) + '%'; };
+    const rows = recs.map((r) => `
+      <tr data-id="${r.id}">
+        <td>${esc(r.date)}</td>
+        <td>${kindOf(r)}</td>
+        <td><b>${esc(r.productCode ?? r.product ?? '')}</b>${r.size != null ? ' ' + esc(r.size) + '\"' : ''}</td>
+        <td class="num"><b>${fmt(qtyOf(r))}</b></td>
+        <td class="num">${fmt(r.fabricInput, 2)}</td>
+        <td class="num">${fmt(r.totalWaste, 2)}</td>
+        <td class="num">${rateOf(r)}</td>
+        <td class="num">${fmt(r.finishedM, 2)}</td>
+        <td class="num">${fmt(r.finishedRoll, 2)}</td>
+        ${full ? `<td>${esc(r.lotNo ?? '')}</td><td>${esc(r.brand ?? '')}</td><td>${esc(r.workers ?? '')}</td><td>${esc(r.note ?? r.remarks ?? '')}</td>` : ''}
+      </tr>`).join('');
+    return `<table><thead><tr>
+      <th>날짜</th><th>구분</th><th>제품코드</th><th class="num">생산수량</th>
+      <th class="num">투입원단(kg)</th><th class="num">총페기량(kg)</th><th class="num">LOSS율</th>
+      <th class="num">완제품(m)</th><th class="num">완제품(roll)</th>
+      ${full ? '<th>LOT</th><th>브랜드</th><th>작업자</th><th>특이사항</th>' : ''}
+    </tr></thead><tbody>${rows}</tbody></table>`;
+  }
   if (partBase(PART) === 'SPLINT') {
     const rollOf = (r) => r.rollQty != null ? num(r.rollQty) : num(r.spDom) + num(r.spOvs);
     const precutOf = (r) => r.precutQty != null ? num(r.precutQty) : num(r.prRoll);
@@ -3860,6 +3885,11 @@ document.addEventListener('click', (e) => {
   if (!rec) return;
   const sheet = sheetOfRecord(id);
   if (sheet) return openWorkspace(sheet.part || 'CAST', sheet.id);
+  // 엑셀로 등록한 프리컷·하이브리드 실적은 전용 양식이라 기존 수정 모달로 열지 않음 (계산 덮임 방지)
+  if ((partOf(rec) === 'PRE-CUT' || partOf(rec) === 'HYBRID') && (rec.fabricInput != null || rec.totalWaste != null || rec.finishedM != null)) {
+    alert('프리컷·하이브리드 실적은 엑셀 업로드로 관리합니다.\n수정하려면 엑셀을 고쳐 다시 업로드(덮어쓰기)하거나, 삭제 후 재등록하세요.');
+    return;
+  }
   if (partBase(partOf(rec)) === 'SPLINT') openSplintModal(id);
   else openModal(id);
 });
@@ -4426,8 +4456,16 @@ const SPLINT_CSV_COLS = [
   ['pouchType', '파우치종류'], ['pouchSP', '파우치SP'], ['pouchPR', '파우치PR'], ['pouchLoss', '파우치LOSS'], ['pouchTotal', '파우치총수량'],
   ['inBox', 'In Box'], ['outBox', 'Out Box'], ['brown', 'Brown'], ['workers', '작업자'], ['remarks', '특이사항'],
 ];
+const PH_CSV_COLS = [
+  ['date', '날짜'], ['part', '구분'], ['lotNo', 'LOT'], ['workers', '작업자'], ['category', '범주'],
+  ['brand', '브랜드'], ['orderNo', '차수'], ['productCode', '제품코드'], ['baseType', '기재type'], ['size', '인치'],
+  ['prodQty', '생산수량'], ['fabricInput', '투입원단(kg)'], ['wasteKg', '폐기량(kg)'],
+  ['hybridUnitWeight', '하이브리드개당무게'], ['hybridWaste', '하이브리드폐기량'],
+  ['totalWaste', '총페기량(kg)'], ['lossRate', 'LOSS율(%)'], ['finishedM', '완제품(m)'], ['finishedRoll', '완제품(roll)'],
+  ['remarks', '특이사항'],
+];
 $('#btn-csv').addEventListener('click', () => {
-  const COLS = partBase(PART) === 'SPLINT' ? SPLINT_CSV_COLS : CSV_COLS;
+  const COLS = (PART === 'PRE-CUT' || PART === 'HYBRID') ? PH_CSV_COLS : partBase(PART) === 'SPLINT' ? SPLINT_CSV_COLS : CSV_COLS;
   const header = COLS.map(([, label]) => label).join(',');
   const lines = partRecords().map((r) =>
     COLS.map(([k]) => {
