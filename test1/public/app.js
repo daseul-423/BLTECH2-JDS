@@ -596,6 +596,7 @@ const F = (k, label, alias, type) => ({ k, label, alias: alias || [], type: type
 const IMPORT_DEFS = {
   records: {
     label: '생산실적', coll: 'records', hasPart: true,
+    desc: '하루 생산 결과 — 공정(CAST/SPLINT/프리컷·하이브리드)별 양식으로 등록',
     dupKey: (r) => [r.date, r.machine, r.product, r.orderNo ?? ''].join('|'),
     dupLabel: '생산일+호기+제품+차수',
     // 공정 계산 기준(CAST/SPLINT)에 따라 열 구성이 다름 — PRE-CUT은 SPLINT, HYBRID는 CAST 양식
@@ -674,6 +675,7 @@ const IMPORT_DEFS = {
   },
   plans: {
     label: '생산계획 · 작업지시', coll: 'plans', hasPart: true,
+    desc: '생산 예정 계획 — 공정일지·달성률과 자동 매칭',
     dupKey: (r) => [r.date, r.machine, r.product, r.orderNo ?? ''].join('|'),
     dupLabel: '생산일+호기+제품+차수',
     fields: [
@@ -687,6 +689,7 @@ const IMPORT_DEFS = {
   },
   standards: {
     label: '제품표준서', coll: 'standards', hasPart: true,
+    desc: '제품당 1행 — 기재·수지·촉매 등 자재 기준',
     dupKey: (r) => [r.part, r.product, r.color ?? '', r.customer ?? ''].join('|'),
     dupLabel: '공정+제품+색상+업체',
     fields: [
@@ -701,6 +704,7 @@ const IMPORT_DEFS = {
   },
   custspecs: {
     label: '고객사별 사양', coll: 'custspecs', hasPart: true,
+    desc: '제품당 1행 — 코팅량 하한/중심/상한·라벨·박스 포장 기준. 작업지시서에 자동 적용됩니다',
     dupKey: (r) => [r.part, r.product, r.color ?? '', r.variant ?? ''].join('|'),
     dupLabel: '공정+제품+색상+구분',
     fields: [
@@ -717,6 +721,7 @@ const IMPORT_DEFS = {
   },
   companies: {
     label: '업체 정보(컬러·수지·토너)', coll: 'companies', hasPart: false,
+    desc: '회사당 1행 — 업체별 컬러·수지·토너 요약. OEM 정보 화면의 참고 목록입니다 (고객사별 사양과 별개)',
     dupKey: (r) => String(r.name || '').trim().toLowerCase(),
     dupLabel: '업체명',
     fields: [
@@ -820,6 +825,7 @@ function renderImport() {
   }
   box.innerHTML = `
     <div class="imp-step"><h3>1. 데이터 종류</h3><div class="imp-types">${types}</div>
+      ${def.desc ? `<p class="muted imp-note">📌 ${esc(def.desc)}</p>` : ''}
       ${def.hasPart ? `<div class="ai-gen-row" style="margin-top:10px"><span class="ai-gen-label">공정</span><div class="ai-opts">${parts}</div></div>` : ''}
       ${IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH' ? `<p class="muted imp-note">※ 프리컷·하이브리드는 <b>한 양식</b>을 사용합니다. 엑셀의 <b>구분</b> 열로 행마다 자동 분류되며, 구분이 비어있는 행만 위에서 선택한 공정으로 등록됩니다.</p>` : ''}
     </div>
