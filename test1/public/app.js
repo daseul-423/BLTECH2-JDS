@@ -721,7 +721,7 @@ const IMPORT_DEFS = {
   },
   companies: {
     label: '업체 정보(컬러·수지·토너)', coll: 'companies', hasPart: false,
-    desc: '회사당 1행 — 업체별 컬러·수지·토너 요약. OEM 정보 화면의 참고 목록입니다 (고객사별 사양과 별개)',
+    desc: '회사당 1행 — 업체별 컬러·수지·토너 요약. 업체 정보 화면의 목록입니다 (고객사별 사양과 별개)',
     dupKey: (r) => String(r.name || '').trim().toLowerCase(),
     dupLabel: '업체명',
     fields: [
