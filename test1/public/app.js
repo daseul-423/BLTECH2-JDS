@@ -715,6 +715,22 @@ const IMPORT_DEFS = {
     ],
     calcCols: [],
   },
+  companies: {
+    label: '업체 정보(컬러·수지·토너)', coll: 'companies', hasPart: false,
+    dupKey: (r) => String(r.name || '').trim().toLowerCase(),
+    dupLabel: '업체명',
+    fields: [
+      F('name', '업체명', ['업체명', '고객사', '회사명']),
+      F('country', '나라', ['나라', '국가']),
+      F('colors', '컬러', ['컬러', '칼라', '색상']),
+      F('resin', '수지 종류', ['수지종류', '수지']),
+      F('baseLength', '기재 / 길이', ['기재길이', '기재']),
+      F('toner', '토너 종류', ['토너종류등록일', '토너종류', '토너']),
+      F('regDate', '등록일', ['등록일']),
+      F('notes', '특이사항', ['특이사항', '특이상항', '비고']),
+    ],
+    calcCols: [],
+  },
 };
 const impNorm = (s) => String(s == null ? '' : s).toLowerCase().replace(/[\s\n\r()%/\-_.]/g, '');
 let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip', from: '', to: '' };
@@ -843,7 +859,7 @@ function impLoadSheet(name) {
 /* 매핑 → 실제 객체 + 검증 + 중복/계산차이 표시 */
 function impParse() {
   const def = IMPORT_DEFS[IMP.key];
-  const existing = { records: RECORDS, plans: PLANS, standards: STANDARDS, custspecs: CUSTSPECS }[IMP.key] || [];
+  const existing = { records: RECORDS, plans: PLANS, standards: STANDARDS, custspecs: CUSTSPECS, companies: (MASTERS.companies || []) }[IMP.key] || [];
   const phMode = IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH';
   // PH(프리컷·하이브리드)는 행마다 파트가 달라 중복키에 파트 포함, 제품은 제품코드 기준
   const dupKeyFn = phMode
@@ -861,7 +877,7 @@ function impParse() {
       const ci = IMP.map[f.k];
       if (ci === undefined || ci === '') return;
       const raw = row[ci];
-      const v = f.type === 'date' ? impDate(raw) : f.type === 'num' ? impNum(raw) : (String(raw == null ? '' : raw).trim() || null);
+      const v = f.type === 'date' ? impDate(raw) : f.type === 'num' ? impNum(raw) : (raw instanceof Date ? impDate(raw) : (String(raw == null ? '' : raw).trim() || null));
       if (v !== null && v !== '') obj[f.k] = v;
     });
     // 파트: PH는 '구분' 열로 행별 자동 분류 (없으면 선택한 공정)
@@ -925,6 +941,8 @@ function impParse() {
     } else if (IMP.key === 'records' || IMP.key === 'plans') {
       if (!obj.date) err = '생산일 없음';
       else if (!obj.product) err = '제품명 없음';
+    } else if (IMP.key === 'companies') {
+      if (!obj.name) err = '업체명 없음';
     } else if (!obj.product) err = '제품명 없음';
     const key = dupKeyFn(obj);
     // 기간 필터 (지정 시 범위 밖 행은 등록 대상에서 제외)
@@ -994,6 +1012,23 @@ async function impRun() {
   if (btn) btn.disabled = true;
   let added = 0, updated = 0, failed = 0;
   try {
+    if (IMP.key === 'companies') {
+      // 회사 목록은 기준정보(masters) 안의 배열 → 병합 후 한 번에 저장
+      const list = (MASTERS.companies || []).slice();
+      for (const r of news) {
+        list.push({ ...r.obj, id: Math.max(0, ...list.map((x) => x.id || 0)) + 1 });
+        added++;
+      }
+      if (willUpdate) {
+        for (const d of dups) {
+          const i2 = list.findIndex((x) => def.dupKey(x) === def.dupKey(d.obj));
+          if (i2 >= 0) { list[i2] = { ...list[i2], ...d.obj, id: list[i2].id }; updated++; }
+        }
+      }
+      if (pg) pg.textContent = '저장 중…';
+      MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
+      fillMasterInputs();
+    } else {
     if (news.length) {
       await dataService.createMany(def.coll, news.map((r) => r.obj), (d, t) => { if (pg) pg.textContent = `등록 중… ${d}/${t}`; });
       added = news.length;
@@ -1006,6 +1041,7 @@ async function impRun() {
       }
     }
     await { records: loadRecords, plans: loadPlans, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
+    }
     if (pg) pg.textContent = '';
     alert(`완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건${failed ? `\n· 실패 ${failed}건` : ''}`);
     IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
