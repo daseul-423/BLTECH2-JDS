@@ -598,28 +598,57 @@ const IMPORT_DEFS = {
     label: '생산실적', coll: 'records', hasPart: true,
     dupKey: (r) => [r.date, r.machine, r.product, r.orderNo ?? ''].join('|'),
     dupLabel: '생산일+호기+제품+차수',
-    fields: [
-      F('date', '생산일', ['생산일', '일자', '날짜'], 'date'), F('lotNo', 'LOT NO', ['lotno', 'lot']),
-      F('machine', '호기', ['호기']), F('sealer', '실링기', ['실링기']),
-      F('bandDate', '밴드 교체일', ['밴드교체일'], 'date'), F('customer', '업체명', ['업체명', '고객사']),
-      F('orderNo', '주문 차수', ['주문차수', '차수'], 'num'), F('product', '제품명', ['제품명', '품명']),
-      F('color', '칼라', ['칼라', '색상']), F('length', '길이', ['길이'], 'num'),
-      F('coating', '코팅량', ['코팅량'], 'num'), F('weight', '무게', ['무게'], 'num'),
-      F('planQty', '계획수량', ['계획수량'], 'num'), F('repouch', '재파우치', ['재파우치'], 'num'),
-      F('prodQty', '생산수량(정품)', ['생산수량정품', '생산수량', '정품수량'], 'num'),
-      F('remainQty', '잔량', ['잔량'], 'num'),
-      F('processDefect', '공정불량', ['공정불량'], 'num'), F('prodDefect', '생산불량', ['생산불량'], 'num'),
-      F('productCode', '제품코드', ['제품코드']), F('baseType', '기재타입', ['기재타입']),
-      F('size', '사이즈', ['사이즈'], 'num'), F('baseLength', '기재 길이', ['기재길이'], 'num'),
-      F('baseTypeLen', '기재타입/길이', ['기재타입길이']), F('rollProd', '1롤 생산량', ['1롤생산량'], 'num'),
-      F('resinType', '수지 종류', ['수지종류']), F('resinPerEa', '투입량 1ea(g)', ['투입량1eag', '투입량1ea'], 'num'),
-      F('pouchType', '파우치 종류', ['파우치종류']), F('pouchExtra', '파우치 추가', ['파우치추가'], 'num'),
-      F('inBox', 'In Box', ['inbox']), F('outBox', 'Out Box', ['outbox']),
-      F('workers', '작업자', ['작업자']), F('earlyQty', '조출수량', ['조출수량'], 'num'),
-      F('earlyWorker', '조출자', ['조출자']), F('remarks', '특이사항', ['특이사항', '비고']),
-    ],
+    // 공정 계산 기준(CAST/SPLINT)에 따라 열 구성이 다름 — PRE-CUT은 SPLINT, HYBRID는 CAST 양식
+    fieldsByBase: {
+      CAST: [
+        F('date', '생산일', ['생산일', '일자', '날짜'], 'date'), F('lotNo', 'LOT NO', ['lotno', 'lot']),
+        F('machine', '호기', ['호기']), F('sealer', '실링기', ['실링기']),
+        F('bandDate', '밴드 교체일', ['밴드교체일'], 'date'), F('customer', '업체명', ['업체명', '고객사']),
+        F('orderNo', '주문 차수', ['주문차수', '차수'], 'num'), F('product', '제품명', ['제품명', '품명']),
+        F('color', '칼라', ['칼라', '색상']), F('length', '길이', ['길이'], 'num'),
+        F('coating', '코팅량', ['코팅량'], 'num'), F('weight', '무게', ['무게'], 'num'),
+        F('planQty', '계획수량', ['계획수량'], 'num'), F('repouch', '재파우치', ['재파우치'], 'num'),
+        F('prodQty', '생산수량(정품)', ['생산수량정품', '생산수량', '정품수량'], 'num'),
+        F('remainQty', '잔량', ['잔량'], 'num'),
+        F('processDefect', '공정불량', ['공정불량'], 'num'), F('prodDefect', '생산불량', ['생산불량'], 'num'),
+        F('productCode', '제품코드', ['제품코드']), F('baseType', '기재타입', ['기재타입']),
+        F('size', '사이즈', ['사이즈'], 'num'), F('baseLength', '기재 길이', ['기재길이'], 'num'),
+        F('baseTypeLen', '기재타입/길이', ['기재타입길이']), F('rollProd', '1롤 생산량', ['1롤생산량'], 'num'),
+        F('resinType', '수지 종류', ['수지종류']), F('resinPerEa', '투입량 1ea(g)', ['투입량1eag', '투입량1ea'], 'num'),
+        F('pouchType', '파우치 종류', ['파우치종류']), F('pouchExtra', '파우치 추가', ['파우치추가'], 'num'),
+        F('inBox', 'In Box', ['inbox']), F('outBox', 'Out Box', ['outbox']),
+        F('workers', '작업자', ['작업자']), F('earlyQty', '조출수량', ['조출수량'], 'num'),
+        F('earlyWorker', '조출자', ['조출자']), F('remarks', '특이사항', ['특이사항', '비고']),
+      ],
+      SPLINT: [
+        F('date', '생산일', ['생산일', '일자', '날짜'], 'date'), F('machine', '호기', ['호기']),
+        F('customer', '업체명', ['업체명', '고객사']), F('orderNo', '주문 차수', ['주문차수', '차수'], 'num'),
+        F('product', '제품명', ['제품명', '품명']), F('size', '인치', ['인치', '사이즈'], 'num'),
+        F('baseType', '기재타입', ['기재타입', '기재']),
+        F('weight', '제품무게 1개(g)', ['제품무게1개g', '제품무게', '무게1개g', '무게'], 'num'),
+        F('rollLen', '1롤 길이(m)', ['1롤길이', '롤길이'], 'num'),
+        F('spDom', 'SP 내수(roll)', ['sp내수roll', 'sp내수'], 'num'),
+        F('spOvs', 'SP 해외(roll)', ['sp해외roll', 'sp해외'], 'num'),
+        F('prM', 'PR(m)', ['prm'], 'num'), F('spM', 'SP(m)', ['spm'], 'num'),
+        F('lossG', '총로스(g)', ['총로스g'], 'num'),
+        F('processDefect', '공정불량(roll)', ['공정불량roll', '공정불량'], 'num'),
+        F('baseMid', '중피(m)', ['중피m', '중피'], 'num'),
+        F('baseUp', '상지(m)', ['상지m', '상지'], 'num'),
+        F('baseDown', '하지(m)', ['하지m', '하지'], 'num'),
+        F('resinType', '수지 종류', ['수지종류', '수지']), F('rawMaterial', '원료', ['원료']),
+        F('resinInput', '투입량(kg)', ['투입량kg', '투입량'], 'num'),
+        F('pouchType', '파우치 종류', ['파우치종류']),
+        F('pouchSP', '파우치 SP', ['파우치sp'], 'num'), F('pouchTotal', '파우치 총수량', ['파우치총수량'], 'num'),
+        F('inBox', 'In Box', ['inbox']), F('outBox', 'Out Box', ['outbox']),
+        F('brown', 'Brown', ['brown']),
+        F('workers', '작업자', ['작업자']), F('remarks', '특이사항', ['특이사항', '비고']),
+      ],
+    },
     // 엑셀에 있어도 무시(앱이 계산) — 검증용으로만 비교
-    calcCols: ['총생산량', '총생산량loss포함', '총로스', '공정로스율', '생산로스율', '총로스율', '투입기재m', '총사용량롤', '총투입량kg', '파우치총수량', '비교', '비교2', '요일'],
+    calcColsByBase: {
+      CAST: ['총생산량', '총생산량loss포함', '총로스', '공정로스율', '생산로스율', '총로스율', '투입기재m', '총사용량롤', '총투입량kg', '파우치총수량', '비교', '비교2', '요일'],
+      SPLINT: ['이론총수량roll', 'PRroll', '총수량m', '총수량roll', '총로스roll', '생산불량roll', '이론로스roll', '생산량+로스량', '공정로스율', '생산로스율', '생산총로스율', '파우치PR', '파우치LOSS'],
+    },
   },
   plans: {
     label: '생산계획 · 작업지시', coll: 'plans', hasPart: true,
@@ -667,7 +696,10 @@ const IMPORT_DEFS = {
 };
 const impNorm = (s) => String(s == null ? '' : s).toLowerCase().replace(/[\s\n\r()%/\-_.]/g, '');
 let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip', from: '', to: '' };
-const impHasDate = () => (IMPORT_DEFS[IMP.key].fields || []).some((f) => f.k === 'date');
+/* 공정별 열 정의 (records는 CAST/SPLINT 양식이 다름 — PRE-CUT→SPLINT, HYBRID→CAST) */
+const impFields = (def) => def.fieldsByBase ? def.fieldsByBase[partBase(IMP.part)] : (def.fields || []);
+const impCalcCols = (def) => def.calcColsByBase ? def.calcColsByBase[partBase(IMP.part)] : (def.calcCols || []);
+const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'date');
 
 /* 엑셀 날짜(문자열·일련번호·Date) → YYYY-MM-DD */
 function impDate(v) {
@@ -699,16 +731,16 @@ function renderImport() {
     const opts = (sel) => '<option value="">— 사용 안 함 —</option>' + IMP.headers.map((h, i) =>
       `<option value="${i}" ${String(sel) === String(i) ? 'selected' : ''}>${esc(h || '(빈 열 ' + (i + 1) + ')')}</option>`).join('');
     step2 = `<div class="imp-step"><h3>3. 열 연결 <span class="muted">엑셀 열 → 앱 항목 (자동 추천됨)</span></h3>
-      <div class="imp-map">${def.fields.map((f) => `<label class="imp-mrow"><span>${esc(f.label)}</span>
+      <div class="imp-map">${impFields(def).map((f) => `<label class="imp-mrow"><span>${esc(f.label)}</span>
         <select data-impmap="${f.k}">${opts(IMP.map[f.k])}</select></label>`).join('')}</div>
-      ${def.calcCols.length ? `<p class="muted imp-note">※ 총로스·로스율·투입기재·총투입량·파우치총수량 등 <b>계산 항목은 앱이 다시 계산</b>합니다. (엑셀 값과 다르면 미리보기에 표시)</p>` : ''}
+      ${impCalcCols(def).length ? `<p class="muted imp-note">※ 로스율·총수량 등 <b>계산 항목은 앱이 다시 계산</b>합니다. (엑셀 값과 다르면 미리보기에 표시)</p>` : ''}
     </div>`;
   }
   let step3 = '';
   if (IMP.parsed.length) {
     const inRange = IMP.parsed.filter((r) => !r._out);
     const shown = inRange.slice(0, 30);
-    const cols = def.fields.filter((f) => IMP.map[f.k] !== undefined && IMP.map[f.k] !== '').slice(0, 7);
+    const cols = impFields(def).filter((f) => IMP.map[f.k] !== undefined && IMP.map[f.k] !== '').slice(0, 7);
     const rg = impDateRange();
     const outN = IMP.parsed.filter((r) => r._out).length;
     const dateBar = impHasDate() ? `<div class="imp-range">
@@ -769,7 +801,7 @@ function impLoadSheet(name) {
   const def = IMPORT_DEFS[IMP.key];
   IMP.map = {};
   const used = new Set();
-  def.fields.forEach((f) => {
+  impFields(def).forEach((f) => {
     const cand = [impNorm(f.label), ...f.alias.map(impNorm)];
     const idx = IMP.headers.findIndex((h, i) => !used.has(i) && cand.includes(impNorm(h)));
     if (idx >= 0) { IMP.map[f.k] = idx; used.add(idx); }
@@ -785,7 +817,7 @@ function impParse() {
   const hdrIdx = (label) => IMP.headers.findIndex((h) => impNorm(h) === impNorm(label));
   IMP.parsed = IMP.rows.map((row) => {
     const obj = {};
-    def.fields.forEach((f) => {
+    impFields(def).forEach((f) => {
       const ci = IMP.map[f.k];
       if (ci === undefined || ci === '') return;
       const raw = row[ci];
@@ -796,8 +828,12 @@ function impParse() {
     // 계산 항목 적용 (엑셀 값 대신 앱 계산식)
     let diff = '';
     if (IMP.key === 'records') {
-      const c = partBase(IMP.part) === 'SPLINT' ? splintCalc(obj) : calc(obj);
-      const xi = hdrIdx('총로스율(%)') >= 0 ? hdrIdx('총로스율(%)') : hdrIdx('총로스율');
+      const isSpl = partBase(IMP.part) === 'SPLINT';
+      if (isSpl && obj.rollLen == null) obj.rollLen = 4.55;   // SPLINT 1롤 길이 기본값 (기존 데이터와 동일)
+      const c = isSpl ? splintCalc(obj) : calc(obj);
+      // 총로스율 검증: CAST=총로스율(%) / SPLINT=생산총로스율(%)
+      let xi = -1;
+      for (const lbl of ['생산총로스율(%)', '생산총로스율', '총로스율(%)', '총로스율']) { xi = hdrIdx(lbl); if (xi >= 0) break; }
       if (xi >= 0) {
         const x = impNum(row[xi]);
         if (x != null && c.totalLossRate != null && Math.abs(x - c.totalLossRate) > 0.05) diff = `엑셀 ${x}% / 계산 ${c.totalLossRate}%`;
@@ -830,7 +866,12 @@ if ($('#page-import')) {
     const t = e.target.closest('[data-imptype]');
     if (t) { IMP.key = t.dataset.imptype; IMP.headers = []; IMP.rows = []; IMP.parsed = []; IMP.wb = null; renderImport(); return; }
     const p = e.target.closest('[data-imppart]');
-    if (p) { IMP.part = p.dataset.imppart; if (IMP.headers.length) impParse(); renderImport(); return; }
+    if (p) {
+      IMP.part = p.dataset.imppart;
+      // 공정에 따라 열 구성이 달라지므로(CAST↔SPLINT) 자동 매칭부터 다시
+      if (IMP.wb) { impLoadSheet(IMP.sheet); impParse(); }
+      renderImport(); return;
+    }
     if (e.target.closest('#imp-run')) { await impRun(); return; }
     if (e.target.closest('#imp-range-clear')) { IMP.from = ''; IMP.to = ''; impParse(); renderImport(); return; }
   });
