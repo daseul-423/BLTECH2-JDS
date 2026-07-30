@@ -643,11 +643,33 @@ const IMPORT_DEFS = {
         F('brown', 'Brown', ['brown']),
         F('workers', '작업자', ['작업자']), F('remarks', '특이사항', ['특이사항', '비고']),
       ],
+      // 프리컷·하이브리드 공용 양식 — 한 파일에 함께 입력, '구분' 열로 행별 자동 분류
+      PH: [
+        F('date', '날짜', ['날짜', '생산일', '일자'], 'date'),
+        F('kind', '구분(프리컷/하이브리드)', ['구분']),
+        F('lotNo', 'LOT', ['lot', 'lotno']),
+        F('productCode', '제품코드', ['제품코드']),
+        F('prodQty', '생산수량', ['생산수량'], 'num'),
+        F('fabricInput', '투입원단(kg)', ['투입원단kg', '투입원단'], 'num'),
+        F('wasteKg', '폐기량(kg)', ['폐기량kg', '페기량kg', '폐기량', '페기량'], 'num'),
+        F('hybridUnitWeight', '하이브리드 개당무게', ['하이브리드개당무게'], 'num'),
+        F('hybridWaste', '하이브리드 폐기량', ['하이브리드페기량', '하이브리드폐기량'], 'num'),
+        F('finishedM', '완제품(m)', ['완제품m'], 'num'),
+        F('finishedRoll', '완제품(roll)', ['완제품roll'], 'num'),
+        F('workers', '작업자', ['작업자']),
+        F('category', '범주', ['범주']),
+        F('brand', '브랜드', ['브랜드']),
+        F('orderNo', '차수', ['차수', '주문차수'], 'num'),
+        F('baseType', '기재 type', ['기재type', '기재타입', '기재']),
+        F('size', '인치', ['인치', '사이즈'], 'num'),
+        F('remarks', '특이사항', ['특이사항', '비고']),
+      ],
     },
     // 엑셀에 있어도 무시(앱이 계산) — 검증용으로만 비교
     calcColsByBase: {
       CAST: ['총생산량', '총생산량loss포함', '총로스', '공정로스율', '생산로스율', '총로스율', '투입기재m', '총사용량롤', '총투입량kg', '파우치총수량', '비교', '비교2', '요일'],
       SPLINT: ['이론총수량roll', 'PRroll', '총수량m', '총수량roll', '총로스roll', '생산불량roll', '이론로스roll', '생산량+로스량', '공정로스율', '생산로스율', '생산총로스율', '파우치PR', '파우치LOSS'],
+      PH: ['총페기량', 'LOSS율(%)'],
     },
   },
   plans: {
@@ -696,9 +718,18 @@ const IMPORT_DEFS = {
 };
 const impNorm = (s) => String(s == null ? '' : s).toLowerCase().replace(/[\s\n\r()%/\-_.]/g, '');
 let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip', from: '', to: '' };
-/* 공정별 열 정의 (records는 CAST/SPLINT 양식이 다름 — PRE-CUT→SPLINT, HYBRID→CAST) */
-const impFields = (def) => def.fieldsByBase ? def.fieldsByBase[partBase(IMP.part)] : (def.fields || []);
-const impCalcCols = (def) => def.calcColsByBase ? def.calcColsByBase[partBase(IMP.part)] : (def.calcCols || []);
+/* 공정별 열 정의 — CAST/SPLINT는 각자 양식, PRE-CUT·HYBRID는 공용 양식(PH, 구분 열로 행별 분류) */
+const impRecordsBase = (p) => (p === 'PRE-CUT' || p === 'HYBRID') ? 'PH' : p;
+const impFields = (def) => def.fieldsByBase ? def.fieldsByBase[impRecordsBase(IMP.part)] : (def.fields || []);
+const impCalcCols = (def) => def.calcColsByBase ? def.calcColsByBase[impRecordsBase(IMP.part)] : (def.calcCols || []);
+/* 구분 열 값 → 파트 (프리컷/하이브리드) */
+function phKind(v) {
+  const s = impNorm(v);
+  if (!s) return null;
+  if (/hybrid|하이브리드|하이브/.test(s)) return 'HYBRID';
+  if (/precut|프리컷|프리커트|프리캇/.test(s)) return 'PRE-CUT';
+  return null;
+}
 const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'date');
 
 /* 엑셀 날짜(문자열·일련번호·Date) → YYYY-MM-DD */
@@ -755,7 +786,7 @@ function renderImport() {
       <div class="chk-row" style="margin-bottom:10px">
         <label><input type="radio" name="imp-dup" value="skip" ${IMP.dupMode === 'skip' ? 'checked' : ''}> 중복 <b>건너뛰기</b></label>
         <label><input type="radio" name="imp-dup" value="update" ${IMP.dupMode === 'update' ? 'checked' : ''}> 중복 <b>덮어쓰기</b></label>
-        <span class="muted">중복 판정: ${esc(def.dupLabel)}</span>
+        <span class="muted">중복 판정: ${esc(IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH' ? '구분+날짜+제품코드+차수+LOT' : def.dupLabel)}</span>
       </div>
       <div class="table-wrap"><table class="imp-table"><thead><tr><th>#</th>${cols.map((c) => `<th>${esc(c.label)}</th>`).join('')}<th>상태</th></tr></thead><tbody>
       ${shown.map((r, i) => `<tr class="${r._err ? 'imp-bad' : ''}"><td>${i + 1}</td>
@@ -774,6 +805,7 @@ function renderImport() {
   box.innerHTML = `
     <div class="imp-step"><h3>1. 데이터 종류</h3><div class="imp-types">${types}</div>
       ${def.hasPart ? `<div class="ai-gen-row" style="margin-top:10px"><span class="ai-gen-label">공정</span><div class="ai-opts">${parts}</div></div>` : ''}
+      ${IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH' ? `<p class="muted imp-note">※ 프리컷·하이브리드는 <b>한 양식</b>을 사용합니다. 엑셀의 <b>구분</b> 열로 행마다 자동 분류되며, 구분이 비어있는 행만 위에서 선택한 공정으로 등록됩니다.</p>` : ''}
     </div>
     <div class="imp-step"><h3>2. 엑셀 파일</h3>
       <input type="file" id="imp-file" accept=".xlsx,.xlsm,.xls">
@@ -812,8 +844,16 @@ function impLoadSheet(name) {
 function impParse() {
   const def = IMPORT_DEFS[IMP.key];
   const existing = { records: RECORDS, plans: PLANS, standards: STANDARDS, custspecs: CUSTSPECS }[IMP.key] || [];
+  const phMode = IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH';
+  // PH(프리컷·하이브리드)는 행마다 파트가 달라 중복키에 파트 포함, 제품은 제품코드 기준
+  const dupKeyFn = phMode
+    ? ((r) => [r.part, r.date, r.productCode || r.product || '', r.orderNo ?? '', r.lotNo || ''].join('|'))
+    : def.dupKey;
   const dupSet = new Map();
-  existing.filter((x) => !def.hasPart || (x.part || 'CAST') === IMP.part).forEach((x) => dupSet.set(def.dupKey(x), x));
+  existing.filter((x) => {
+    if (!def.hasPart) return true;
+    return phMode ? ['PRE-CUT', 'HYBRID'].includes(x.part) : (x.part || 'CAST') === IMP.part;
+  }).forEach((x) => dupSet.set(dupKeyFn(x), x));
   const hdrIdx = (label) => IMP.headers.findIndex((h) => impNorm(h) === impNorm(label));
   IMP.parsed = IMP.rows.map((row) => {
     const obj = {};
@@ -824,29 +864,51 @@ function impParse() {
       const v = f.type === 'date' ? impDate(raw) : f.type === 'num' ? impNum(raw) : (String(raw == null ? '' : raw).trim() || null);
       if (v !== null && v !== '') obj[f.k] = v;
     });
-    if (def.hasPart) obj.part = IMP.part;
+    // 파트: PH는 '구분' 열로 행별 자동 분류 (없으면 선택한 공정)
+    if (def.hasPart) obj.part = phMode ? (phKind(obj.kind) || IMP.part) : IMP.part;
     // 계산 항목 적용 (엑셀 값 대신 앱 계산식)
     let diff = '';
     if (IMP.key === 'records') {
-      const isSpl = partBase(IMP.part) === 'SPLINT';
-      if (isSpl && obj.rollLen == null) obj.rollLen = 4.55;   // SPLINT 1롤 길이 기본값 (기존 데이터와 동일)
-      const c = isSpl ? splintCalc(obj) : calc(obj);
-      // 총로스율 검증: CAST=총로스율(%) / SPLINT=생산총로스율(%)
-      let xi = -1;
-      for (const lbl of ['생산총로스율(%)', '생산총로스율', '총로스율(%)', '총로스율']) { xi = hdrIdx(lbl); if (xi >= 0) break; }
-      if (xi >= 0) {
-        const x = impNum(row[xi]);
-        if (x != null && c.totalLossRate != null && Math.abs(x - c.totalLossRate) > 0.05) diff = `엑셀 ${x}% / 계산 ${c.totalLossRate}%`;
+      const base = impRecordsBase(IMP.part);
+      if (base === 'PH') {
+        // 프리컷·하이브리드: 총페기량 = 폐기량 + 하이브리드폐기량, LOSS율 = 총페기량/투입원단×100
+        if (obj.wasteKg != null || obj.hybridWaste != null) obj.totalWaste = +(num(obj.wasteKg) + num(obj.hybridWaste)).toFixed(2);
+        if (obj.totalWaste != null && num(obj.fabricInput)) {
+          obj.lossRate = +(obj.totalWaste / num(obj.fabricInput) * 100).toFixed(2);
+          obj.totalLossRate = obj.lossRate;                    // 분석 화면 지표 호환
+        }
+        if (obj.product == null && obj.productCode != null) obj.product = obj.productCode;  // 목록 표시용
+        if (obj.part === 'PRE-CUT') { obj.rollQty = obj.prodQty ?? null; obj.totalRoll = obj.prodQty ?? null; }  // PRE-CUT 목록·집계 호환
+        let xi = -1;
+        for (const lbl of ['LOSS율(%)', 'LOSS율']) { xi = hdrIdx(lbl); if (xi >= 0) break; }
+        if (xi >= 0) {
+          const x = impNum(row[xi]);
+          if (x != null && obj.lossRate != null && Math.abs(x - obj.lossRate) > 0.05) diff = `엑셀 ${x}% / 계산 ${obj.lossRate}%`;
+        }
+      } else {
+        const isSpl = base === 'SPLINT';
+        if (isSpl && obj.rollLen == null) obj.rollLen = 4.55;   // SPLINT 1롤 길이 기본값 (기존 데이터와 동일)
+        const c = isSpl ? splintCalc(obj) : calc(obj);
+        // 총로스율 검증: CAST=총로스율(%) / SPLINT=생산총로스율(%)
+        let xi = -1;
+        for (const lbl of ['생산총로스율(%)', '생산총로스율', '총로스율(%)', '총로스율']) { xi = hdrIdx(lbl); if (xi >= 0) break; }
+        if (xi >= 0) {
+          const x = impNum(row[xi]);
+          if (x != null && c.totalLossRate != null && Math.abs(x - c.totalLossRate) > 0.05) diff = `엑셀 ${x}% / 계산 ${c.totalLossRate}%`;
+        }
+        Object.assign(obj, c);
       }
-      Object.assign(obj, c);
     }
     // 검증
     let err = '';
-    if (IMP.key === 'records' || IMP.key === 'plans') {
+    if (phMode) {
+      if (!obj.date) err = '날짜 없음';
+      else if (!obj.productCode && !obj.product) err = '제품코드 없음';
+    } else if (IMP.key === 'records' || IMP.key === 'plans') {
       if (!obj.date) err = '생산일 없음';
       else if (!obj.product) err = '제품명 없음';
     } else if (!obj.product) err = '제품명 없음';
-    const key = def.dupKey(obj);
+    const key = dupKeyFn(obj);
     // 기간 필터 (지정 시 범위 밖 행은 등록 대상에서 제외)
     let out = false;
     if (impHasDate() && obj.date) {
