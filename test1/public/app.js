@@ -3673,7 +3673,7 @@ document.addEventListener('click', (e) => {
 });
 
 /* ===================== 생산실적 목록 ===================== */
-function renderLogs() {
+function logsFiltered() {
   let recs = partRecords();
   const from = $('#f-from').value, to = $('#f-to').value;
   const mc = $('#f-machine').value, cu = $('#f-customer').value;
@@ -3684,8 +3684,38 @@ function renderLogs() {
   if (cu) recs = recs.filter((r) => r.customer === cu);
   if (q) recs = recs.filter((r) =>
     [r.product, r.lotNo, r.workers, r.customer, r.remarks, r.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
-  $('#logs-table').innerHTML = recordTable(recs, true);
+  return recs;
 }
+function renderLogs() {
+  const recs = logsFiltered();
+  $('#logs-table').innerHTML = recordTable(recs, true);
+  // 일괄 삭제 버튼 (admin 전용, 필터로 걸러진 실적이 있을 때만)
+  const del = $('#btn-del-filtered');
+  if (del) {
+    del.hidden = !can('delete', 'records') || !recs.length;
+    del.textContent = `🗑 표시된 실적 ${recs.length}건 삭제`;
+  }
+}
+/* 필터에 걸린 실적 일괄 삭제 (admin) — 잘못 올린 엑셀 데이터 정리용 */
+$('#btn-del-filtered').addEventListener('click', async () => {
+  if (!can('delete', 'records')) return;
+  const recs = logsFiltered();
+  if (!recs.length) return;
+  const from = $('#f-from').value || '처음', to = $('#f-to').value || '끝';
+  if (!confirm(`⚠️ ${PART} 실적 ${recs.length}건을 삭제합니다.\n· 기간: ${from} ~ ${to}\n· 현재 필터(호기·업체·검색)에 걸린 항목만 삭제됩니다.\n\n삭제 후 되돌릴 수 없습니다. 계속할까요?`)) return;
+  const typed = prompt(`정말 삭제하려면 삭제 건수 ${recs.length} 를 입력하세요.`);
+  if (typed == null) return;
+  if (String(typed).trim() !== String(recs.length)) return alert('건수가 일치하지 않아 취소했습니다.');
+  const btn = $('#btn-del-filtered');
+  btn.disabled = true;
+  try {
+    await dataService.deleteMany('records', recs.map((r) => r.id), (d, t) => { btn.textContent = `삭제 중… ${d}/${t}`; });
+    await loadRecords();
+    renderLogs();
+    alert(`${recs.length}건 삭제 완료`);
+  } catch (e) { alert('삭제 실패: ' + e.message); }
+  finally { btn.disabled = false; renderLogs(); }
+});
 
 function recordTable(recs, full = false) {
   if (!recs.length) return '<div class="empty">데이터가 없습니다.</div>';

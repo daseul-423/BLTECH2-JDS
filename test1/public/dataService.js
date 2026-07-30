@@ -109,6 +109,24 @@
         }, Promise.resolve()).then(function () { return recs; });
       });
     },
+    // 대량 삭제: 400건씩 배치 처리 (잘못 올린 데이터 정리용)
+    deleteMany: function (col, ids, onProgress) {
+      var list = (ids || []).map(String);
+      if (!list.length) return Promise.resolve(0);
+      var chunks = [];
+      for (var i = 0; i < list.length; i += 400) chunks.push(list.slice(i, i + 400));
+      var done = 0;
+      return chunks.reduce(function (p, chunk) {
+        return p.then(function () {
+          var batch = _db.batch();
+          chunk.forEach(function (id) { batch.delete(_db.collection(col).doc(id)); });
+          return batch.commit().then(function () {
+            done += chunk.length;
+            if (onProgress) onProgress(done, list.length);
+          });
+        });
+      }, Promise.resolve()).then(function () { return done; });
+    },
     update: function (col, id, obj) {
       // 전체 치환(기존 PUT 의미 유지). createdBy/createdByEmail/createdAt은 obj에 실려 오면 보존됨.
       var rec = Object.assign({}, obj, {
