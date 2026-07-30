@@ -871,19 +871,37 @@ function impParse() {
     if (IMP.key === 'records') {
       const base = impRecordsBase(IMP.part);
       if (base === 'PH') {
-        // 프리컷·하이브리드: 총페기량 = 폐기량 + 하이브리드폐기량, LOSS율 = 총페기량/투입원단×100
+        // ── 프리컷·하이브리드 수식 (실제 엑셀 캡처 9행 전수 검증됨) ──
+        // 하이브리드 페기량 = 투입원단 − 생산수량 × 개당무게 (개당무게가 있는 하이브리드 행)
+        if (obj.hybridUnitWeight != null && obj.prodQty != null && num(obj.fabricInput)) {
+          const hw = +(num(obj.fabricInput) - num(obj.prodQty) * num(obj.hybridUnitWeight)).toFixed(2);
+          if (obj.hybridWaste != null && Math.abs(hw - num(obj.hybridWaste)) > 0.05) diff = `하이브리드폐기 엑셀 ${obj.hybridWaste} / 계산 ${hw}`;
+          obj.hybridWaste = hw;
+        }
+        // 총페기량 = 폐기량 + 하이브리드페기량
         if (obj.wasteKg != null || obj.hybridWaste != null) obj.totalWaste = +(num(obj.wasteKg) + num(obj.hybridWaste)).toFixed(2);
+        // LOSS율 = 총페기량 ÷ 투입원단 × 100 (투입원단 없으면 미계산 = 엑셀 '-')
         if (obj.totalWaste != null && num(obj.fabricInput)) {
           obj.lossRate = +(obj.totalWaste / num(obj.fabricInput) * 100).toFixed(2);
           obj.totalLossRate = obj.lossRate;                    // 분석 화면 지표 호환
+        }
+        // 완제품(roll) = 완제품(m) ÷ 4.55 (1롤 4.55m — SPLINT와 동일 기준)
+        if (obj.finishedM != null) {
+          const fr = +(num(obj.finishedM) / 4.55).toFixed(2);
+          if (obj.finishedRoll != null && Math.abs(fr - num(obj.finishedRoll)) > 0.05) diff = (diff ? diff + ' · ' : '') + `완제품roll 엑셀 ${obj.finishedRoll} / 계산 ${fr}`;
+          obj.finishedRoll = fr;
         }
         if (obj.product == null && obj.productCode != null) obj.product = obj.productCode;  // 목록 표시용
         if (obj.part === 'PRE-CUT') { obj.rollQty = obj.prodQty ?? null; obj.totalRoll = obj.prodQty ?? null; }  // PRE-CUT 목록·집계 호환
         let xi = -1;
         for (const lbl of ['LOSS율(%)', 'LOSS율']) { xi = hdrIdx(lbl); if (xi >= 0) break; }
         if (xi >= 0) {
-          const x = impNum(row[xi]);
-          if (x != null && obj.lossRate != null && Math.abs(x - obj.lossRate) > 0.05) diff = `엑셀 ${x}% / 계산 ${obj.lossRate}%`;
+          let x = impNum(row[xi]);
+          if (x != null && obj.lossRate != null) {
+            // 퍼센트 서식 셀은 0.2255로 읽히므로 ×100 보정 (더 가까운 쪽 채택)
+            if (Math.abs(x * 100 - obj.lossRate) < Math.abs(x - obj.lossRate)) x = +(x * 100).toFixed(2);
+            if (Math.abs(x - obj.lossRate) > 0.05) diff = (diff ? diff + ' · ' : '') + `LOSS율 엑셀 ${x}% / 계산 ${obj.lossRate}%`;
+          }
         }
       } else {
         const isSpl = base === 'SPLINT';
