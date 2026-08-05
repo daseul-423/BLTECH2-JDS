@@ -3838,7 +3838,39 @@ function renderLogs() {
     del.hidden = !can('delete', 'records') || !recs.length;
     del.textContent = `🗑 표시된 실적 ${recs.length}건 삭제`;
   }
+  // 호기명 일괄 변경 버튼 — 기준정보에 없는 표기("3" 등)를 선택했을 때만 표시
+  const fix = $('#btn-fix-machine');
+  if (fix) {
+    const mc = $('#f-machine').value;
+    const nonstd = mc && !(MASTERS.machines || []).includes(mc);
+    fix.hidden = !can('update', 'records') || !nonstd || !recs.length;
+    if (!fix.hidden) fix.textContent = `✏ "${mc}" ${recs.length}건 호기명 변경`;
+  }
 }
+/* 잘못 들어온 호기 표기("3" 등)를 올바른 이름("3호기")으로 일괄 변경 (admin/manager) */
+$('#btn-fix-machine').addEventListener('click', async () => {
+  if (!can('update', 'records')) return;
+  const mc = $('#f-machine').value;
+  if (!mc) return;
+  const recs = logsFiltered();
+  if (!recs.length) return;
+  const suggest = /^\d+$/.test(mc) ? mc + '호기' : mc;
+  const target = prompt(`"${mc}" 표기 ${recs.length}건을 어떤 호기명으로 바꿀까요?`, suggest);
+  if (target == null) return;
+  const t = String(target).trim();
+  if (!t || t === mc) return;
+  if (!confirm(`${recs.length}건의 호기를 "${mc}" → "${t}" 로 변경합니다.\n진행할까요?`)) return;
+  const btn = $('#btn-fix-machine');
+  btn.disabled = true;
+  try {
+    await dataService.updateMany('records', recs.map((r) => ({ ...r, machine: t })), (d, tt) => { btn.textContent = `변경 중… ${d}/${tt}`; });
+    await loadRecords();
+    $('#f-machine').value = t;   // 바뀐 호기로 필터 이동해 결과 확인
+    renderLogs();
+    alert(`${recs.length}건 변경 완료 → "${t}"`);
+  } catch (e) { alert('변경 실패: ' + e.message); }
+  finally { btn.disabled = false; renderLogs(); }
+});
 /* 필터에 걸린 실적 일괄 삭제 (admin) — 잘못 올린 엑셀 데이터 정리용 */
 $('#btn-del-filtered').addEventListener('click', async () => {
   if (!can('delete', 'records')) return;

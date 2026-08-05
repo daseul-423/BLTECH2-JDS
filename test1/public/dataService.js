@@ -109,6 +109,27 @@
         }, Promise.resolve()).then(function () { return recs; });
       });
     },
+    // 대량 수정: 전체 문서를 400건씩 배치로 다시 기록 (호기 표기 정리 등)
+    updateMany: function (col, objs, onProgress) {
+      var now = _now(), uid = _uid(), email = _email();
+      var recs = (objs || []).map(function (o) {
+        return Object.assign({}, o, { updatedBy: uid, updatedByEmail: email, updatedAt: now });
+      });
+      if (!recs.length) return Promise.resolve(0);
+      var chunks = [];
+      for (var i = 0; i < recs.length; i += 400) chunks.push(recs.slice(i, i + 400));
+      var done = 0;
+      return chunks.reduce(function (p, chunk) {
+        return p.then(function () {
+          var batch = _db.batch();
+          chunk.forEach(function (r) { batch.set(_db.collection(col).doc(String(r.id)), r); });
+          return batch.commit().then(function () {
+            done += chunk.length;
+            if (onProgress) onProgress(done, recs.length);
+          });
+        });
+      }, Promise.resolve()).then(function () { return done; });
+    },
     // 대량 삭제: 400건씩 배치 처리 (잘못 올린 데이터 정리용)
     deleteMany: function (col, ids, onProgress) {
       var list = (ids || []).map(String);
