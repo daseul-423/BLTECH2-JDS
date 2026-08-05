@@ -888,6 +888,11 @@ function impParse() {
     });
     // 파트: PH는 '구분' 열로 행별 자동 분류 (없으면 선택한 공정)
     if (def.hasPart) obj.part = phMode ? (phKind(obj.kind) || IMP.part) : IMP.part;
+    // 호기 표기 정규화: 엑셀에 숫자(3)로만 적혀 있으면 "3호기"로 통일 (기존 데이터·필터와 일치)
+    if ((IMP.key === 'records' || IMP.key === 'plans') && obj.machine != null) {
+      const mch = String(obj.machine).replace(/\s+/g, '');
+      obj.machine = /^\d+$/.test(mch) ? mch + '호기' : mch;
+    }
     // 계산 항목 적용 (엑셀 값 대신 앱 계산식)
     let diff = '';
     if (IMP.key === 'records') {
@@ -3815,7 +3820,16 @@ function logsFiltered() {
     [r.product, r.lotNo, r.workers, r.customer, r.remarks, r.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
   return recs;
 }
+function syncMachineFilter() {
+  // 호기 필터 옵션 = 기준정보 호기 + 실제 데이터에 있는 표기(잘못 들어온 "3" 등 포함) → 정리용 선택 가능
+  const sel = $('#f-machine'); if (!sel) return;
+  const cur = sel.value;
+  const set = new Set([...(MASTERS.machines || []), ...RECORDS.map((r) => r.machine).filter(Boolean)]);
+  sel.innerHTML = '<option value="">전체</option>' + [...set].sort().map((m) => `<option>${esc(m)}</option>`).join('');
+  sel.value = cur;
+}
 function renderLogs() {
+  syncMachineFilter();
   const recs = logsFiltered();
   $('#logs-table').innerHTML = recordTable(recs, true);
   // 일괄 삭제 버튼 (admin 전용, 필터로 걸러진 실적이 있을 때만)
