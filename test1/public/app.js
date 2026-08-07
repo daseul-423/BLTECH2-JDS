@@ -699,10 +699,11 @@ const IMPORT_DEFS = {
   },
   orders: {
     label: '수주주문서', coll: 'orders', hasPart: true,
-    desc: '수주 접수 목록 — 등록하면 희망출고일 3일 전을 생산 마감일로 하는 생산계획이 자동 생성됩니다',
-    dupKey: (r) => [r.date ?? '', r.customer ?? '', r.product ?? '', r.dueDate ?? ''].join('|'),
-    dupLabel: '수주일+업체+제품+희망출고일',
+    desc: '수주 접수 목록(4개 공정 한 파일) — 등록하면 희망출고일 3일 전을 생산 마감일로 하는 생산계획이 자동 생성됩니다',
+    dupKey: (r) => [r.part ?? '', r.date ?? '', r.customer ?? '', r.product ?? '', r.dueDate ?? ''].join('|'),
+    dupLabel: '공정+수주일+업체+제품+희망출고일',
     fields: [
+      F('kind', '공정(구분)', ['공정', '구분', '파트', 'part', '공정구분', '제품군'], 'text'),
       F('date', '수주일', ['수주일', '접수일', '주문일', '일자', '날짜'], 'date'),
       F('customer', '업체명', ['업체명', '고객사', '거래처']),
       F('poNo', '발주번호', ['발주번호', '주문번호', '수주번호', 'po', 'pono']),
@@ -778,6 +779,16 @@ function phKind(v) {
   if (!s) return null;
   if (/hybrid|하이브리드|하이브/.test(s)) return 'HYBRID';
   if (/precut|프리컷|프리커트|프리캇/.test(s)) return 'PRE-CUT';
+  return null;
+}
+/* 수주주문서 '공정(구분)' 열 값 → 파트 4종 (한 파일에 CAST/SPLINT/PRE-CUT/HYBRID 혼재) */
+function orderPartOf(v) {
+  const s = impNorm(v);
+  if (!s) return null;
+  if (/hybrid|하이브리드|하이브/.test(s)) return 'HYBRID';
+  if (/precut|프리컷|프리커트|프리캇/.test(s)) return 'PRE-CUT';
+  if (/splint|스플린트|스프린트/.test(s)) return 'SPLINT';
+  if (/cast|캐스트|카스트/.test(s)) return 'CAST';
   return null;
 }
 const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'date');
@@ -857,6 +868,7 @@ function renderImport() {
       ${def.desc ? `<p class="muted imp-note">📌 ${esc(def.desc)}</p>` : ''}
       ${def.hasPart ? `<div class="ai-gen-row" style="margin-top:10px"><span class="ai-gen-label">공정</span><div class="ai-opts">${parts}</div></div>` : ''}
       ${IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH' ? `<p class="muted imp-note">※ 프리컷·하이브리드는 <b>한 양식</b>을 사용합니다. 엑셀의 <b>구분</b> 열로 행마다 자동 분류되며, 구분이 비어있는 행만 위에서 선택한 공정으로 등록됩니다.</p>` : ''}
+      ${IMP.key === 'orders' ? `<p class="muted imp-note">※ 수주주문서는 4개 공정이 <b>한 파일</b>로 올라옵니다. 엑셀의 <b>공정(구분)</b> 열로 행마다 CAST/SPLINT/PRE-CUT/HYBRID가 자동 분류되며, 구분이 비어있는 행만 위에서 선택한 공정으로 등록됩니다.</p>` : ''}
     </div>
     <div class="imp-step"><h3>2. 엑셀 파일</h3>
       <input type="file" id="imp-file" accept=".xlsx,.xlsm,.xls">
@@ -903,6 +915,7 @@ function impParse() {
   const dupSet = new Map();
   existing.filter((x) => {
     if (!def.hasPart) return true;
+    if (IMP.key === 'orders') return true;   // 수주주문서는 한 파일에 공정 혼재 → 전 공정 대상 (중복키에 공정 포함)
     return phMode ? ['PRE-CUT', 'HYBRID'].includes(x.part) : (x.part || 'CAST') === IMP.part;
   }).forEach((x) => dupSet.set(dupKeyFn(x), x));
   const hdrIdx = (label) => IMP.headers.findIndex((h) => impNorm(h) === impNorm(label));
@@ -915,8 +928,12 @@ function impParse() {
       const v = f.type === 'date' ? impDate(raw) : f.type === 'num' ? impNum(raw) : (raw instanceof Date ? impDate(raw) : (String(raw == null ? '' : raw).trim() || null));
       if (v !== null && v !== '') obj[f.k] = v;
     });
-    // 파트: PH는 '구분' 열로 행별 자동 분류 (없으면 선택한 공정)
-    if (def.hasPart) obj.part = phMode ? (phKind(obj.kind) || IMP.part) : IMP.part;
+    // 파트: PH·수주주문서는 '구분/공정' 열로 행별 자동 분류 (없으면 선택한 공정)
+    if (def.hasPart) {
+      obj.part = phMode ? (phKind(obj.kind) || IMP.part)
+        : IMP.key === 'orders' ? (orderPartOf(obj.kind) || IMP.part)
+        : IMP.part;
+    }
     // 호기 표기 정규화: 엑셀에 숫자(3)로만 적혀 있으면 "3호기"로 통일 (기존 데이터·필터와 일치)
     if ((IMP.key === 'records' || IMP.key === 'plans') && obj.machine != null) {
       const mch = String(obj.machine).replace(/\s+/g, '');
