@@ -10,7 +10,8 @@
     ],
     "rewrites": [
       { "source": "/api/chat", "function": "chat" },
-      { "source": "/api/image", "function": "image" }
+      { "source": "/api/image", "function": "image" },
+      { "source": "/api/extract-order", "function": "extractOrder" }
     ],
     "headers": [
       {

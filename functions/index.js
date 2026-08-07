@@ -1,7 +1,8 @@
 /* AI 어시스턴트 (Firebase Cloud Functions v2, OpenAI 프록시).
  *
- *   chat  : 생산데이터·사내규정 질의응답 (+ 사용자가 첨부한 이미지 인식)
- *   image : 이미지 생성 (gpt-image-2, /v1/images/generations)
+ *   chat         : 생산데이터·사내규정 질의응답 (+ 사용자가 첨부한 이미지 인식)
+ *   image        : 이미지 생성 (gpt-image-2, /v1/images/generations)
+ *   extractOrder : 문서(PDF·이미지) 분석 — 수주주문서 등에서 항목 추출 (/v1/responses)
  *
  * 보안:
  *   - OPENAI_API_KEY는 Secret Manager에서만 읽음 (코드/깃/클라이언트에 노출 안 됨).
@@ -20,7 +21,10 @@ setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 
 const CHAT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
+const DOC_MODEL = process.env.OPENAI_DOC_MODEL || CHAT_MODEL;   // PDF·이미지 문서 분석(Responses API)도 같은 모델 사용
 const DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+const DOC_FILE_RE = /^data:(application\/pdf|image\/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=]+)$/;
+const MAX_DOC_BYTES = 15 * 1024 * 1024;   // 원본 15MB(≈base64 20MB) — Cloud Functions 요청 크기(32MB) 여유 확보
 // 클라이언트가 보낼 수 있는 크기 (비율 × 크기 프리셋) — 그 외는 거부
 const ALLOWED_SIZES = new Set([
   'auto', '1024x1024', '1536x1536', '2048x2048',
@@ -118,4 +122,72 @@ exports.image = onRequest({ secrets: ['OPENAI_API_KEY'], cors: false, timeoutSec
     if (!b64) { res.status(502).json({ error: '이미지를 받지 못했습니다.' }); return; }
     res.status(200).json({ image: 'data:image/png;base64,' + b64, size, quality });
   } catch (e) { res.status(500).json({ error: String((e && e.message) || e) }); }
+});
+
+/* ─────────────── 문서 분석 (PDF·이미지 → 텍스트/JSON 추출) ───────────────
+ * https://developers.openai.com/api/docs/quickstart 의 "Analyze images and files" 방식.
+ * PDF는 OpenAI Files API(POST /v1/files, purpose=user_data)에 업로드해 file_id로 참조하고,
+ * 이미지는 base64 data URL을 그대로 input_image에 넣는다 — 둘 다 /v1/responses(Responses API) 호출.
+ * 클라이언트가 PDF를 이미지로 변환해 보내던 이전 방식(4페이지 제한) 대신, 문서 전체를 서버에서 분석한다. */
+function responsesText(data) {
+  if (data && data.output_text) return data.output_text;
+  const out = (data && Array.isArray(data.output)) ? data.output : [];
+  for (const item of out) {
+    if (item.type === 'message' && Array.isArray(item.content)) {
+      const t = item.content.find((c) => c.type === 'output_text' && c.text);
+      if (t) return t.text;
+    }
+  }
+  return '';
+}
+// 문서 분석은 비용이 있고 수주 등록 등 업무 반영과 직결되므로 admin/manager 전용
+exports.extractOrder = onRequest({ secrets: ['OPENAI_API_KEY'], cors: false, timeoutSeconds: 180, memory: '512MiB' }, async (req, res) => {
+  if (req.method !== 'POST') { res.status(405).json({ error: 'POST only' }); return; }
+  if (!(await requireActiveUser(req, res, ['admin', 'manager']))) return;
+
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) { res.status(500).json({ error: 'OPENAI_API_KEY 미설정 (Secret Manager)' }); return; }
+  let fileId = null;
+  try {
+    const body = req.body || {};
+    const m = DOC_FILE_RE.exec(String(body.fileData || ''));
+    if (!m) { res.status(400).json({ error: '지원하지 않는 파일 형식입니다. (PDF, PNG, JPG, WEBP만 가능)' }); return; }
+    const mime = m[1];
+    const bytes = Buffer.from(m[2], 'base64');
+    if (!bytes.length) { res.status(400).json({ error: '빈 파일입니다.' }); return; }
+    if (bytes.length > MAX_DOC_BYTES) { res.status(400).json({ error: `파일이 너무 큽니다. (최대 ${Math.round(MAX_DOC_BYTES / 1024 / 1024)}MB)` }); return; }
+    const prompt = String(body.prompt || '').slice(0, 4000) || '이 문서의 내용을 분석해줘.';
+
+    let inputPart;
+    if (mime === 'application/pdf') {
+      const form = new FormData();
+      form.append('purpose', 'user_data');
+      form.append('file', new Blob([bytes], { type: mime }), String(body.fileName || 'document.pdf'));
+      const up = await fetch('https://api.openai.com/v1/files', {
+        method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form,
+      });
+      const upData = await up.json();
+      if (!up.ok) { res.status(502).json({ error: 'OpenAI 파일 업로드 오류: ' + ((upData.error && upData.error.message) || up.status) }); return; }
+      fileId = upData.id;
+      inputPart = { type: 'input_file', file_id: fileId };
+    } else {
+      inputPart = { type: 'input_image', image_url: body.fileData, detail: 'high' };
+    }
+
+    const r = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: DOC_MODEL,
+        input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }, inputPart] }],
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) { res.status(502).json({ error: 'OpenAI 오류: ' + ((data.error && data.error.message) || r.status) }); return; }
+    res.status(200).json({ answer: responsesText(data) });
+  } catch (e) { res.status(500).json({ error: String((e && e.message) || e) }); }
+  finally {
+    // 업로드한 원본 파일은 OpenAI 계정 저장공간을 차지하므로 사용 후 정리(실패해도 응답에는 영향 없음)
+    if (fileId) fetch(`https://api.openai.com/v1/files/${fileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${key}` } }).catch(() => {});
+  }
 });
