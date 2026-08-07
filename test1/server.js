@@ -1,4 +1,4 @@
-// CAST 생산공정일지 관리 시스템 - 로컬 서버 (의존성 없음, Node 내장 모듈만 사용)
+// 생산관리 플랫폼 - 로컬 서버 (의존성 없음, Node 내장 모듈만 사용)
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -238,5 +238,5 @@ ${context}`;
 });
 
 server.listen(PORT, () => {
-  console.log(`CAST 생산공정일지 시스템 실행 중: http://localhost:${PORT}`);
+  console.log(`생산관리 플랫폼 실행 중: http://localhost:${PORT}`);
 });
