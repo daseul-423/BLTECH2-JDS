@@ -32,6 +32,7 @@
     <div class="nav-group">
       <div class="nav-group-label">작업</div>
       <button class="nav-btn" data-page="dashboard">📊 대시보드</button>
+      <button class="nav-btn" data-page="orders">📦 수주 관리</button>
       <button class="nav-btn" data-page="plans">🗓 생산계획 · 작업지시</button>
       <button class="nav-btn" data-page="sheets">📝 공정일지 작성</button>
       <button class="nav-btn" data-page="equipchecks">🛠 설비 일상점검</button>
@@ -70,6 +71,7 @@
       </div>
       <div class="hub-group-label">관리자 <span class="muted" style="font-weight:400">🔒 PIN</span></div>
       <div class="hub-cards">
+        <div class="hub-card admin" data-goto="orders"><div class="hub-ico">📦</div><h3>수주 관리</h3><p>수주주문서 업로드·등록 → 생산계획 자동 생성.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="logs"><div class="hub-ico">📋</div><h3>실적관리</h3><p>생산실적 조회·CSV, 실적·불량 분석, 대시보드.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="companies"><div class="hub-ico">🏭</div><h3>업체 정보</h3><p>업체별 컬러·수지·토너·특이사항.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="standards"><div class="hub-ico">📦</div><h3>제품표준서</h3><p>제품별 기재·수지·촉매·코어·규격.</p><span class="hub-open">열기 →</span></div>
@@ -122,6 +124,24 @@
     <div class="card">
       <p class="muted" style="margin-bottom:10px">실적·달성률은 같은 날짜/호기/제품의 생산실적과 자동 매칭됩니다.</p>
       <div class="table-wrap" id="plans-table"></div>
+    </div>
+  </section>
+
+  <!-- 수주 관리 -->
+  <section id="page-orders" class="page" hidden>
+    <div class="page-head">
+      <h1>수주 관리 <span class="muted" style="font-size:13px;font-weight:400">수주 등록 시 생산계획 자동 생성 · 생산 마감 = 희망출고일 − 3일</span></h1>
+      <div class="head-actions">
+        <input type="date" id="o-from"> ~ <input type="date" id="o-to">
+        <input type="text" id="o-search" placeholder="업체, 제품, 발주번호...">
+        <button class="btn" id="btn-import-orders" hidden>📥 수주주문서 업로드</button>
+        <button class="btn" id="btn-gen-plans" hidden>🗓 계획 일괄 생성</button>
+        <button class="btn primary" id="btn-new-order">＋ 수주 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">수주주문서를 업로드하거나 직접 등록하면 <b>희망출고일 3일 전</b>을 생산 마감일로 하는 생산계획이 자동 생성됩니다. 세부 배정(호기 등)은 <b>생산계획표</b>에서 수정하세요.</p>
+      <div class="table-wrap" id="orders-table"></div>
     </div>
   </section>
 
@@ -668,6 +688,7 @@
       <div class="form-grid">
         <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
         <label>생산일 *<input type="date" name="date" required></label>
+        <label>희망출고일<input type="date" name="dueDate"></label>
         <label>호기 *<select name="machine" required></select></label>
         <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
         <label>주문 차수<input type="number" name="orderNo"></label>
@@ -683,6 +704,38 @@
         <button type="button" class="btn danger" id="plan-delete" hidden>삭제</button>
         <span class="spacer"></span>
         <button type="button" class="btn" id="plan-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 수주 등록/수정 -->
+<div class="modal-back" id="order-modal" hidden>
+  <div class="modal" style="max-width:640px">
+    <div class="modal-head">
+      <h2 id="order-modal-title">수주 등록</h2>
+      <button class="btn icon" id="order-modal-close">✕</button>
+    </div>
+    <form id="order-form">
+      <div class="form-grid">
+        <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
+        <label>수주일 *<input type="date" name="date" required></label>
+        <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
+        <label>발주번호<input type="text" name="poNo"></label>
+        <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
+        <label>제품코드<input type="text" name="productCode"></label>
+        <label>칼라<input type="text" name="color" list="dl-colors"></label>
+        <label>길이(m)<input type="number" step="0.1" name="length"></label>
+        <label>수주수량 *<input type="number" name="qty" required></label>
+        <label>희망출고일 *<input type="date" name="dueDate" required></label>
+        <label class="wide">비고<input type="text" name="note"></label>
+      </div>
+      <p class="muted" style="margin:10px 0 0">저장하면 생산계획이 자동 생성됩니다 — 생산 마감일 = 희망출고일 − 3일</p>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="order-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="order-cancel">취소</button>
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>

@@ -4,6 +4,7 @@
 let RECORDS = [];
 let SHEETS = [];
 let PLANS = [];
+let ORDERS = [];            // 수주주문서 (→ 생산계획 자동 생성)
 let STANDARDS = [];
 let CUSTSPECS = [];         // 고객사별 생산사양 (NEAL / OEM)
 let EQUIPCHECKS = [];       // 설비 일상점검
@@ -27,12 +28,19 @@ const fmt = (n, d = 0) => (n == null || n === '' || isNaN(n)) ? '-' : Number(n).
 const num = (v) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const todayStr = () => new Date().toISOString().slice(0, 10);
+/* YYYY-MM-DD에 n일 더하기 (음수 가능) — 수주 희망출고일 → 생산 마감일 계산용 */
+const addDays = (ymd, n) => {
+  const d = new Date(String(ymd) + 'T00:00:00');
+  if (isNaN(d)) return null;
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 /* ===================== 데이터 계층 (Firebase Firestore 전용) =====================
    - 모든 읽기/쓰기는 dataService(Firestore)를 통함. localStorage 폴백 제거.
    - api()/post() 규약(경로·반환형태)은 기존과 동일 → 화면·계산 코드는 무변경.
    - /api/chat(OpenAI)은 api()를 거치지 않고 기존대로 fetch로 직접 호출됨(구조 유지). */
-const COLLECTIONS = ['records', 'sheets', 'plans', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
+const COLLECTIONS = ['records', 'sheets', 'plans', 'orders', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
 async function api(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : null;
@@ -64,6 +72,8 @@ const post = (path, body, method = 'POST') => api(path, { method, headers: { 'Co
 const loadRecords = async () => { RECORDS = await api('/api/records'); };
 const loadSheets = async () => { SHEETS = await api('/api/sheets'); };
 const loadPlans = async () => { PLANS = await api('/api/plans'); };
+// 규칙 미배포 환경에서도 앱 부팅이 막히지 않도록 실패는 빈 목록으로 처리
+const loadOrders = async () => { try { ORDERS = await api('/api/orders'); } catch (e) { console.warn('[orders] 불러오기 실패', e); ORDERS = []; } };
 const loadStandards = async () => { STANDARDS = await api('/api/standards'); };
 const loadCustSpecs = async () => { CUSTSPECS = await api('/api/custspecs'); };
 const loadEquipChecks = async () => { EQUIPCHECKS = await api('/api/equipchecks'); };
@@ -200,13 +210,13 @@ $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.datas
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
 const ROLE_PAGES = {
-  admin:   ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import', 'policies', 'users'],
-  manager: ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import'],
+  admin:   ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import', 'policies', 'users'],
+  manager: ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import'],
   worker:  ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'overview'],
 };
 // 등록/수정 가능 역할 (컬렉션별). 삭제는 admin 전용. companies=masters.companies 문서 쓰기.
 const WRITE_ROLES = {
-  records: ['admin', 'manager'], plans: ['admin', 'manager'], standards: ['admin', 'manager'],
+  records: ['admin', 'manager'], plans: ['admin', 'manager'], orders: ['admin', 'manager'], standards: ['admin', 'manager'],
   custspecs: ['admin', 'manager'], companies: ['admin', 'manager'], masters: ['admin', 'manager'],
   equipment: ['admin', 'manager'],
   sheets: ['admin', 'manager', 'worker'], equipchecks: ['admin', 'manager', 'worker'],
@@ -239,7 +249,7 @@ function showPage(page) {
   if (!canAccessPage(page)) page = 'home';
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, import: renderImport, policies: renderPolicies, users: renderUsers }[page];
+  const render = { dashboard: renderDashboard, orders: renderOrders, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, import: renderImport, policies: renderPolicies, users: renderUsers }[page];
   if (render) render();
   applyCreateButtons();
 }
@@ -250,7 +260,7 @@ function refreshCurrentPage() {
 
 /* 생성 버튼 노출(역할별) */
 const CREATE_BTNS = {
-  plans: '#btn-new-plan', standards: '#btn-new-standard', custspecs: '#btn-new-custspec',
+  plans: '#btn-new-plan', orders: '#btn-new-order', standards: '#btn-new-standard', custspecs: '#btn-new-custspec',
   companies: '#btn-new-company', equipchecks: '#btn-new-equipcheck', equipment: '#btn-new-equipment',
   sheets: '#btn-new-sheet', users: '#btn-new-user',
 };
@@ -687,6 +697,25 @@ const IMPORT_DEFS = {
     ],
     calcCols: [],
   },
+  orders: {
+    label: '수주주문서', coll: 'orders', hasPart: true,
+    desc: '수주 접수 목록 — 등록하면 희망출고일 3일 전을 생산 마감일로 하는 생산계획이 자동 생성됩니다',
+    dupKey: (r) => [r.date ?? '', r.customer ?? '', r.product ?? '', r.dueDate ?? ''].join('|'),
+    dupLabel: '수주일+업체+제품+희망출고일',
+    fields: [
+      F('date', '수주일', ['수주일', '접수일', '주문일', '일자', '날짜'], 'date'),
+      F('customer', '업체명', ['업체명', '고객사', '거래처']),
+      F('poNo', '발주번호', ['발주번호', '주문번호', '수주번호', 'po', 'pono']),
+      F('product', '제품명', ['제품명', '품명']),
+      F('productCode', '제품코드', ['제품코드']),
+      F('color', '칼라', ['칼라', '색상']),
+      F('length', '길이', ['길이'], 'num'),
+      F('qty', '수주수량', ['수주수량', '주문수량', '발주수량', '수량'], 'num'),
+      F('dueDate', '희망출고일', ['희망출고일', '출고희망일', '출고예정일', '출고일', '납기일', '납기'], 'date'),
+      F('note', '비고', ['비고', '특이사항', '요청사항']),
+    ],
+    calcCols: [],
+  },
   standards: {
     label: '제품표준서', coll: 'standards', hasPart: true,
     desc: '제품당 1행 — 기재·수지·촉매 등 자재 기준',
@@ -865,7 +894,7 @@ function impLoadSheet(name) {
 /* 매핑 → 실제 객체 + 검증 + 중복/계산차이 표시 */
 function impParse() {
   const def = IMPORT_DEFS[IMP.key];
-  const existing = { records: RECORDS, plans: PLANS, standards: STANDARDS, custspecs: CUSTSPECS, companies: (MASTERS.companies || []) }[IMP.key] || [];
+  const existing = { records: RECORDS, plans: PLANS, orders: ORDERS, standards: STANDARDS, custspecs: CUSTSPECS, companies: (MASTERS.companies || []) }[IMP.key] || [];
   const phMode = IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH';
   // PH(프리컷·하이브리드)는 행마다 파트가 달라 중복키에 파트 포함, 제품은 제품코드 기준
   const dupKeyFn = phMode
@@ -954,6 +983,10 @@ function impParse() {
       else if (!obj.product) err = '제품명 없음';
     } else if (IMP.key === 'companies') {
       if (!obj.name) err = '업체명 없음';
+    } else if (IMP.key === 'orders') {
+      if (!obj.product) err = '제품명 없음';
+      else if (!obj.dueDate) err = '희망출고일 없음';
+      else if (obj.qty == null) err = '수주수량 없음';
     } else if (!obj.product) err = '제품명 없음';
     const key = dupKeyFn(obj);
     // 기간 필터 (지정 시 범위 밖 행은 등록 대상에서 제외)
@@ -1040,9 +1073,15 @@ async function impRun() {
       MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
       fillMasterInputs();
     } else {
+    let genPlans = 0;
     if (news.length) {
-      await dataService.createMany(def.coll, news.map((r) => r.obj), (d, t) => { if (pg) pg.textContent = `등록 중… ${d}/${t}`; });
+      const recs = await dataService.createMany(def.coll, news.map((r) => r.obj), (d, t) => { if (pg) pg.textContent = `등록 중… ${d}/${t}`; });
       added = news.length;
+      // 수주주문서는 등록 즉시 생산계획 자동 생성 (희망출고일 − 3일 = 생산 마감)
+      if (IMP.key === 'orders') {
+        if (pg) pg.textContent = '생산계획 생성 중…';
+        genPlans = await generatePlansForOrders(recs);
+      }
     }
     if (willUpdate) {
       for (let i = 0; i < dups.length; i++) {
@@ -1051,7 +1090,12 @@ async function impRun() {
         if (pg) pg.textContent = `덮어쓰는 중… ${i + 1}/${dups.length}`;
       }
     }
-    await { records: loadRecords, plans: loadPlans, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
+    await { records: loadRecords, plans: loadPlans, orders: async () => { await loadOrders(); await loadPlans(); }, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
+    if (pg) pg.textContent = '';
+    alert(`완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건${failed ? `\n· 실패 ${failed}건` : ''}${genPlans ? `\n· 생산계획 자동 생성 ${genPlans}건` : ''}`);
+    IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
+    renderImport();
+    return;
     }
     if (pg) pg.textContent = '';
     alert(`완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건${failed ? `\n· 실패 ${failed}건` : ''}`);
@@ -1484,26 +1528,110 @@ function renderPlans() {
   if (mc) plans = plans.filter((p) => p.machine === mc);
   if (st) plans = plans.filter((p) => (p.status || '계획') === st);
 
-  if (!plans.length) { $('#plans-table').innerHTML = '<div class="empty">등록된 생산계획이 없습니다. [＋ 계획 등록]으로 추가하세요.</div>'; return; }
+  if (!plans.length) { $('#plans-table').innerHTML = '<div class="empty">등록된 생산계획이 없습니다. [＋ 계획 등록] 또는 수주 관리에서 추가하세요.</div>'; return; }
 
+  // 정렬: 날짜(최신 위) → 같은 날짜 안에서는 생산순서(seq, 드래그로 편집) → id
+  const seqOf = (p) => (p.seq == null ? 1e9 : num(p.seq));
+  plans = plans.slice().sort((a, b) => a.date === b.date
+    ? (seqOf(a) - seqOf(b)) || (a.id - b.id)
+    : (a.date < b.date ? 1 : -1));
+
+  const canDrag = can('update', 'plans');
   const rows = plans.map((p) => {
     const actual = planActual(p);
     const achieve = num(p.planQty) ? actual / num(p.planQty) * 100 : 0;
     const aBadge = actual === 0 ? '<span class="badge plain">-</span>'
       : `<span class="badge ${achieve >= 100 ? 'ok' : 'warn'}">${achieve.toFixed(0)}%</span>`;
     return `<tr data-plan-id="${p.id}">
-      <td>${esc(p.date)}</td><td>${esc(p.machine)}</td><td>${esc(p.customer ?? '')}</td>
+      <td class="drag-cell">${canDrag ? '<span class="drag-handle" title="끌어서 생산 순서 변경">⠿</span>' : ''}<span class="muted seq-no">${p.seq ?? ''}</span></td>
+      <td>${esc(p.date)}</td><td>${esc(p.dueDate ?? '-')}</td><td>${esc(p.machine)}</td><td>${esc(p.customer ?? '')}</td>
       <td class="num">${p.orderNo ?? '-'}</td><td><b>${esc(p.product)}</b> ${esc(p.color ?? '')}</td>
       <td class="num">${p.length ?? '-'}</td><td class="num">${fmt(p.planQty)}</td>
       <td class="num">${actual ? fmt(actual) : '-'}</td><td>${aBadge}</td>
-      <td>${statusBadge(p.status)}</td><td>${esc(p.note ?? '')}</td>
+      <td>${statusBadge(p.status)}</td><td>${p.orderId ? '<span class="badge plain" title="수주 #' + p.orderId + ' 자동 생성">📦</span> ' : ''}${esc(p.note ?? '')}</td>
       <td><button class="btn small order-btn" data-order-id="${p.id}">🖨 지시서</button></td>
     </tr>`;
   }).join('');
   $('#plans-table').innerHTML = `<table><thead><tr>
-    <th>생산일</th><th>호기</th><th>업체</th><th class="num">차수</th><th>제품</th>
+    <th class="drag-cell">순서</th><th>생산일</th><th>출고일</th><th>호기</th><th>업체</th><th class="num">차수</th><th>제품</th>
     <th class="num">길이</th><th class="num">계획수량</th><th class="num">실적(정품)</th><th>달성률</th><th>상태</th><th>비고</th><th>작업지시</th>
-  </tr></thead><tbody>${rows}</tbody></table>`;
+  </tr></thead><tbody>${rows}</tbody></table>`
+  + (canDrag ? '<p class="muted" style="margin:8px 0 0">⠿ 핸들을 끌어 생산 순서를 바꿀 수 있습니다. 다른 날짜 사이에 놓으면 그 날짜로 일정이 이동합니다. <span id="plan-drag-status"></span></p>' : '');
+}
+
+/* ── 생산계획 드래그 순서 편집 ─────────────────────────────
+   ⠿ 핸들을 잡고 행을 끌어 순서 변경. 놓으면 화면 순서대로 날짜별 seq(1..N)를 다시 매겨 저장.
+   다른 날짜 그룹 사이에 놓으면 해당 날짜로 일정을 이동(재스케줄). */
+let planDragRow = null, planDragJustEnded = 0;
+{
+  const wrap = $('#plans-table');
+  if (wrap) {
+    wrap.addEventListener('mousedown', (e) => {
+      const h = e.target.closest('.drag-handle');
+      if (h) h.closest('tr').draggable = true;
+    });
+    wrap.addEventListener('dragstart', (e) => {
+      const tr = e.target.closest('tr[data-plan-id]');
+      if (!tr || !tr.draggable) { e.preventDefault(); return; }
+      planDragRow = tr;
+      tr.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', tr.dataset.planId); } catch (err) { /* IE 호환 */ }
+    });
+    wrap.addEventListener('dragover', (e) => {
+      if (!planDragRow) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const tr = e.target.closest('tr[data-plan-id]');
+      if (!tr || tr === planDragRow) return;
+      const rect = tr.getBoundingClientRect();
+      const after = e.clientY > rect.top + rect.height / 2;
+      tr.parentNode.insertBefore(planDragRow, after ? tr.nextSibling : tr);
+    });
+    wrap.addEventListener('drop', (e) => e.preventDefault());
+    wrap.addEventListener('dragend', async () => {
+      const tr = planDragRow;
+      planDragRow = null;
+      if (!tr) return;
+      tr.classList.remove('dragging');
+      tr.draggable = false;
+      planDragJustEnded = Date.now();   // 드래그 직후 click으로 모달이 열리는 것 방지
+      await persistPlanOrder(tr);
+    });
+  }
+}
+async function persistPlanOrder(movedTr) {
+  const rowEls = $$('#plans-table tbody tr[data-plan-id]');
+  const byId = new Map(PLANS.map((p) => [p.id, p]));
+  const moved = byId.get(Number(movedTr.dataset.planId));
+  if (!moved) return;
+  // 이동한 행의 새 이웃 날짜가 다르면 그 날짜로 일정 이동
+  const i = rowEls.indexOf(movedTr);
+  const neighbor = (rowEls[i - 1] || rowEls[i + 1]);
+  const nb = neighbor ? byId.get(Number(neighbor.dataset.planId)) : null;
+  let dateMoved = false;
+  if (nb && nb.date && nb.date !== moved.date) { moved.date = nb.date; dateMoved = true; }
+  // 화면 순서대로 날짜 그룹별 seq(1..N) 재부여 — 바뀐 문서만 저장
+  const changed = [];
+  const counters = {};
+  rowEls.forEach((r) => {
+    const p = byId.get(Number(r.dataset.planId));
+    if (!p) return;
+    counters[p.date] = (counters[p.date] || 0) + 1;
+    if (p.seq !== counters[p.date]) { p.seq = counters[p.date]; if (!changed.includes(p)) changed.push(p); }
+  });
+  if (dateMoved && !changed.includes(moved)) changed.push(moved);
+  if (!changed.length) { renderPlans(); return; }
+  const st = $('#plan-drag-status');
+  if (st) st.textContent = '순서 저장 중…';
+  try {
+    await dataService.updateMany('plans', changed);
+    await loadPlans();
+  } catch (e) {
+    alert('순서 저장 실패: ' + e.message);
+    await loadPlans().catch(() => {});
+  }
+  renderPlans();
 }
 
 const planForm = $('#plan-form');
@@ -1536,7 +1664,9 @@ planForm.addEventListener('submit', async (e) => {
     p[el.name] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
   });
   try {
-    if (editingPlanId) await post('/api/plans/' + editingPlanId, p, 'PUT');
+    // 수정 시 폼에 없는 필드(seq·orderId 등)가 지워지지 않도록 기존 문서에 병합
+    const orig = editingPlanId ? (PLANS.find((x) => x.id === editingPlanId) || {}) : {};
+    if (editingPlanId) await post('/api/plans/' + editingPlanId, { ...orig, ...p }, 'PUT');
     else await post('/api/plans', p);
     await loadPlans();
     $('#plan-modal').hidden = true;
@@ -1551,11 +1681,185 @@ $('#plan-delete').addEventListener('click', async () => {
   refreshCurrentPage();
 });
 document.addEventListener('click', (e) => {
+  if (Date.now() - planDragJustEnded < 400) return;   // 드래그 직후 클릭은 무시
   const orderBtn = e.target.closest('.order-btn');
   if (orderBtn) { openOrderModal(Number(orderBtn.dataset.orderId)); return; }
+  if (e.target.closest('.drag-handle')) return;
   const tr = e.target.closest('tr[data-plan-id]');
   if (tr) openPlanModal(Number(tr.dataset.planId));
 });
+
+/* ===================== 수주 관리 (수주주문서 → 생산계획 자동 생성) ===================== */
+/* ⚠ 생산계획 자동 생성 규칙 — 아직 "틀"입니다. 세부 조건(호기 배정·생산능력·소요일수·분할 생산 등)이
+   확정되면 planFromOrder()에 반영하세요. 현재 규칙:
+   - 생산일(=생산완료 마감일) = 희망출고일 − PLAN_LEAD_DAYS(3일)
+   - 상태 '계획', 호기 미배정(생산계획표에서 수정) */
+const PLAN_LEAD_DAYS = 3;
+const orderDeadline = (o) => (o && o.dueDate) ? addDays(o.dueDate, -PLAN_LEAD_DAYS) : null;
+function planFromOrder(o) {
+  return {
+    part: o.part || 'CAST',
+    date: orderDeadline(o) || o.date || todayStr(),
+    machine: null,
+    customer: o.customer ?? null,
+    product: o.product ?? null,
+    color: o.color ?? null,
+    length: o.length ?? null,
+    planQty: o.qty ?? null,
+    status: '계획',
+    dueDate: o.dueDate ?? null,
+    orderId: o.id,                       // 수주 문서와 연결
+    note: o.note ?? null,
+  };
+}
+/* 계획이 아직 없는 수주들에 생산계획을 일괄 생성하고 수주에 planId를 기록 */
+async function generatePlansForOrders(orderRecs) {
+  const targets = (orderRecs || []).filter((o) => o && !o.planId);
+  if (!targets.length) return 0;
+  const created = await dataService.createMany('plans', targets.map(planFromOrder));
+  await dataService.updateMany('orders', targets.map((o, idx) => ({ ...o, planId: created[idx].id })));
+  return created.length;
+}
+async function genPlansFor(ids) {
+  const targets = ORDERS.filter((o) => ids.includes(o.id) && !o.planId);
+  if (!targets.length) return;
+  try {
+    const n = await generatePlansForOrders(targets);
+    await Promise.all([loadOrders(), loadPlans()]);
+    refreshCurrentPage();
+    alert(`생산계획 ${n}건을 생성했습니다. (생산 마감 = 희망출고일 − ${PLAN_LEAD_DAYS}일)`);
+  } catch (e) { alert('계획 생성 실패: ' + e.message); }
+}
+
+function renderOrders() {
+  const box = $('#orders-table');
+  if (!box) return;
+  let list = ORDERS.slice();
+  const from = $('#o-from').value, to = $('#o-to').value;
+  const q = ($('#o-search').value || '').trim().toLowerCase();
+  if (from) list = list.filter((o) => (o.date || '') >= from);
+  if (to) list = list.filter((o) => (o.date || '') <= to);
+  if (q) list = list.filter((o) => [o.customer, o.product, o.productCode, o.poNo, o.note].some((v) => String(v || '').toLowerCase().includes(q)));
+  list.sort((a, b) => String(a.dueDate || '9999') === String(b.dueDate || '9999')
+    ? (a.id - b.id)
+    : (String(a.dueDate || '9999') < String(b.dueDate || '9999') ? -1 : 1));   // 출고 임박순
+
+  const impBtn = $('#btn-import-orders');
+  if (impBtn) impBtn.hidden = !canAccessPage('import');
+  const pending = ORDERS.filter((o) => !o.planId).length;
+  const genBtn = $('#btn-gen-plans');
+  if (genBtn) {
+    genBtn.hidden = !pending || !can('create', 'plans');
+    genBtn.textContent = `🗓 계획 미생성 ${pending}건 일괄 생성`;
+  }
+
+  if (!list.length) { box.innerHTML = '<div class="empty">등록된 수주가 없습니다. [＋ 수주 등록] 또는 [📥 수주주문서 업로드]로 추가하세요.</div>'; return; }
+  const today = todayStr();
+  const soon = addDays(today, PLAN_LEAD_DAYS);
+  const rows = list.map((o) => {
+    const dl = orderDeadline(o);
+    const dlBadge = !dl ? '-'
+      : dl < today ? `<span class="badge bad" title="생산 마감일이 지났습니다">${esc(dl)}</span>`
+      : dl <= soon ? `<span class="badge warn">${esc(dl)}</span>`
+      : `<span class="badge ok">${esc(dl)}</span>`;
+    const plan = o.planId ? PLANS.find((p) => p.id === o.planId) : null;
+    const planCell = plan
+      ? `${statusBadge(plan.status)} <span class="muted">#${plan.id} · ${esc(plan.date)}${plan.machine ? ' · ' + esc(plan.machine) : ''}</span>`
+      : o.planId ? '<span class="badge plain" title="연결된 계획이 삭제되었습니다">계획 삭제됨</span>'
+      : `<span class="badge warn">미생성</span>${can('create', 'plans') ? ` <button type="button" class="btn small gen-plan-btn" data-oid="${o.id}">생성</button>` : ''}`;
+    return `<tr data-oid="${o.id}">
+      <td>${esc(o.date ?? '')}</td>
+      <td><span class="badge plain">${esc(o.part || 'CAST')}</span></td>
+      <td>${esc(o.customer ?? '')}</td><td>${esc(o.poNo ?? '')}</td>
+      <td><b>${esc(o.product ?? '')}</b> ${esc(o.color ?? '')}</td>
+      <td class="num">${fmt(o.qty)}</td>
+      <td>${esc(o.dueDate ?? '')}</td><td>${dlBadge}</td>
+      <td>${planCell}</td><td>${esc(o.note ?? '')}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<table><thead><tr>
+    <th>수주일</th><th>공정</th><th>업체</th><th>발주번호</th><th>제품</th>
+    <th class="num">수주수량</th><th>희망출고일</th><th>생산마감(D−${PLAN_LEAD_DAYS})</th><th>생산계획</th><th>비고</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+['o-from', 'o-to', 'o-search'].forEach((id) => { const el = $('#' + id); if (el) el.addEventListener('input', renderOrders); });
+
+/* 수주 등록/수정 모달 */
+let editingSoId = null;
+const soForm = $('#order-form');
+function openSoModal(id = null) {
+  if (!soForm) return;
+  editingSoId = id;
+  soForm.reset();
+  $('#order-modal-title').textContent = id ? '수주 수정' : '수주 등록';
+  $('#order-delete').hidden = !id;
+  if (id) {
+    const o = ORDERS.find((x) => x.id === id);
+    if (!o) return;
+    [...soForm.elements].forEach((el) => { if (el.name && o[el.name] != null) el.value = o[el.name]; });
+  } else {
+    soForm.elements.date.value = todayStr();
+    soForm.elements.part.value = PART;
+  }
+  gateModal('#order-form', id ? can('update', 'orders') : can('create', 'orders'), !!id && can('delete', 'orders'));
+  $('#order-modal').hidden = false;
+}
+if (soForm) {
+  $('#btn-new-order').addEventListener('click', () => openSoModal());
+  $('#order-modal-close').addEventListener('click', () => ($('#order-modal').hidden = true));
+  $('#order-cancel').addEventListener('click', () => ($('#order-modal').hidden = true));
+  $('#order-modal').addEventListener('click', (e) => { if (e.target === $('#order-modal')) $('#order-modal').hidden = true; });
+  $('#btn-import-orders').addEventListener('click', () => {
+    // 엑셀 업로드 화면을 '수주주문서' 종류로 열기
+    IMP.key = 'orders'; IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
+    showPage('import');
+  });
+  $('#btn-gen-plans').addEventListener('click', () => {
+    const ids = ORDERS.filter((o) => !o.planId).map((o) => o.id);
+    if (!ids.length) return;
+    if (confirm(`계획이 없는 수주 ${ids.length}건에 생산계획을 생성할까요?\n(생산 마감 = 희망출고일 − ${PLAN_LEAD_DAYS}일)`)) genPlansFor(ids);
+  });
+  soForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const o = {};
+    [...soForm.elements].forEach((el) => {
+      if (!el.name) return;
+      o[el.name] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
+    });
+    try {
+      let rec;
+      if (editingSoId) {
+        // 수정 시 폼에 없는 필드(planId 등)가 지워지지 않도록 기존 문서에 병합
+        const orig = ORDERS.find((x) => x.id === editingSoId) || {};
+        rec = await post('/api/orders/' + editingSoId, { ...orig, ...o }, 'PUT');
+      } else {
+        rec = await post('/api/orders', o);
+      }
+      if (!rec.planId) await generatePlansForOrders([rec]);   // 계획 미생성 수주는 자동 생성
+      await Promise.all([loadOrders(), loadPlans()]);
+      $('#order-modal').hidden = true;
+      refreshCurrentPage();
+    } catch (err) { alert('저장 실패: ' + err.message); }
+  });
+  $('#order-delete').addEventListener('click', async () => {
+    if (!editingSoId) return;
+    const o = ORDERS.find((x) => x.id === editingSoId);
+    if (!confirm('이 수주를 삭제하시겠습니까?' + (o && o.planId ? '\n연결된 생산계획도 함께 삭제됩니다.' : ''))) return;
+    try {
+      if (o && o.planId) await api('/api/plans/' + o.planId, { method: 'DELETE' }).catch(() => {});
+      await api('/api/orders/' + editingSoId, { method: 'DELETE' });
+      await Promise.all([loadOrders(), loadPlans()]);
+      $('#order-modal').hidden = true;
+      refreshCurrentPage();
+    } catch (err) { alert('삭제 실패: ' + err.message); }
+  });
+  document.addEventListener('click', (e) => {
+    const g = e.target.closest('.gen-plan-btn');
+    if (g) { genPlansFor([Number(g.dataset.oid)]); return; }
+    const tr = e.target.closest('tr[data-oid]');
+    if (tr) openSoModal(Number(tr.dataset.oid));
+  });
+}
 
 /* ===================== 작업지시서 ===================== */
 /* 제품군 코드: NHC-3F → NHC-F (코팅량 규격표는 제품군 단위) */
@@ -4615,7 +4919,7 @@ $('#a-reset').addEventListener('click', () => {
 let __booted = false;
 async function bootApp() {
   if (__booted) return; __booted = true;
-  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadPolicies(), loadMasters()]);
+  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadOrders(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadPolicies(), loadMasters()]);
   fillMasterInputs();
   updateMetricLabels();
   applyRolePerms();
