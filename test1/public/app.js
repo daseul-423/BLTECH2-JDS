@@ -1826,11 +1826,7 @@ if (soForm) {
   $('#order-modal-close').addEventListener('click', () => ($('#order-modal').hidden = true));
   $('#order-cancel').addEventListener('click', () => ($('#order-modal').hidden = true));
   $('#order-modal').addEventListener('click', (e) => { if (e.target === $('#order-modal')) $('#order-modal').hidden = true; });
-  $('#btn-import-orders').addEventListener('click', () => {
-    // 엑셀 업로드 화면을 '수주주문서' 종류로 열기
-    IMP.key = 'orders'; IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
-    showPage('import');
-  });
+  $('#btn-import-orders').addEventListener('click', () => openSoUpload());
   $('#btn-gen-plans').addEventListener('click', () => {
     const ids = ORDERS.filter((o) => !o.planId).map((o) => o.id);
     if (!ids.length) return;
@@ -1875,6 +1871,204 @@ if (soForm) {
     if (g) { genPlansFor([Number(g.dataset.oid)]); return; }
     const tr = e.target.closest('tr[data-oid]');
     if (tr) openSoModal(Number(tr.dataset.oid));
+  });
+}
+
+/* ── 수주주문서 업로드 (형식 자유: 엑셀·CSV·PDF·사진) ─────────────────────
+   엑셀/CSV → 기존 열 연결 마법사(IMPORT_DEFS.orders)로 이동.
+   PDF/사진 → /api/chat(AI 이미지 인식)으로 항목 추출 → 편집 표에서 확인·수정 후 등록.
+   PDF는 pdf.js(CDN, 필요할 때만 로드)로 앞 4페이지를 이미지로 변환해 보낸다. */
+let SO_DRAFT = [];   // AI 추출 결과 편집 중인 행들
+
+function loadPDFJS() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (!window.__pdfjsLoading) {
+    window.__pdfjsLoading = new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; res(); };
+      s.onerror = () => rej(new Error('PDF 라이브러리를 불러오지 못했습니다. (인터넷 연결 확인)'));
+      document.head.appendChild(s);
+    });
+  }
+  return window.__pdfjsLoading;
+}
+/* PDF 앞 maxPages 페이지 → JPEG dataURL (AI 인식 한도가 4장) */
+async function pdfToImages(file, maxPages = 4, targetW = 1500) {
+  await loadPDFJS();
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const imgs = [];
+  for (let i = 1; i <= Math.min(pdf.numPages, maxPages); i++) {
+    const page = await pdf.getPage(i);
+    const base = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(2.5, targetW / base.width) });
+    const c = document.createElement('canvas');
+    c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+    imgs.push(c.toDataURL('image/jpeg', 0.85));
+  }
+  return { imgs, pages: pdf.numPages };
+}
+
+function openSoUpload() {
+  SO_DRAFT = [];
+  $('#so-upload-file').value = '';
+  $('#so-upload-state').textContent = '';
+  $('#so-extract-wrap').hidden = true;
+  $('#so-upload-modal').hidden = false;
+}
+
+/* AI 답변에서 JSON 배열만 추출 (코드블록·설명 섞여 와도 견디게) */
+function soParseJson(text) {
+  const s = String(text || '').replace(/```(json)?/gi, '');
+  const a = s.indexOf('['), b = s.lastIndexOf(']');
+  if (a < 0 || b <= a) return [];
+  try { const arr = JSON.parse(s.slice(a, b + 1)); return Array.isArray(arr) ? arr : []; }
+  catch (e) { return []; }
+}
+
+async function soExtractFromImages(imgs) {
+  const year = new Date().getFullYear();
+  const q = [
+    '첨부한 문서는 거래처에서 보낸 수주주문서(발주서)입니다. 문서에 있는 주문 항목을 모두 찾아 JSON 배열로만 답하세요.',
+    '설명 문장·마크다운 없이 JSON 배열만 출력하세요. 각 항목의 형식:',
+    '{"part":"CAST|SPLINT|PRE-CUT|HYBRID 중 하나(문서에 공정·제품군 구분이 있으면, 없으면 null)",',
+    ' "date":"수주일(주문일/발주일) YYYY-MM-DD(없으면 null)","customer":"업체명(발주처)","poNo":"발주번호(없으면 null)",',
+    ' "product":"제품명","productCode":"제품코드(없으면 null)","color":"칼라(없으면 null)",',
+    ' "qty":수량(숫자),"dueDate":"희망출고일/납기일 YYYY-MM-DD(없으면 null)","note":"특이 요청사항(없으면 null)"}',
+    `날짜에 연도가 없으면 ${year}년으로 간주하세요. 합계·소계 행은 제외하세요.`,
+  ].join('\n');
+  const res = await fetch('/api/chat', {
+    method: 'POST', headers: await aiHeaders(),
+    body: JSON.stringify({ question: q, images: imgs }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('서버 오류 ' + res.status));
+  const rows = soParseJson(data.answer);
+  if (!rows.length) throw new Error('문서에서 주문 항목을 찾지 못했습니다. 스캔 상태를 확인하거나 [＋ 행 추가]로 직접 입력해주세요.');
+  return rows.map((r) => ({
+    part: orderPartOf(r.part) || null,
+    date: impDate(r.date) || todayStr(),
+    customer: String(r.customer || '').trim() || null,
+    poNo: String(r.poNo || '').trim() || null,
+    product: String(r.product || '').trim() || null,
+    productCode: String(r.productCode || '').trim() || null,
+    color: String(r.color || '').trim() || null,
+    qty: impNum(r.qty),
+    dueDate: impDate(r.dueDate),
+    note: String(r.note || '').trim() || null,
+  }));
+}
+
+const soRowErr = (r) => !r.product ? '제품명 없음' : (r.qty == null || r.qty === '') ? '수량 없음' : !r.dueDate ? '희망출고일 없음' : '';
+const soDupKey = (r) => [r.part || 'CAST', r.date ?? '', r.customer ?? '', r.product ?? '', r.dueDate ?? ''].join('|');
+
+function renderSoDraft() {
+  const box = $('#so-extract-body');
+  const dupSet = new Set(ORDERS.map(soDupKey));
+  const partOpts = (p) => PARTS.map((x) => `<option ${x === (p || 'CAST') ? 'selected' : ''}>${x}</option>`).join('');
+  const rows = SO_DRAFT.map((r, i) => {
+    const err = soRowErr(r);
+    const dup = !err && dupSet.has(soDupKey({ ...r, part: r.part || 'CAST' }));
+    const badge = err ? `<span class="badge bad">${esc(err)}</span>` : dup ? '<span class="badge warn" title="같은 수주가 이미 있어 건너뜁니다">중복</span>' : '<span class="badge ok">등록</span>';
+    return `<tr>
+      <td><select data-si="${i}" data-sf="part">${partOpts(r.part)}</select></td>
+      <td><input type="date" data-si="${i}" data-sf="date" value="${esc(r.date ?? '')}"></td>
+      <td><input data-si="${i}" data-sf="customer" value="${esc(r.customer ?? '')}" placeholder="업체명"></td>
+      <td><input data-si="${i}" data-sf="poNo" value="${esc(r.poNo ?? '')}" style="width:90px"></td>
+      <td><input data-si="${i}" data-sf="product" value="${esc(r.product ?? '')}" placeholder="제품명"></td>
+      <td><input type="number" data-si="${i}" data-sf="qty" value="${esc(r.qty ?? '')}" style="width:80px"></td>
+      <td><input type="date" data-si="${i}" data-sf="dueDate" value="${esc(r.dueDate ?? '')}"></td>
+      <td><input data-si="${i}" data-sf="note" value="${esc(r.note ?? '')}"></td>
+      <td>${badge}</td>
+      <td><button type="button" class="btn icon" data-sdel="${i}" title="행 삭제">✕</button></td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<table><thead><tr>
+    <th>공정</th><th>수주일</th><th>업체명</th><th>발주번호</th><th>제품명</th>
+    <th class="num">수량</th><th>희망출고일</th><th>비고</th><th>상태</th><th></th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+  const ok = SO_DRAFT.filter((r) => !soRowErr(r) && !dupSet.has(soDupKey({ ...r, part: r.part || 'CAST' })));
+  const errN = SO_DRAFT.filter((r) => soRowErr(r)).length;
+  $('#so-extract-sum').textContent = `등록 가능 ${ok.length}건 · 오류 ${errN}건 · 중복 ${SO_DRAFT.length - ok.length - errN}건(건너뜀)`;
+  $('#so-extract-wrap').hidden = !SO_DRAFT.length;
+}
+
+if ($('#so-upload-modal')) {
+  $('#so-upload-close').addEventListener('click', () => ($('#so-upload-modal').hidden = true));
+  $('#so-upload-modal').addEventListener('click', (e) => { if (e.target === $('#so-upload-modal')) $('#so-upload-modal').hidden = true; });
+  $('#so-upload-file').addEventListener('change', async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const st = $('#so-upload-state');
+    const ext = f.name.toLowerCase().split('.').pop();
+    try {
+      if (['xlsx', 'xlsm', 'xls', 'csv'].includes(ext)) {
+        // 표 형태 → 기존 열 연결 마법사로 (파일까지 미리 읽어서 이동)
+        st.textContent = '엑셀 파일을 읽는 중…';
+        await loadXLSX();
+        IMP.key = 'orders';
+        IMP.wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+        impLoadSheet(IMP.wb.SheetNames[0]);
+        impParse();
+        $('#so-upload-modal').hidden = true;
+        showPage('import');
+        return;
+      }
+      let imgs;
+      if (ext === 'pdf') {
+        st.textContent = 'PDF를 이미지로 변환 중…';
+        const r = await pdfToImages(f);
+        imgs = r.imgs;
+        if (r.pages > 4) st.textContent = `⚠ ${r.pages}페이지 중 앞 4페이지만 인식합니다.`;
+      } else {
+        imgs = [await aiShrink(f, 1600)];
+      }
+      st.textContent = 'AI가 문서를 읽는 중… (수십 초 걸릴 수 있습니다)';
+      SO_DRAFT = await soExtractFromImages(imgs);
+      st.textContent = `추출 완료 — ${SO_DRAFT.length}건. 내용을 확인·수정한 뒤 등록하세요.`;
+      renderSoDraft();
+    } catch (err) {
+      st.textContent = '실패: ' + err.message;
+    } finally {
+      e.target.value = '';   // 같은 파일 재선택 가능하게
+    }
+  });
+  // 편집 표 입력 반영 / 행 삭제 / 행 추가
+  $('#so-extract-body').addEventListener('input', (e) => {
+    const el = e.target;
+    if (el.dataset.sf === undefined) return;
+    const r = SO_DRAFT[Number(el.dataset.si)];
+    if (!r) return;
+    r[el.dataset.sf] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
+    // 입력 중 포커스를 잃지 않도록 상태·합계만 갱신은 change에서
+  });
+  $('#so-extract-body').addEventListener('change', () => renderSoDraft());
+  $('#so-extract-body').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-sdel]');
+    if (del) { SO_DRAFT.splice(Number(del.dataset.sdel), 1); renderSoDraft(); }
+  });
+  $('#so-extract-add').addEventListener('click', () => {
+    SO_DRAFT.push({ part: PART, date: todayStr(), customer: null, poNo: null, product: null, productCode: null, color: null, qty: null, dueDate: null, note: null });
+    renderSoDraft();
+  });
+  $('#so-extract-run').addEventListener('click', async () => {
+    const dupSet = new Set(ORDERS.map(soDupKey));
+    const valid = SO_DRAFT.map((r) => ({ ...r, part: r.part || 'CAST' }))
+      .filter((r) => !soRowErr(r) && !dupSet.has(soDupKey(r)));
+    if (!valid.length) return alert('등록할 항목이 없습니다. (오류·중복 행은 제외됩니다)');
+    if (!confirm(`수주 ${valid.length}건을 등록하고 생산계획을 자동 생성할까요?\n(생산 마감 = 희망출고일 − ${PLAN_LEAD_DAYS}일)`)) return;
+    const btn = $('#so-extract-run');
+    btn.disabled = true;
+    try {
+      const recs = await dataService.createMany('orders', valid);
+      const n = await generatePlansForOrders(recs);
+      await Promise.all([loadOrders(), loadPlans()]);
+      $('#so-upload-modal').hidden = true;
+      refreshCurrentPage();
+      alert(`완료\n· 수주 등록 ${recs.length}건\n· 생산계획 자동 생성 ${n}건`);
+    } catch (err) { alert('등록 실패: ' + err.message); }
+    finally { btn.disabled = false; }
   });
 }
 

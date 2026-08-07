@@ -742,6 +742,31 @@
   </div>
 </div>
 
+<!-- 수주주문서 업로드 (엑셀·PDF·사진 — 형식 자유) -->
+<div class="modal-back" id="so-upload-modal" hidden>
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-head">
+      <h2>수주주문서 업로드</h2>
+      <button class="btn icon" id="so-upload-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:10px">
+      <b>엑셀(.xlsx/.csv)</b>은 열 연결 화면으로 이동해 표 그대로 등록합니다.<br>
+      <b>PDF·사진(스캔·캡처)</b>은 AI가 문서 내용을 읽어 아래 표로 추출합니다 — <b>등록 전에 내용을 확인·수정</b>하세요.
+    </p>
+    <input type="file" id="so-upload-file" accept=".xlsx,.xlsm,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp">
+    <div class="muted" id="so-upload-state" style="margin-top:8px"></div>
+    <div id="so-extract-wrap" hidden>
+      <div class="table-wrap so-draft" style="margin-top:12px" id="so-extract-body"></div>
+      <div class="modal-foot">
+        <button type="button" class="btn" id="so-extract-add">＋ 행 추가</button>
+        <span class="spacer"></span>
+        <span class="muted" id="so-extract-sum"></span>
+        <button type="button" class="btn primary" id="so-extract-run">등록 + 생산계획 생성</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- 일일 공정일지 워크스페이스 (탭 누적 입력 -> 자동 완성) -->
 <div class="ws-overlay" id="sheet-workspace" hidden>
   <div class="ws-card">
