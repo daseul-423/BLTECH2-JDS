@@ -27,6 +27,7 @@ service cloud.firestore {
     // 조회 전용(worker read-only) + 관리자·매니저 등록/수정, 삭제는 admin
     match /records/{id}   { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
     match /plans/{id}     { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
+    match /orders/{id}    { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
     match /standards/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
     match /custspecs/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
 
