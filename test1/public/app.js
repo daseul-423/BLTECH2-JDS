@@ -1876,38 +1876,18 @@ if (soForm) {
 
 /* ── 수주주문서 업로드 (형식 자유: 엑셀·CSV·PDF·사진) ─────────────────────
    엑셀/CSV → 기존 열 연결 마법사(IMPORT_DEFS.orders)로 이동.
-   PDF/사진 → /api/chat(AI 이미지 인식)으로 항목 추출 → 편집 표에서 확인·수정 후 등록.
-   PDF는 pdf.js(CDN, 필요할 때만 로드)로 앞 4페이지를 이미지로 변환해 보낸다. */
+   PDF/사진 → /api/extract-order(서버, OpenAI Responses API)로 문서 전체를 분석해 항목 추출
+   → 편집 표에서 확인·수정 후 등록. (Functions: functions/index.js의 extractOrder) */
 let SO_DRAFT = [];   // AI 추출 결과 편집 중인 행들
+const SO_MAX_BYTES = 15 * 1024 * 1024;   // 서버(extractOrder) 파일 크기 제한과 동일
 
-function loadPDFJS() {
-  if (window.pdfjsLib) return Promise.resolve();
-  if (!window.__pdfjsLoading) {
-    window.__pdfjsLoading = new Promise((res, rej) => {
-      const s = document.createElement('script');
-      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-      s.onload = () => { window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; res(); };
-      s.onerror = () => rej(new Error('PDF 라이브러리를 불러오지 못했습니다. (인터넷 연결 확인)'));
-      document.head.appendChild(s);
-    });
-  }
-  return window.__pdfjsLoading;
-}
-/* PDF 앞 maxPages 페이지 → JPEG dataURL (AI 인식 한도가 4장) */
-async function pdfToImages(file, maxPages = 4, targetW = 1500) {
-  await loadPDFJS();
-  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
-  const imgs = [];
-  for (let i = 1; i <= Math.min(pdf.numPages, maxPages); i++) {
-    const page = await pdf.getPage(i);
-    const base = page.getViewport({ scale: 1 });
-    const vp = page.getViewport({ scale: Math.min(2.5, targetW / base.width) });
-    const c = document.createElement('canvas');
-    c.width = Math.round(vp.width); c.height = Math.round(vp.height);
-    await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-    imgs.push(c.toDataURL('image/jpeg', 0.85));
-  }
-  return { imgs, pages: pdf.numPages };
+function soFileToDataUrl(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(new Error('파일을 읽을 수 없습니다.'));
+    fr.readAsDataURL(file);
+  });
 }
 
 function openSoUpload() {
@@ -1927,20 +1907,22 @@ function soParseJson(text) {
   catch (e) { return []; }
 }
 
-async function soExtractFromImages(imgs) {
+async function soExtractFromFile(file) {
+  if (file.size > SO_MAX_BYTES) throw new Error(`파일이 너무 큽니다. (최대 ${Math.round(SO_MAX_BYTES / 1024 / 1024)}MB)`);
+  const fileData = await soFileToDataUrl(file);
   const year = new Date().getFullYear();
-  const q = [
+  const prompt = [
     '첨부한 문서는 거래처에서 보낸 수주주문서(발주서)입니다. 문서에 있는 주문 항목을 모두 찾아 JSON 배열로만 답하세요.',
     '설명 문장·마크다운 없이 JSON 배열만 출력하세요. 각 항목의 형식:',
     '{"part":"CAST|SPLINT|PRE-CUT|HYBRID 중 하나(문서에 공정·제품군 구분이 있으면, 없으면 null)",',
     ' "date":"수주일(주문일/발주일) YYYY-MM-DD(없으면 null)","customer":"업체명(발주처)","poNo":"발주번호(없으면 null)",',
     ' "product":"제품명","productCode":"제품코드(없으면 null)","color":"칼라(없으면 null)",',
     ' "qty":수량(숫자),"dueDate":"희망출고일/납기일 YYYY-MM-DD(없으면 null)","note":"특이 요청사항(없으면 null)"}',
-    `날짜에 연도가 없으면 ${year}년으로 간주하세요. 합계·소계 행은 제외하세요.`,
+    `날짜에 연도가 없으면 ${year}년으로 간주하세요. 합계·소계 행은 제외하세요. 문서가 여러 페이지면 전체 페이지를 반영하세요.`,
   ].join('\n');
-  const res = await fetch('/api/chat', {
+  const res = await fetch('/api/extract-order', {
     method: 'POST', headers: await aiHeaders(),
-    body: JSON.stringify({ question: q, images: imgs }),
+    body: JSON.stringify({ fileData, fileName: file.name, prompt }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || ('서버 오류 ' + res.status));
@@ -2015,17 +1997,9 @@ if ($('#so-upload-modal')) {
         showPage('import');
         return;
       }
-      let imgs;
-      if (ext === 'pdf') {
-        st.textContent = 'PDF를 이미지로 변환 중…';
-        const r = await pdfToImages(f);
-        imgs = r.imgs;
-        if (r.pages > 4) st.textContent = `⚠ ${r.pages}페이지 중 앞 4페이지만 인식합니다.`;
-      } else {
-        imgs = [await aiShrink(f, 1600)];
-      }
-      st.textContent = 'AI가 문서를 읽는 중… (수십 초 걸릴 수 있습니다)';
-      SO_DRAFT = await soExtractFromImages(imgs);
+      if (!['pdf', 'png', 'jpg', 'jpeg', 'webp'].includes(ext)) throw new Error('지원하지 않는 파일 형식입니다. (엑셀, PDF, PNG, JPG, WEBP)');
+      st.textContent = ext === 'pdf' ? 'AI가 PDF 문서를 분석하는 중… (페이지가 많으면 1분 이상 걸릴 수 있습니다)' : 'AI가 이미지를 분석하는 중…';
+      SO_DRAFT = await soExtractFromFile(f);
       st.textContent = `추출 완료 — ${SO_DRAFT.length}건. 내용을 확인·수정한 뒤 등록하세요.`;
       renderSoDraft();
     } catch (err) {
