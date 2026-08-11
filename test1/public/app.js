@@ -707,6 +707,7 @@ const IMPORT_DEFS = {
       F('date', '수주일', ['수주일', '접수일', '주문일', '일자', '날짜'], 'date'),
       F('customer', '업체명', ['업체명', '고객사', '거래처']),
       F('poNo', '발주번호', ['발주번호', '주문번호', '수주번호', 'po', 'pono']),
+      F('custCode', '고객사코드(외부코드)', ['고객사코드', '외부코드', '거래처코드', '고객코드', '발주코드', 'custcode']),
       F('product', '제품명', ['제품명', '품명']),
       F('productCode', '제품코드', ['제품코드']),
       F('color', '칼라', ['칼라', '색상']),
@@ -724,6 +725,7 @@ const IMPORT_DEFS = {
     dupLabel: '공정+제품+색상+업체',
     fields: [
       F('product', '제품명', ['제품명', '품명']), F('productCode', '제품코드', ['제품코드']),
+      F('custCode', '고객사코드(외부코드)', ['고객사코드', '외부코드', '거래처코드', '고객코드', '발주코드', 'custcode']),
       F('color', '칼라', ['칼라', '색상']), F('customer', '업체명', ['업체명', '고객사']),
       F('brand', '브랜드', ['브랜드']), F('sizeSpec', '규격', ['규격', '사이즈']),
       F('category', '분류', ['분류', '카테고리']), F('baseType', '기재타입', ['기재타입', '기재']),
@@ -792,6 +794,16 @@ function orderPartOf(v) {
   return null;
 }
 const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'date');
+
+/* 고객사코드(외부코드) → 제품표준서 매핑 조회. 같은 공정 + (지정 시)같은 업체 안에서 코드가 일치하는 표준서를 찾는다.
+   거래처마다 자기 제품코드를 쓰기 때문에, 표준서에 미리 등록된 코드가 있어야 매칭된다(영업팀 매핑 자료 입력 필요). */
+function resolveByCustCode(custCode, customer, part) {
+  const cc = impNorm(custCode);
+  if (!cc) return null;
+  const p = part || 'CAST';
+  return STANDARDS.find((s) => (s.part || 'CAST') === p && impNorm(s.custCode) === cc
+    && (!customer || !s.customer || s.customer === customer)) || null;
+}
 
 /* 엑셀 날짜(문자열·일련번호·Date) → YYYY-MM-DD */
 function impDate(v) {
@@ -934,6 +946,13 @@ function impParse() {
         : IMP.key === 'orders' ? (orderPartOf(obj.kind) || IMP.part)
         : IMP.part;
     }
+    // 수주주문서: 고객사코드(외부코드)가 있고 제품명이 비어있으면 제품표준서에서 매핑 조회해 채운다
+    let mapMiss = false;
+    if (IMP.key === 'orders' && obj.custCode && !obj.product) {
+      const std = resolveByCustCode(obj.custCode, obj.customer, obj.part);
+      if (std) { obj.product = std.product; obj.productCode = obj.productCode || std.productCode; obj.color = obj.color || std.color; }
+      else mapMiss = true;
+    }
     // 호기 표기 정규화: 엑셀에 숫자(3)로만 적혀 있으면 "3호기"로 통일 (기존 데이터·필터와 일치)
     if ((IMP.key === 'records' || IMP.key === 'plans') && obj.machine != null) {
       const mch = String(obj.machine).replace(/\s+/g, '');
@@ -1001,7 +1020,7 @@ function impParse() {
     } else if (IMP.key === 'companies') {
       if (!obj.name) err = '업체명 없음';
     } else if (IMP.key === 'orders') {
-      if (!obj.product) err = '제품명 없음';
+      if (!obj.product) err = mapMiss ? '고객사코드 매핑 안 됨(제품표준서에 코드 등록 필요)' : '제품명 없음';
       else if (!obj.dueDate) err = '희망출고일 없음';
       else if (obj.qty == null) err = '수주수량 없음';
     } else if (!obj.product) err = '제품명 없음';
@@ -1756,7 +1775,7 @@ function renderOrders() {
   const q = ($('#o-search').value || '').trim().toLowerCase();
   if (from) list = list.filter((o) => (o.date || '') >= from);
   if (to) list = list.filter((o) => (o.date || '') <= to);
-  if (q) list = list.filter((o) => [o.customer, o.product, o.productCode, o.poNo, o.note].some((v) => String(v || '').toLowerCase().includes(q)));
+  if (q) list = list.filter((o) => [o.customer, o.product, o.productCode, o.custCode, o.poNo, o.note].some((v) => String(v || '').toLowerCase().includes(q)));
   list.sort((a, b) => String(a.dueDate || '9999') === String(b.dueDate || '9999')
     ? (a.id - b.id)
     : (String(a.dueDate || '9999') < String(b.dueDate || '9999') ? -1 : 1));   // 출고 임박순
@@ -1788,6 +1807,7 @@ function renderOrders() {
       <td>${esc(o.date ?? '')}</td>
       <td><span class="badge plain">${esc(o.part || 'CAST')}</span></td>
       <td>${esc(o.customer ?? '')}</td><td>${esc(o.poNo ?? '')}</td>
+      <td class="muted">${esc(o.custCode ?? '-')}</td>
       <td><b>${esc(o.product ?? '')}</b> ${esc(o.color ?? '')}</td>
       <td class="num">${fmt(o.qty)}</td>
       <td>${esc(o.dueDate ?? '')}</td><td>${dlBadge}</td>
@@ -1795,7 +1815,7 @@ function renderOrders() {
     </tr>`;
   }).join('');
   box.innerHTML = `<table><thead><tr>
-    <th>수주일</th><th>공정</th><th>업체</th><th>발주번호</th><th>제품</th>
+    <th>수주일</th><th>공정</th><th>업체</th><th>발주번호</th><th>고객사코드</th><th>제품</th>
     <th class="num">수주수량</th><th>희망출고일</th><th>생산마감(D−${PLAN_LEAD_DAYS})</th><th>생산계획</th><th>비고</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -1818,14 +1838,33 @@ function openSoModal(id = null) {
     soForm.elements.date.value = todayStr();
     soForm.elements.part.value = PART;
   }
+  $('#order-custcode-hint').textContent = '';
   gateModal('#order-form', id ? can('update', 'orders') : can('create', 'orders'), !!id && can('delete', 'orders'));
   $('#order-modal').hidden = false;
+}
+/* 고객사코드 입력/변경 시 제품표준서 매핑을 조회해 제품명·코드·칼라를 자동 채움(이미 입력된 값은 덮지 않음) */
+function soApplyCustCodeMap() {
+  const hint = $('#order-custcode-hint');
+  const cc = soForm.elements.custCode.value;
+  if (!cc.trim()) { hint.textContent = ''; return; }
+  const std = resolveByCustCode(cc, soForm.elements.customer.value, soForm.elements.part.value);
+  if (std) {
+    if (!soForm.elements.product.value) soForm.elements.product.value = std.product || '';
+    if (!soForm.elements.productCode.value) soForm.elements.productCode.value = std.productCode || '';
+    if (!soForm.elements.color.value && std.color) soForm.elements.color.value = std.color;
+    hint.textContent = `✓ 제품표준서 매칭: ${std.product || ''}${std.color ? ' ' + std.color : ''}`;
+    hint.className = 'muted';
+  } else {
+    hint.textContent = '⚠ 매핑된 제품표준서가 없습니다. 제품명을 직접 입력하거나, 제품표준서에 이 코드를 등록하세요.';
+    hint.className = 'muted';
+  }
 }
 if (soForm) {
   $('#btn-new-order').addEventListener('click', () => openSoModal());
   $('#order-modal-close').addEventListener('click', () => ($('#order-modal').hidden = true));
   $('#order-cancel').addEventListener('click', () => ($('#order-modal').hidden = true));
   $('#order-modal').addEventListener('click', (e) => { if (e.target === $('#order-modal')) $('#order-modal').hidden = true; });
+  $('#order-custcode').addEventListener('change', soApplyCustCodeMap);
   $('#btn-import-orders').addEventListener('click', () => openSoUpload());
   $('#btn-gen-plans').addEventListener('click', () => {
     const ids = ORDERS.filter((o) => !o.planId).map((o) => o.id);
@@ -1916,9 +1955,13 @@ async function soExtractFromFile(file) {
     '설명 문장·마크다운 없이 JSON 배열만 출력하세요. 각 항목의 형식:',
     '{"part":"CAST|SPLINT|PRE-CUT|HYBRID 중 하나(문서에 공정·제품군 구분이 있으면, 없으면 null)",',
     ' "date":"수주일(주문일/발주일) YYYY-MM-DD(없으면 null)","customer":"업체명(발주처)","poNo":"발주번호(없으면 null)",',
-    ' "product":"제품명","productCode":"제품코드(없으면 null)","color":"칼라(없으면 null)",',
+    ' "custCode":"거래처가 문서에 적은 발주처 자체 제품코드(거래처 코드/모델명 — 대부분 이 코드만 적혀있음, 없으면 null)",',
+    ' "product":"문서에 우리 회사 내부 제품명이 별도로 적혀있으면 그대로, 없으면 null(모르면 지어내지 말 것)",',
+    ' "productCode":"문서에 우리 회사 내부 제품코드가 별도로 적혀있으면 그대로, 없으면 null",',
+    ' "color":"칼라(없으면 null)",',
     ' "qty":수량(숫자),"dueDate":"희망출고일/납기일 YYYY-MM-DD(없으면 null)","note":"특이 요청사항(없으면 null)"}',
     `날짜에 연도가 없으면 ${year}년으로 간주하세요. 합계·소계 행은 제외하세요. 문서가 여러 페이지면 전체 페이지를 반영하세요.`,
+    '거래처 문서는 보통 자기 회사 제품코드만 적혀있고 우리 내부 제품명은 없습니다 — 그런 경우 product는 반드시 null로 두고 custCode만 채우세요.',
   ].join('\n');
   const res = await fetch('/api/extract-order', {
     method: 'POST', headers: await aiHeaders(),
@@ -1928,21 +1971,30 @@ async function soExtractFromFile(file) {
   if (!res.ok) throw new Error(data.error || ('서버 오류 ' + res.status));
   const rows = soParseJson(data.answer);
   if (!rows.length) throw new Error('문서에서 주문 항목을 찾지 못했습니다. 스캔 상태를 확인하거나 [＋ 행 추가]로 직접 입력해주세요.');
-  return rows.map((r) => ({
-    part: orderPartOf(r.part) || null,
-    date: impDate(r.date) || todayStr(),
-    customer: String(r.customer || '').trim() || null,
-    poNo: String(r.poNo || '').trim() || null,
-    product: String(r.product || '').trim() || null,
-    productCode: String(r.productCode || '').trim() || null,
-    color: String(r.color || '').trim() || null,
-    qty: impNum(r.qty),
-    dueDate: impDate(r.dueDate),
-    note: String(r.note || '').trim() || null,
-  }));
+  return rows.map((r) => {
+    const row = {
+      part: orderPartOf(r.part) || null,
+      date: impDate(r.date) || todayStr(),
+      customer: String(r.customer || '').trim() || null,
+      poNo: String(r.poNo || '').trim() || null,
+      custCode: String(r.custCode || '').trim() || null,
+      product: String(r.product || '').trim() || null,
+      productCode: String(r.productCode || '').trim() || null,
+      color: String(r.color || '').trim() || null,
+      qty: impNum(r.qty),
+      dueDate: impDate(r.dueDate),
+      note: String(r.note || '').trim() || null,
+    };
+    // 고객사코드가 있고 제품명이 비어있으면 제품표준서 매핑으로 자동 채움
+    if (row.custCode && !row.product) {
+      const std = resolveByCustCode(row.custCode, row.customer, row.part || 'CAST');
+      if (std) { row.product = std.product || null; row.productCode = row.productCode || std.productCode || null; row.color = row.color || std.color || null; }
+    }
+    return row;
+  });
 }
 
-const soRowErr = (r) => !r.product ? '제품명 없음' : (r.qty == null || r.qty === '') ? '수량 없음' : !r.dueDate ? '희망출고일 없음' : '';
+const soRowErr = (r) => !r.product ? (r.custCode ? '미매핑(제품표준서 없음)' : '제품명 없음') : (r.qty == null || r.qty === '') ? '수량 없음' : !r.dueDate ? '희망출고일 없음' : '';
 const soDupKey = (r) => [r.part || 'CAST', r.date ?? '', r.customer ?? '', r.product ?? '', r.dueDate ?? ''].join('|');
 
 function renderSoDraft() {
@@ -1958,7 +2010,8 @@ function renderSoDraft() {
       <td><input type="date" data-si="${i}" data-sf="date" value="${esc(r.date ?? '')}"></td>
       <td><input data-si="${i}" data-sf="customer" value="${esc(r.customer ?? '')}" placeholder="업체명"></td>
       <td><input data-si="${i}" data-sf="poNo" value="${esc(r.poNo ?? '')}" style="width:90px"></td>
-      <td><input data-si="${i}" data-sf="product" value="${esc(r.product ?? '')}" placeholder="제품명"></td>
+      <td><input data-si="${i}" data-sf="custCode" value="${esc(r.custCode ?? '')}" placeholder="거래처 코드"></td>
+      <td><input data-si="${i}" data-sf="product" value="${esc(r.product ?? '')}" placeholder="제품명(내부)"></td>
       <td><input type="number" data-si="${i}" data-sf="qty" value="${esc(r.qty ?? '')}" style="width:80px"></td>
       <td><input type="date" data-si="${i}" data-sf="dueDate" value="${esc(r.dueDate ?? '')}"></td>
       <td><input data-si="${i}" data-sf="note" value="${esc(r.note ?? '')}"></td>
@@ -1967,7 +2020,7 @@ function renderSoDraft() {
     </tr>`;
   }).join('');
   box.innerHTML = `<table><thead><tr>
-    <th>공정</th><th>수주일</th><th>업체명</th><th>발주번호</th><th>제품명</th>
+    <th>공정</th><th>수주일</th><th>업체명</th><th>발주번호</th><th>고객사코드</th><th>제품명(내부)</th>
     <th class="num">수량</th><th>희망출고일</th><th>비고</th><th>상태</th><th></th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   const ok = SO_DRAFT.filter((r) => !soRowErr(r) && !dupSet.has(soDupKey({ ...r, part: r.part || 'CAST' })));
@@ -2017,13 +2070,24 @@ if ($('#so-upload-modal')) {
     r[el.dataset.sf] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
     // 입력 중 포커스를 잃지 않도록 상태·합계만 갱신은 change에서
   });
-  $('#so-extract-body').addEventListener('change', () => renderSoDraft());
+  $('#so-extract-body').addEventListener('change', (e) => {
+    const el = e.target;
+    // 고객사코드·업체명·공정을 바꾸면 제품명이 비어있는 한 매핑을 다시 시도
+    if (['custCode', 'customer', 'part'].includes(el.dataset.sf)) {
+      const r = SO_DRAFT[Number(el.dataset.si)];
+      if (r && r.custCode && !r.product) {
+        const std = resolveByCustCode(r.custCode, r.customer, r.part || 'CAST');
+        if (std) { r.product = std.product || null; r.productCode = r.productCode || std.productCode || null; r.color = r.color || std.color || null; }
+      }
+    }
+    renderSoDraft();
+  });
   $('#so-extract-body').addEventListener('click', (e) => {
     const del = e.target.closest('[data-sdel]');
     if (del) { SO_DRAFT.splice(Number(del.dataset.sdel), 1); renderSoDraft(); }
   });
   $('#so-extract-add').addEventListener('click', () => {
-    SO_DRAFT.push({ part: PART, date: todayStr(), customer: null, poNo: null, product: null, productCode: null, color: null, qty: null, dueDate: null, note: null });
+    SO_DRAFT.push({ part: PART, date: todayStr(), customer: null, poNo: null, custCode: null, product: null, productCode: null, color: null, qty: null, dueDate: null, note: null });
     renderSoDraft();
   });
   $('#so-extract-run').addEventListener('click', async () => {
@@ -2277,7 +2341,7 @@ function renderStandards() {
   const q = $('#st-search').value.trim().toLowerCase();
   let items = STANDARDS.filter((s) => (s.part || 'CAST') === PART);
   if (q) items = items.filter((s) =>
-    [s.product, s.productCode, s.customer, s.brand, s.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
+    [s.product, s.productCode, s.custCode, s.customer, s.brand, s.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
     const img = s.images || {};
@@ -2286,7 +2350,7 @@ function renderStandards() {
       <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'📦'}))">` : '<span>📦</span>'}</div>
       <div class="standard-info">
         <div class="standard-name"><b>${esc(s.product)}</b> ${esc(s.color ?? '')} <span class="muted">${esc(s.productCode ?? '')}</span></div>
-        <div class="muted">${esc(s.category || 'CAST')} · ${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}</div>
+        <div class="muted">${esc(s.category || 'CAST')} · ${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}${s.custCode ? ` · 고객사코드 ${esc(s.custCode)}` : ''}</div>
         <div class="standard-mats">기재 ${esc(s.baseType ?? '-')} · 수지 ${esc(s.resinType ?? '-')} · 촉매 ${esc(s.catalyst ?? '-')}</div>
         <div class="standard-mats">코팅 ${s.coatingMid != null && s.coatingMid !== '' ? `${esc(s.coatingMin)}~${esc(s.coatingMax)} (중심 ${esc(s.coatingMid)})` : '-'} · 코어 ${esc(s.core ?? '-')}</div>
       </div>
