@@ -5,6 +5,7 @@ let RECORDS = [];
 let SHEETS = [];
 let PLANS = [];
 let ORDERS = [];            // 수주주문서 (→ 생산계획 자동 생성)
+let PRODUCTMAP = [];        // 품목 매핑 — 고객사 외부품명/코드 ↔ 내부 품명·품번 (공정 구분 없음)
 let STANDARDS = [];
 let CUSTSPECS = [];         // 고객사별 생산사양 (NEAL / OEM)
 let EQUIPCHECKS = [];       // 설비 일상점검
@@ -40,7 +41,7 @@ const addDays = (ymd, n) => {
    - 모든 읽기/쓰기는 dataService(Firestore)를 통함. localStorage 폴백 제거.
    - api()/post() 규약(경로·반환형태)은 기존과 동일 → 화면·계산 코드는 무변경.
    - /api/chat(OpenAI)은 api()를 거치지 않고 기존대로 fetch로 직접 호출됨(구조 유지). */
-const COLLECTIONS = ['records', 'sheets', 'plans', 'orders', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
+const COLLECTIONS = ['records', 'sheets', 'plans', 'orders', 'productmap', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
 async function api(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : null;
@@ -74,6 +75,7 @@ const loadSheets = async () => { SHEETS = await api('/api/sheets'); };
 const loadPlans = async () => { PLANS = await api('/api/plans'); };
 // 규칙 미배포 환경에서도 앱 부팅이 막히지 않도록 실패는 빈 목록으로 처리
 const loadOrders = async () => { try { ORDERS = await api('/api/orders'); } catch (e) { console.warn('[orders] 불러오기 실패', e); ORDERS = []; } };
+const loadProductMap = async () => { try { PRODUCTMAP = await api('/api/productmap'); } catch (e) { console.warn('[productmap] 불러오기 실패', e); PRODUCTMAP = []; } };
 const loadStandards = async () => { STANDARDS = await api('/api/standards'); };
 const loadCustSpecs = async () => { CUSTSPECS = await api('/api/custspecs'); };
 const loadEquipChecks = async () => { EQUIPCHECKS = await api('/api/equipchecks'); };
@@ -217,13 +219,14 @@ $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.datas
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
 const ROLE_PAGES = {
-  admin:   ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import', 'policies', 'users'],
-  manager: ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'equipment', 'overview', 'masters', 'import'],
+  admin:   ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'productmap', 'custspecs', 'equipment', 'overview', 'masters', 'import', 'policies', 'users'],
+  manager: ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'productmap', 'custspecs', 'equipment', 'overview', 'masters', 'import'],
   worker:  ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'overview'],
 };
 // 등록/수정 가능 역할 (컬렉션별). 삭제는 admin 전용. companies=masters.companies 문서 쓰기.
 const WRITE_ROLES = {
   records: ['admin', 'manager'], plans: ['admin', 'manager'], orders: ['admin', 'manager'], standards: ['admin', 'manager'],
+  productmap: ['admin', 'manager'],
   custspecs: ['admin', 'manager'], companies: ['admin', 'manager'], masters: ['admin', 'manager'],
   equipment: ['admin', 'manager'],
   sheets: ['admin', 'manager', 'worker'], equipchecks: ['admin', 'manager', 'worker'],
@@ -256,7 +259,7 @@ function showPage(page) {
   if (!canAccessPage(page)) page = 'home';
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, orders: renderOrders, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, import: renderImport, policies: renderPolicies, users: renderUsers }[page];
+  const render = { dashboard: renderDashboard, orders: renderOrders, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, productmap: renderProductMap, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, import: renderImport, policies: renderPolicies, users: renderUsers }[page];
   if (render) render();
   applyCreateButtons();
 }
@@ -267,7 +270,7 @@ function refreshCurrentPage() {
 
 /* 생성 버튼 노출(역할별) */
 const CREATE_BTNS = {
-  plans: '#btn-new-plan', orders: '#btn-new-order', standards: '#btn-new-standard', custspecs: '#btn-new-custspec',
+  plans: '#btn-new-plan', orders: '#btn-new-order', standards: '#btn-new-standard', productmap: '#btn-new-productmap', custspecs: '#btn-new-custspec',
   companies: '#btn-new-company', equipchecks: '#btn-new-equipcheck', equipment: '#btn-new-equipment',
   sheets: '#btn-new-sheet', users: '#btn-new-user',
 };
@@ -734,12 +737,25 @@ const IMPORT_DEFS = {
     dupLabel: '공정+제품+색상+업체',
     fields: [
       F('product', '제품명', ['제품명', '품명']), F('productCode', '제품코드', ['제품코드']),
-      F('custCode', '고객사코드(외부코드)', ['고객사코드', '외부코드', '거래처코드', '고객코드', '발주코드', 'custcode']),
       F('color', '칼라', ['칼라', '색상']), F('customer', '업체명', ['업체명', '고객사']),
       F('brand', '브랜드', ['브랜드']), F('sizeSpec', '규격', ['규격', '사이즈']),
       F('category', '분류', ['분류', '카테고리']), F('baseType', '기재타입', ['기재타입', '기재']),
       F('resinType', '수지 종류', ['수지종류', '수지']), F('catalyst', '촉매', ['촉매']),
       F('core', '코어', ['코어']), F('note', '비고', ['비고', '특이사항']),
+    ],
+    calcCols: [],
+  },
+  productmap: {
+    label: '품목 매핑(고객사↔내부품명)', coll: 'productmap', hasPart: false,
+    desc: '공정 구분 없이 통합 관리 — 고객사 외부품명/코드가 내부적으로 어떤 품명(+품번)인지 매핑. 수주주문서 업로드 시 이 표로 자동 연동됩니다',
+    dupKey: (r) => [r.customer ?? '', r.custCode ?? ''].join('|'),
+    dupLabel: '업체명+고객사 외부품명/코드',
+    fields: [
+      F('customer', '업체명', ['업체명', '고객사', '거래처']),
+      F('custCode', '고객사 외부품명/코드', ['고객사코드', '외부코드', '외부품명', '거래처코드', '고객코드', '발주코드', 'custcode']),
+      F('product', '내부 품명', ['내부품명', '제품명', '품명']),
+      F('productCode', '내부 품번', ['내부품번', '제품코드', '품번']),
+      F('note', '비고', ['비고', '특이사항']),
     ],
     calcCols: [],
   },
@@ -804,14 +820,14 @@ function orderPartOf(v) {
 }
 const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'date');
 
-/* 고객사코드(외부코드) → 제품표준서 매핑 조회. 같은 공정 + (지정 시)같은 업체 안에서 코드가 일치하는 표준서를 찾는다.
-   거래처마다 자기 제품코드를 쓰기 때문에, 표준서에 미리 등록된 코드가 있어야 매칭된다(영업팀 매핑 자료 입력 필요). */
+/* 고객사 외부품명/코드 → 내부 품명(+품번) 매핑 조회 (productmap 컬렉션, 공정 구분 없음 — 품목 매핑은
+   제품표준서와 별개의 통합 자료다). 거래처마다 자기 코드를 쓰기 때문에, 매핑표에 미리 등록돼 있어야 매칭된다
+   (영업팀 매핑 자료 입력 필요). part는 호출부 호환용으로 남겨두되 매칭에는 안 쓴다. */
 function resolveByCustCode(custCode, customer, part) {
   const cc = impNorm(custCode);
   if (!cc) return null;
-  const p = part || 'CAST';
-  return STANDARDS.find((s) => (s.part || 'CAST') === p && impNorm(s.custCode) === cc
-    && (!customer || !s.customer || s.customer === customer)) || null;
+  return PRODUCTMAP.find((m) => impNorm(m.custCode) === cc
+    && (!customer || !m.customer || m.customer === customer)) || null;
 }
 
 /* 우선순위 표기 정규화 — 엑셀·AI 추출 등 다양한 입력을 4단계로 통일 */
@@ -952,7 +968,7 @@ function impLoadSheet(name) {
 /* 매핑 → 실제 객체 + 검증 + 중복/계산차이 표시 */
 function impParse() {
   const def = IMPORT_DEFS[IMP.key];
-  const existing = { records: RECORDS, plans: PLANS, orders: ORDERS, standards: STANDARDS, custspecs: CUSTSPECS, companies: (MASTERS.companies || []) }[IMP.key] || [];
+  const existing = { records: RECORDS, plans: PLANS, orders: ORDERS, productmap: PRODUCTMAP, standards: STANDARDS, custspecs: CUSTSPECS, companies: (MASTERS.companies || []) }[IMP.key] || [];
   const phMode = IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH';
   // PH(프리컷·하이브리드)는 행마다 파트가 달라 중복키에 파트 포함, 제품은 제품코드 기준
   const dupKeyFn = phMode
@@ -1055,9 +1071,13 @@ function impParse() {
     } else if (IMP.key === 'companies') {
       if (!obj.name) err = '업체명 없음';
     } else if (IMP.key === 'orders') {
-      if (!obj.product) err = mapMiss ? '고객사코드 매핑 안 됨(제품표준서에 코드 등록 필요)' : '제품명 없음';
+      if (!obj.product) err = mapMiss ? '고객사코드 매핑 안 됨(품목 매핑에 코드 등록 필요)' : '제품명 없음';
       else if (!obj.dueDate) err = '희망출고일 없음';
       else if (obj.qty == null) err = '수주수량 없음';
+    } else if (IMP.key === 'productmap') {
+      if (!obj.customer) err = '업체명 없음';
+      else if (!obj.custCode) err = '고객사 외부품명/코드 없음';
+      else if (!obj.product) err = '내부 품명 없음';
     } else if (!obj.product) err = '제품명 없음';
     const key = dupKeyFn(obj);
     // 기간 필터 (지정 시 범위 밖 행은 등록 대상에서 제외)
@@ -1161,7 +1181,7 @@ async function impRun() {
         if (pg) pg.textContent = `덮어쓰는 중… ${i + 1}/${dups.length}`;
       }
     }
-    await { records: loadRecords, plans: loadPlans, orders: async () => { await loadOrders(); await loadPlans(); }, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
+    await { records: loadRecords, plans: loadPlans, orders: async () => { await loadOrders(); await loadPlans(); }, productmap: loadProductMap, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
     if (pg) pg.textContent = '';
     alert(`완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건${failed ? `\n· 실패 ${failed}건` : ''}${genPlans ? `\n· 생산계획 자동 생성 ${genPlans}건` : ''}`);
     IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
@@ -2197,6 +2217,83 @@ if ($('#so-upload-modal')) {
   });
 }
 
+/* ===================== 품목 매핑 (고객사 외부품명/코드 ↔ 내부 품명·품번, 공정 구분 없음) ===================== */
+function renderProductMap() {
+  const box = $('#productmap-table');
+  if (!box) return;
+  const q = ($('#pm-search').value || '').trim().toLowerCase();
+  let list = PRODUCTMAP.slice();
+  if (q) list = list.filter((m) => [m.customer, m.custCode, m.product, m.productCode, m.note].some((v) => String(v || '').toLowerCase().includes(q)));
+  list.sort((a, b) => String(a.customer || '').localeCompare(String(b.customer || '')) || String(a.custCode || '').localeCompare(String(b.custCode || '')));
+
+  const impBtn = $('#btn-import-productmap');
+  if (impBtn) impBtn.hidden = !canAccessPage('import');
+
+  if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목 매핑이 없습니다. [＋ 매핑 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
+  const rows = list.map((m) => `<tr data-pmid="${m.id}">
+    <td>${esc(m.customer ?? '')}</td>
+    <td><b>${esc(m.custCode ?? '')}</b></td>
+    <td>${esc(m.product ?? '')}</td>
+    <td class="muted">${esc(m.productCode ?? '-')}</td>
+    <td>${esc(m.note ?? '')}</td>
+  </tr>`).join('');
+  box.innerHTML = `<table><thead><tr>
+    <th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>비고</th>
+  </tr></thead><tbody>${rows}</tbody></table>`;
+}
+$('#pm-search')?.addEventListener('input', renderProductMap);
+
+let editingProductMapId = null;
+const productMapForm = $('#productmap-form');
+function openProductMapModal(id = null) {
+  if (!productMapForm) return;
+  editingProductMapId = id;
+  productMapForm.reset();
+  $('#productmap-modal-title').textContent = id ? '품목 매핑 수정' : '품목 매핑 등록';
+  $('#productmap-delete').hidden = !id;
+  if (id) {
+    const m = PRODUCTMAP.find((x) => x.id === id);
+    if (!m) return;
+    [...productMapForm.elements].forEach((el) => { if (el.name && m[el.name] != null) el.value = m[el.name]; });
+  }
+  gateModal('#productmap-form', id ? can('update', 'productmap') : can('create', 'productmap'), !!id && can('delete', 'productmap'));
+  $('#productmap-modal').hidden = false;
+}
+if (productMapForm) {
+  $('#btn-new-productmap').addEventListener('click', () => openProductMapModal());
+  $('#productmap-modal-close').addEventListener('click', () => ($('#productmap-modal').hidden = true));
+  $('#productmap-cancel').addEventListener('click', () => ($('#productmap-modal').hidden = true));
+  $('#productmap-modal').addEventListener('click', (e) => { if (e.target === $('#productmap-modal')) $('#productmap-modal').hidden = true; });
+  $('#btn-import-productmap')?.addEventListener('click', () => {
+    IMP.key = 'productmap'; IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
+    showPage('import');
+  });
+  productMapForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const m = {};
+    [...productMapForm.elements].forEach((el) => { if (el.name) m[el.name] = el.value || null; });
+    try {
+      const orig = editingProductMapId ? (PRODUCTMAP.find((x) => x.id === editingProductMapId) || {}) : {};
+      if (editingProductMapId) await post('/api/productmap/' + editingProductMapId, { ...orig, ...m }, 'PUT');
+      else await post('/api/productmap', m);
+      await loadProductMap();
+      $('#productmap-modal').hidden = true;
+      refreshCurrentPage();
+    } catch (err) { alert('저장 실패: ' + err.message); }
+  });
+  $('#productmap-delete').addEventListener('click', async () => {
+    if (!editingProductMapId || !confirm('이 매핑을 삭제하시겠습니까?')) return;
+    await api('/api/productmap/' + editingProductMapId, { method: 'DELETE' });
+    await loadProductMap();
+    $('#productmap-modal').hidden = true;
+    refreshCurrentPage();
+  });
+  document.addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-pmid]');
+    if (tr) openProductMapModal(Number(tr.dataset.pmid));
+  });
+}
+
 /* ===================== 작업지시서 ===================== */
 /* 제품군 코드: NHC-3F → NHC-F (코팅량 규격표는 제품군 단위) */
 const familyOf = (product) => String(product || '').trim().replace(/-(\d+)/, '-');
@@ -2428,7 +2525,7 @@ function renderStandards() {
   const q = $('#st-search').value.trim().toLowerCase();
   let items = STANDARDS.filter((s) => (s.part || 'CAST') === PART);
   if (q) items = items.filter((s) =>
-    [s.product, s.productCode, s.custCode, s.customer, s.brand, s.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
+    [s.product, s.productCode, s.customer, s.brand, s.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
     const img = s.images || {};
@@ -2437,7 +2534,7 @@ function renderStandards() {
       <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'📦'}))">` : '<span>📦</span>'}</div>
       <div class="standard-info">
         <div class="standard-name"><b>${esc(s.product)}</b> ${esc(s.color ?? '')} <span class="muted">${esc(s.productCode ?? '')}</span></div>
-        <div class="muted">${esc(s.category || 'CAST')} · ${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}${s.custCode ? ` · 고객사코드 ${esc(s.custCode)}` : ''}</div>
+        <div class="muted">${esc(s.category || 'CAST')} · ${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}</div>
         <div class="standard-mats">기재 ${esc(s.baseType ?? '-')} · 수지 ${esc(s.resinType ?? '-')} · 촉매 ${esc(s.catalyst ?? '-')}</div>
         <div class="standard-mats">코팅 ${s.coatingMid != null && s.coatingMid !== '' ? `${esc(s.coatingMin)}~${esc(s.coatingMax)} (중심 ${esc(s.coatingMid)})` : '-'} · 코어 ${esc(s.core ?? '-')}</div>
       </div>
@@ -5255,7 +5352,7 @@ $('#a-reset').addEventListener('click', () => {
 let __booted = false;
 async function bootApp() {
   if (__booted) return; __booted = true;
-  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadOrders(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadPolicies(), loadMasters()]);
+  await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadOrders(), loadProductMap(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadPolicies(), loadMasters()]);
   fillMasterInputs();
   updateMetricLabels();
   applyRolePerms();
