@@ -748,8 +748,10 @@ const IMPORT_DEFS = {
   productmap: {
     label: '품목 매핑(고객사↔내부품명)', coll: 'productmap', hasPart: false,
     desc: '공정 구분 없이 통합 관리 — 고객사 외부품명/코드가 내부적으로 어떤 품명(+품번)인지 매핑. 수주주문서 업로드 시 이 표로 자동 연동됩니다',
-    dupKey: (r) => [r.customer ?? '', r.custCode ?? ''].join('|'),
-    dupLabel: '업체명+고객사 외부품명/코드',
+    // custCode가 비어있는 행이 많을 수 있어(추후 채워 넣는 워크플로) product도 키에 포함 —
+    // 그래야 같은 업체의 서로 다른 제품이 코드 없이 여러 건 들어와도 서로 중복으로 안 잡힌다
+    dupKey: (r) => [r.customer ?? '', r.custCode ?? '', r.product ?? ''].join('|'),
+    dupLabel: '업체명+고객사 외부품명/코드+내부 품명',
     fields: [
       F('customer', '업체명', ['업체명', '고객사', '거래처', '취급업체명', '취급 업체명']),
       F('custCode', '고객사 외부품명/코드', ['고객사코드', '외부코드', '외부품명', '거래처코드', '고객코드', '발주코드', 'custcode',
@@ -1076,8 +1078,8 @@ function impParse() {
       else if (!obj.dueDate) err = '희망출고일 없음';
       else if (obj.qty == null) err = '수주수량 없음';
     } else if (IMP.key === 'productmap') {
+      // 고객사 외부품명/코드는 없어도 우선 등록하고 나중에 채워 넣을 수 있게 필수로 두지 않는다
       if (!obj.customer) err = '업체명 없음';
-      else if (!obj.custCode) err = '고객사 외부품명/코드 없음';
       else if (!obj.product) err = '내부 품명 없음';
     } else if (!obj.product) err = '제품명 없음';
     const key = dupKeyFn(obj);
@@ -2229,11 +2231,14 @@ function renderProductMap() {
 
   const impBtn = $('#btn-import-productmap');
   if (impBtn) impBtn.hidden = !canAccessPage('import');
+  const missingN = PRODUCTMAP.filter((m) => !m.custCode).length;
+  const sumEl = $('#pm-missing-sum');
+  if (sumEl) sumEl.textContent = missingN ? `⚠ 외부품명/코드 미입력 ${missingN}건 — 행을 클릭해 채워 넣으세요` : '';
 
   if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목 매핑이 없습니다. [＋ 매핑 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
   const rows = list.map((m) => `<tr data-pmid="${m.id}">
     <td>${esc(m.customer ?? '')}</td>
-    <td><b>${esc(m.custCode ?? '')}</b></td>
+    <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : '<span class="badge warn">미입력</span>'}</td>
     <td>${esc(m.product ?? '')}</td>
     <td class="muted">${esc(m.productCode ?? '-')}</td>
     <td>${esc(m.note ?? '')}</td>

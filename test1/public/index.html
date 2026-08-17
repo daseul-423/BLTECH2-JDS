@@ -310,7 +310,8 @@
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">거래처마다 부르는 제품코드/이름이 다를 때, 여기에 등록해두면 <b>수주주문서 업로드 시 내부 품명으로 자동 연동</b>됩니다. 제품표준서(자재 기준)와는 별개의 자료입니다.</p>
+      <p class="muted" style="margin-bottom:10px">거래처마다 부르는 제품코드/이름이 다를 때, 여기에 등록해두면 <b>수주주문서 업로드 시 내부 품명으로 자동 연동</b>됩니다. 제품표준서(자재 기준)와는 별개의 자료입니다. 외부품명/코드는 비워둔 채 우선 등록하고 나중에 채울 수 있습니다 — 행을 클릭하면 수정 모달이 열립니다.</p>
+      <p class="muted" id="pm-missing-sum" style="margin-bottom:10px"></p>
       <div class="table-wrap" id="productmap-table"></div>
     </div>
   </section>
@@ -779,7 +780,7 @@
     <form id="productmap-form">
       <div class="form-grid">
         <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
-        <label>고객사 외부품명/코드 *<input type="text" name="custCode" placeholder="거래처가 부르는 이름/코드" required></label>
+        <label>고객사 외부품명/코드<input type="text" name="custCode" placeholder="거래처가 부르는 이름/코드 — 나중에 채워도 됨"></label>
         <label>내부 품명 *<input type="text" name="product" list="dl-products" required></label>
         <label>내부 품번<input type="text" name="productCode"></label>
         <label class="wide">비고<input type="text" name="note"></label>
