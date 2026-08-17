@@ -1477,9 +1477,12 @@ const aiSend = () => {
 $('#ai-send').addEventListener('click', aiSend);
 aiTA.addEventListener('input', () => aiAutoGrow(aiTA));
 aiTA.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); aiSend(); } });
-// 추천 질문
+// 추천 질문 — 메시지 목록 안(레거시 위치)과 상시 고정 띠 둘 다 지원
 $('#ai-messages').addEventListener('click', (e) => {
   const c = e.target.closest('.ai-chip'); if (c) { aiAsk(c.dataset.q); return; }
+});
+$('#ai-quick-chips')?.addEventListener('click', (e) => {
+  const c = e.target.closest('.ai-chip'); if (c) aiAsk(c.dataset.q);
 });
 // 이미지 첨부
 $('#ai-attach-btn').addEventListener('click', () => $('#ai-file').click());

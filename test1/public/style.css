@@ -284,6 +284,17 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 }
 .ai-chip:hover { border-color: var(--ai-purple); color: var(--ai-purple); transform: translateX(3px); }
 
+/* 예시 질문 — 메시지 목록 밖에 고정된 가로 스크롤 띠. 대화 중에도 계속 클릭 가능 */
+.ai-quick-chips {
+  display: flex; gap: 6px; overflow-x: auto; flex-shrink: 0;
+  padding: 8px 14px; background: #fff; border-top: 1px solid var(--ai-line);
+}
+.ai-quick-chips .ai-chip {
+  flex: 0 0 auto; padding: 6px 12px; font-size: 12px; border-radius: 14px;
+  white-space: nowrap; box-shadow: none;
+}
+.ai-quick-chips .ai-chip:hover { transform: none; }
+
 /* 말풍선 */
 .ai-msg {
   max-width: 88%; padding: 12px 15px; border-radius: 18px;
