@@ -823,19 +823,40 @@ function orderPartOf(v) {
 }
 const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'date');
 
-/* 업체명 끝에 붙는 "그 외/기타" 등은 "그 회사 + 기타 거래처를 묶은 표기"일 뿐 — 매칭 비교 시에는 떼고 본다.
-   예: "비씨씨코리아 주식회사, 그 외" ↔ 수주에 적힌 "비씨씨코리아 주식회사"가 같은 업체로 인식돼야 한다. */
-const CUST_SUFFIX_RE = /[,\s]*(그\s*외|기타|외\s*다수)\s*$/;
-const custKey = (s) => impNorm(String(s ?? '').replace(CUST_SUFFIX_RE, ''));
+/* 품목 매핑의 업체명 열은 콤마로 여러 업체를 묶어서 쓰기도 한다 (예: "A상사, B무역, 그 외").
+   "그 외/기타/외 다수" 같은 토큰은 특정 업체가 아니라 "이 외에도 해당될 수 있는 업체가 있다"는 포괄 표기다. */
+const CATCHALL_TOKEN_RE = /^(그\s*외|기타|외\s*다수|외)$/;
+const custTokens = (s) => String(s ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+function custParse(s) {
+  const tokens = custTokens(s);
+  return { names: tokens.filter((t) => !CATCHALL_TOKEN_RE.test(t)), hasCatchAll: tokens.some((t) => CATCHALL_TOKEN_RE.test(t)) };
+}
+/* orderCustomer가 매핑 행의 업체명 표기에 해당하는지 판정.
+   - 명시된 업체명 중 하나와 정확히 같으면 확실한 매칭(certain)
+   - "그 외" 등 포괄 표기가 있고 명시된 업체명과는 다르면 코드는 맞을 수 있어도 업체는 확정 못 함(uncertain) — 등록 시 사람 확인 필요
+   - 업체명 없이 등록된 매핑(공용 코드)도 uncertain으로 취급 */
+function custMatch(rowCustomer, orderCustomer) {
+  const { names, hasCatchAll } = custParse(rowCustomer);
+  if (!orderCustomer) return { ok: true, certain: names.length === 1 && !hasCatchAll };
+  const key = impNorm(orderCustomer);
+  if (names.some((n) => impNorm(n) === key)) return { ok: true, certain: true };
+  if (hasCatchAll || !names.length) return { ok: true, certain: false };
+  return { ok: false, certain: false };
+}
 
 /* 고객사 외부품명/코드 → 내부 품명(+품번) 매핑 조회 (productmap 컬렉션, 공정 구분 없음 — 품목 매핑은
    제품표준서와 별개의 통합 자료다). 거래처마다 자기 코드를 쓰기 때문에, 매핑표에 미리 등록돼 있어야 매칭된다
-   (영업팀 매핑 자료 입력 필요). part는 호출부 호환용으로 남겨두되 매칭에는 안 쓴다. */
+   (영업팀 매핑 자료 입력 필요). part는 호출부 호환용으로 남겨두되 매칭에는 안 쓴다.
+   반환값에 _uncertain:true가 붙으면 업체가 확정되지 않은 매칭 — 호출부가 그대로 자동확정하지 말고 확인시켜야 한다. */
 function resolveByCustCode(custCode, customer, part) {
   const cc = impNorm(custCode);
   if (!cc) return null;
-  return PRODUCTMAP.find((m) => impNorm(m.custCode) === cc
-    && (!customer || !m.customer || custKey(m.customer) === custKey(customer))) || null;
+  for (const m of PRODUCTMAP) {
+    if (impNorm(m.custCode) !== cc) continue;
+    const { ok, certain } = custMatch(m.customer, customer);
+    if (ok) return certain ? m : { ...m, _uncertain: true };
+  }
+  return null;
 }
 
 /* 우선순위 표기 정규화 — 엑셀·AI 추출 등 다양한 입력을 4단계로 통일 */
@@ -1006,10 +1027,11 @@ function impParse() {
     }
     if (IMP.key === 'orders') obj.priority = normPriority(obj.priority);
     // 수주주문서: 고객사코드(외부코드)가 있고 제품명이 비어있으면 제품표준서에서 매핑 조회해 채운다
-    let mapMiss = false;
+    let mapMiss = false, mapUncertain = false;
     if (IMP.key === 'orders' && obj.custCode && !obj.product) {
       const std = resolveByCustCode(obj.custCode, obj.customer, obj.part);
-      if (std) { obj.product = std.product; obj.productCode = obj.productCode || std.productCode; obj.color = obj.color || std.color; }
+      if (std && !std._uncertain) { obj.product = std.product; obj.productCode = obj.productCode || std.productCode; obj.color = obj.color || std.color; }
+      else if (std && std._uncertain) mapUncertain = true;   // 코드는 맞는데 업체가 여러 곳(그 외 등)에 걸려 확정 불가 — 엑셀 일괄등록에선 건너뛰고 수주 등록 화면에서 확인하게 함
       else mapMiss = true;
     }
     // 호기 표기 정규화: 엑셀에 숫자(3)로만 적혀 있으면 "3호기"로 통일 (기존 데이터·필터와 일치)
@@ -1079,7 +1101,7 @@ function impParse() {
     } else if (IMP.key === 'companies') {
       if (!obj.name) err = '업체명 없음';
     } else if (IMP.key === 'orders') {
-      if (!obj.product) err = mapMiss ? '고객사코드 매핑 안 됨(품목 매핑에 코드 등록 필요)' : '제품명 없음';
+      if (!obj.product) err = mapUncertain ? '업체 확인 필요(코드가 여러 업체에 매핑됨 — 수주 등록 화면에서 처리)' : mapMiss ? '고객사코드 매핑 안 됨(품목 매핑에 코드 등록 필요)' : '제품명 없음';
       else if (!obj.dueDate) err = '희망출고일 없음';
       else if (obj.qty == null) err = '수주수량 없음';
     } else if (IMP.key === 'productmap') {
@@ -1859,7 +1881,12 @@ function planFromOrder(o) {
    (수동 등록에서 매핑 안 된 코드를 사용자가 직접 채워 넣었거나, AI추출·엑셀 파일 자체에 이미 내부 품명이 같이 있던 경우)
    같은 배치 안에 같은 업체+코드가 여러 번 나와도 한 번만 만들고, 방금 만든 매핑도 바로 이어서 재사용한다. */
 async function learnProductMapFromOrders(orderRecs) {
-  const candidates = (orderRecs || []).filter((o) => o && o.custCode && o.product && !resolveByCustCode(o.custCode, o.customer, o.part));
+  // 이미 "확실한" 매핑이 있으면 학습할 필요 없음 — 업체가 불확실한(그 외 등) 매칭만 있는 경우는 이번 주문으로 더 구체화될 수 있으니 학습 대상에 포함
+  const candidates = (orderRecs || []).filter((o) => {
+    if (!o || !o.custCode || !o.product) return false;
+    const existing = resolveByCustCode(o.custCode, o.customer, o.part);
+    return !existing || existing._uncertain;
+  });
   if (!candidates.length) return 0;
   // 같은 배치 안에 같은 업체+코드가 여러 번 나와도 대표 1건만 사용
   const seen = new Map();
@@ -1869,9 +1896,9 @@ async function learnProductMapFromOrders(orderRecs) {
   });
   const toUpdate = [], toCreate = [];
   seen.forEach((o) => {
-    // 업체+내부품명은 이미 등록돼 있는데 외부품명/코드만 비어있는 행이 있으면(엑셀로 미리 넣어둔 "미입력" 행)
-    // 새로 만들지 않고 그 행에 코드를 채워 넣는다
-    const blank = PRODUCTMAP.find((m) => !m.custCode && custKey(m.customer) === custKey(o.customer) && impNorm(m.product) === impNorm(o.product));
+    // 업체+내부품명은 이미 등록돼 있는데 외부품명/코드만 비어있는 행이 있으면(엑셀로 미리 넣어둔 "미입력" 행) 새로 만들지 않고 채운다.
+    // 단, 그 행이 업체를 확실히 하나로 가리킬 때만 — "A, B, 그 외"처럼 여러 업체가 걸린 공용 행에 특정 코드를 채우면 다른 업체와 헷갈리게 되므로 그런 경우는 새 행을 만든다.
+    const blank = PRODUCTMAP.find((m) => !m.custCode && impNorm(m.product) === impNorm(o.product) && custMatch(m.customer, o.customer).certain);
     if (blank) toUpdate.push({ ...blank, custCode: o.custCode, productCode: blank.productCode || o.productCode || null });
     else toCreate.push({ customer: o.customer ?? null, custCode: o.custCode, product: o.product, productCode: o.productCode ?? null, note: '수주주문서에서 자동 등록' });
   });
@@ -1990,14 +2017,20 @@ function soApplyCustCodeMap() {
   const cc = soForm.elements.custCode.value;
   if (!cc.trim()) { hint.textContent = ''; return; }
   const std = resolveByCustCode(cc, soForm.elements.customer.value, soForm.elements.part.value);
-  if (std) {
+  if (std && !std._uncertain) {
     if (!soForm.elements.product.value) soForm.elements.product.value = std.product || '';
     if (!soForm.elements.productCode.value) soForm.elements.productCode.value = std.productCode || '';
     if (!soForm.elements.color.value && std.color) soForm.elements.color.value = std.color;
-    hint.textContent = `✓ 제품표준서 매칭: ${std.product || ''}${std.color ? ' ' + std.color : ''}`;
+    hint.textContent = `✓ 품목 매핑 확인: ${std.product || ''}${std.color ? ' ' + std.color : ''}`;
+    hint.className = 'muted';
+  } else if (std && std._uncertain) {
+    // 코드는 맞지만 매핑이 여러 업체(그 외 등)에 걸려있어 확정 못 함 — 채워는 넣되 반드시 확인하도록 강한 경고
+    if (!soForm.elements.product.value) soForm.elements.product.value = std.product || '';
+    if (!soForm.elements.productCode.value) soForm.elements.productCode.value = std.productCode || '';
+    hint.textContent = `⚠ 코드는 일치하지만 매핑에 여러 업체("그 외" 포함)가 걸려있어 자동 확정이 아닙니다. 제품명이 "${std.product || ''}"이(가) 맞는지 꼭 확인하세요.`;
     hint.className = 'muted';
   } else {
-    hint.textContent = '⚠ 매핑된 제품표준서가 없습니다. 제품명을 직접 입력하거나, 제품표준서에 이 코드를 등록하세요.';
+    hint.textContent = '⚠ 매핑된 정보가 없습니다. 제품명을 직접 입력하거나, 품목 매핑에 이 코드를 등록하세요.';
     hint.className = 'muted';
   }
 }
@@ -2130,10 +2163,13 @@ async function soExtractFromFile(file) {
       orderException: null,
       note: String(r.note || '').trim() || null,
     };
-    // 고객사코드가 있고 제품명이 비어있으면 제품표준서 매핑으로 자동 채움
+    // 고객사코드가 있고 제품명이 비어있으면 품목 매핑으로 자동 채움
     if (row.custCode && !row.product) {
       const std = resolveByCustCode(row.custCode, row.customer, row.part || 'CAST');
-      if (std) { row.product = std.product || null; row.productCode = row.productCode || std.productCode || null; row.color = row.color || std.color || null; }
+      if (std) {
+        row.product = std.product || null; row.productCode = row.productCode || std.productCode || null; row.color = row.color || std.color || null;
+        if (std._uncertain) row._mapUncertain = true;   // 업체가 여러 곳(그 외 등)에 걸려 확정 못 함 — 등록 전에 사람이 확인해야 함
+      }
     }
     return row;
   });
@@ -2149,7 +2185,10 @@ function renderSoDraft() {
   const rows = SO_DRAFT.map((r, i) => {
     const err = soRowErr(r);
     const dup = !err && dupSet.has(soDupKey({ ...r, part: r.part || 'CAST' }));
-    const badge = err ? `<span class="badge bad">${esc(err)}</span>` : dup ? '<span class="badge warn" title="같은 수주가 이미 있어 건너뜁니다">중복</span>' : '<span class="badge ok">등록</span>';
+    const badge = err ? `<span class="badge bad">${esc(err)}</span>`
+      : dup ? '<span class="badge warn" title="같은 수주가 이미 있어 건너뜁니다">중복</span>'
+      : r._mapUncertain ? '<span class="badge warn" title="코드는 일치하지만 매핑에 여러 업체(그 외 등)가 걸려있어 제품명이 맞는지 확인이 필요합니다">⚠ 업체 확인</span>'
+      : '<span class="badge ok">등록</span>';
     const priOpts = ['낮음', '보통', '높음', '긴급'].map((p) => `<option ${p === (r.priority || '보통') ? 'selected' : ''}>${p}</option>`).join('');
     return `<tr>
       <td><select data-si="${i}" data-sf="part">${partOpts(r.part)}</select></td>
@@ -2220,12 +2259,16 @@ if ($('#so-upload-modal')) {
   });
   $('#so-extract-body').addEventListener('change', (e) => {
     const el = e.target;
+    const r = SO_DRAFT[Number(el.dataset.si)];
+    if (!r) { renderSoDraft(); return; }
+    // 사람이 제품명을 직접 고쳤으면 그걸로 확정된 것 — 더 이상 "확인 필요" 표시 안 함
+    if (el.dataset.sf === 'product') delete r._mapUncertain;
     // 고객사코드·업체명·공정을 바꾸면 제품명이 비어있는 한 매핑을 다시 시도
-    if (['custCode', 'customer', 'part'].includes(el.dataset.sf)) {
-      const r = SO_DRAFT[Number(el.dataset.si)];
-      if (r && r.custCode && !r.product) {
-        const std = resolveByCustCode(r.custCode, r.customer, r.part || 'CAST');
-        if (std) { r.product = std.product || null; r.productCode = r.productCode || std.productCode || null; r.color = r.color || std.color || null; }
+    if (['custCode', 'customer', 'part'].includes(el.dataset.sf) && r.custCode && !r.product) {
+      const std = resolveByCustCode(r.custCode, r.customer, r.part || 'CAST');
+      if (std) {
+        r.product = std.product || null; r.productCode = r.productCode || std.productCode || null; r.color = r.color || std.color || null;
+        if (std._uncertain) r._mapUncertain = true;
       }
     }
     renderSoDraft();
