@@ -823,6 +823,11 @@ function orderPartOf(v) {
 }
 const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'date');
 
+/* 업체명 끝에 붙는 "그 외/기타" 등은 "그 회사 + 기타 거래처를 묶은 표기"일 뿐 — 매칭 비교 시에는 떼고 본다.
+   예: "비씨씨코리아 주식회사, 그 외" ↔ 수주에 적힌 "비씨씨코리아 주식회사"가 같은 업체로 인식돼야 한다. */
+const CUST_SUFFIX_RE = /[,\s]*(그\s*외|기타|외\s*다수)\s*$/;
+const custKey = (s) => impNorm(String(s ?? '').replace(CUST_SUFFIX_RE, ''));
+
 /* 고객사 외부품명/코드 → 내부 품명(+품번) 매핑 조회 (productmap 컬렉션, 공정 구분 없음 — 품목 매핑은
    제품표준서와 별개의 통합 자료다). 거래처마다 자기 코드를 쓰기 때문에, 매핑표에 미리 등록돼 있어야 매칭된다
    (영업팀 매핑 자료 입력 필요). part는 호출부 호환용으로 남겨두되 매칭에는 안 쓴다. */
@@ -830,7 +835,7 @@ function resolveByCustCode(custCode, customer, part) {
   const cc = impNorm(custCode);
   if (!cc) return null;
   return PRODUCTMAP.find((m) => impNorm(m.custCode) === cc
-    && (!customer || !m.customer || m.customer === customer)) || null;
+    && (!customer || !m.customer || custKey(m.customer) === custKey(customer))) || null;
 }
 
 /* 우선순위 표기 정규화 — 엑셀·AI 추출 등 다양한 입력을 4단계로 통일 */
@@ -1866,7 +1871,7 @@ async function learnProductMapFromOrders(orderRecs) {
   seen.forEach((o) => {
     // 업체+내부품명은 이미 등록돼 있는데 외부품명/코드만 비어있는 행이 있으면(엑셀로 미리 넣어둔 "미입력" 행)
     // 새로 만들지 않고 그 행에 코드를 채워 넣는다
-    const blank = PRODUCTMAP.find((m) => !m.custCode && (m.customer ?? '') === (o.customer ?? '') && impNorm(m.product) === impNorm(o.product));
+    const blank = PRODUCTMAP.find((m) => !m.custCode && custKey(m.customer) === custKey(o.customer) && impNorm(m.product) === impNorm(o.product));
     if (blank) toUpdate.push({ ...blank, custCode: o.custCode, productCode: blank.productCode || o.productCode || null });
     else toCreate.push({ customer: o.customer ?? null, custCode: o.custCode, product: o.product, productCode: o.productCode ?? null, note: '수주주문서에서 자동 등록' });
   });
