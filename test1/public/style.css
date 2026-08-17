@@ -89,11 +89,11 @@ nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; }
 .btn.primary:hover { background: #1a4fd6; }
 .btn.danger { background: #fff0f0; border-color: #f3c2c2; color: var(--danger); }
 .btn.icon { padding: 6px 10px; }
-input, select {
+input, select, textarea {
   border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   font-size: 13px; font-family: inherit; background: #fff; color: var(--ink);
 }
-input:focus, select:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
 input[readonly] { background: var(--brand-soft); border-color: #c9d8ff; color: #1a48b8; font-weight: 600; }
 
 /* ---- 필터바 ---- */
@@ -140,7 +140,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 12px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
 .form-grid label.wide { grid-column: span 3; }
-.form-grid input, .form-grid select { width: 100%; }
+.form-grid input, .form-grid select, .form-grid textarea { width: 100%; resize: vertical; }
 .modal-foot {
   display: flex; gap: 8px; align-items: center;
   position: sticky; bottom: -23px; background: #fff;

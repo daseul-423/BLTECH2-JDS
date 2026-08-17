@@ -118,6 +118,10 @@
           <option value="">상태 전체</option>
           <option>계획</option><option>진행</option><option>완료</option><option>보류</option>
         </select>
+        <select id="p-priority">
+          <option value="">우선순위 전체</option>
+          <option>긴급</option><option>높음</option><option>보통</option><option>낮음</option>
+        </select>
         <button class="btn primary" id="btn-new-plan">＋ 계획 등록</button>
       </div>
     </div>
@@ -687,6 +691,7 @@
     <form id="plan-form">
       <div class="form-grid">
         <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
+        <label>우선순위<select name="priority"><option value="낮음">낮음</option><option value="보통" selected>보통</option><option value="높음">높음</option><option value="긴급">긴급</option></select></label>
         <label>생산일 *<input type="date" name="date" required></label>
         <label>희망출고일<input type="date" name="dueDate"></label>
         <label>호기 *<select name="machine" required></select></label>
@@ -698,7 +703,7 @@
         <label>계획수량 *<input type="number" name="planQty" required></label>
         <label>상태<select name="status"><option>계획</option><option>진행</option><option>완료</option><option>보류</option></select></label>
         <label class="wide">비고<input type="text" name="note"></label>
-        <label class="wide">수주별 예외사항<input type="text" name="orderException" placeholder="이 수주에만 적용되는 특이 요구(포장/사양 변경 등)"></label>
+        <label class="wide">우선순위 조건 · 특이사항<textarea name="orderException" rows="2" placeholder="예: 설비제약(2호기만 가능), 색상변경 셋업시간 필요, VIP 고객사 우선 등 — 줄바꿈으로 여러 개 입력 가능"></textarea></label>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="plan-delete" hidden>삭제</button>
@@ -720,6 +725,7 @@
     <form id="order-form">
       <div class="form-grid">
         <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
+        <label>우선순위<select name="priority"><option value="낮음">낮음</option><option value="보통" selected>보통</option><option value="높음">높음</option><option value="긴급">긴급</option></select></label>
         <label>수주일 *<input type="date" name="date" required></label>
         <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
         <label>발주번호<input type="text" name="poNo"></label>
@@ -731,9 +737,10 @@
         <label>수주수량 *<input type="number" name="qty" required></label>
         <label>희망출고일 *<input type="date" name="dueDate" required></label>
         <label class="wide">비고<input type="text" name="note"></label>
+        <label class="wide">우선순위 조건 · 특이사항<textarea name="orderException" rows="2" placeholder="예: 설비제약(2호기만 가능), 색상변경 셋업시간 필요, VIP 고객사 우선 등"></textarea></label>
       </div>
       <p class="muted" id="order-custcode-hint" style="margin-top:6px"></p>
-      <p class="muted" style="margin:10px 0 0">저장하면 생산계획이 자동 생성됩니다 — 생산 마감일 = 희망출고일 − 3일</p>
+      <p class="muted" style="margin:10px 0 0">저장하면 생산계획이 자동 생성됩니다 — 생산 마감일 = 희망출고일 − 3일, 우선순위가 높을수록 같은 날짜 안에서 앞순서로 배치됩니다</p>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="order-delete" hidden>삭제</button>
         <span class="spacer"></span>

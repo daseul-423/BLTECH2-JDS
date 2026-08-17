@@ -109,6 +109,13 @@ function statusBadge(s) {
   const cls = { '완료': 'ok', '진행': 'warn', '보류': 'bad', '계획': 'plain' }[s] || 'plain';
   return `<span class="badge ${cls}">${esc(s || '계획')}</span>`;
 }
+/* 우선순위 배지 — planId를 주면 클릭해서 순환 변경 가능(document 클릭 위임, cyclePlanPriority 참고) */
+const PRIORITY_CLASS = { '긴급': 'bad', '높음': 'warn', '보통': 'plain', '낮음': 'plain' };
+function priorityBadge(pr, planId) {
+  const p = pr || '보통';
+  const clickable = planId != null;
+  return `<span class="badge ${PRIORITY_CLASS[p] || 'plain'}${clickable ? ' plan-pri-badge' : ''}"${clickable ? ` data-pri-id="${planId}" title="클릭하면 우선순위 변경(낮음→보통→높음→긴급)" style="cursor:pointer"` : ''}>${esc(p)}</span>`;
+}
 
 /* ===================== 공정 구분 (CAST/SPLINT) ===================== */
 const partOf = (r) => r.part || 'CAST';
@@ -704,6 +711,7 @@ const IMPORT_DEFS = {
     dupLabel: '공정+수주일+업체+제품+희망출고일',
     fields: [
       F('kind', '공정(구분)', ['공정', '구분', '파트', 'part', '공정구분', '제품군'], 'text'),
+      F('priority', '우선순위', ['우선순위', '긴급도', 'priority']),
       F('date', '수주일', ['수주일', '접수일', '주문일', '일자', '날짜'], 'date'),
       F('customer', '업체명', ['업체명', '고객사', '거래처']),
       F('poNo', '발주번호', ['발주번호', '주문번호', '수주번호', 'po', 'pono']),
@@ -714,7 +722,8 @@ const IMPORT_DEFS = {
       F('length', '길이', ['길이'], 'num'),
       F('qty', '수주수량', ['수주수량', '주문수량', '발주수량', '수량'], 'num'),
       F('dueDate', '희망출고일', ['희망출고일', '출고희망일', '출고예정일', '출고일', '납기일', '납기'], 'date'),
-      F('note', '비고', ['비고', '특이사항', '요청사항']),
+      F('orderException', '우선순위 조건·특이사항', ['우선순위조건', '조건', '특이사항', '고려사항']),
+      F('note', '비고', ['비고', '요청사항']),
     ],
     calcCols: [],
   },
@@ -803,6 +812,31 @@ function resolveByCustCode(custCode, customer, part) {
   const p = part || 'CAST';
   return STANDARDS.find((s) => (s.part || 'CAST') === p && impNorm(s.custCode) === cc
     && (!customer || !s.customer || s.customer === customer)) || null;
+}
+
+/* 우선순위 표기 정규화 — 엑셀·AI 추출 등 다양한 입력을 4단계로 통일 */
+const PRIORITY_LEVELS = ['낮음', '보통', '높음', '긴급'];
+function normPriority(v) {
+  const s = impNorm(v);
+  if (!s) return '보통';
+  if (/긴급|urgent|즉시|최우선/.test(s)) return '긴급';
+  if (/높음|high|우선/.test(s)) return '높음';
+  if (/낮음|low/.test(s)) return '낮음';
+  return '보통';
+}
+/* 같은 날짜 안에서 우선순위 순서로 seq 재부여 (기존 순서는 같은 우선순위 안에서 유지, 새 계획은 우선순위에 맞는 위치에 삽입).
+   드래그로 손댄 순서는 여기서 다시 안 건드림 — 이건 '생성 시점'에만 쓰는 초기 배치용. */
+const priorityWeight = (p) => { const i = PRIORITY_LEVELS.indexOf(p); return i < 0 ? 1 : (PRIORITY_LEVELS.length - 1 - i); };
+function reorderPlansByPriorityForDates(dates, extraPlans) {
+  const changed = [];
+  const all = extraPlans && extraPlans.length ? PLANS.concat(extraPlans) : PLANS;
+  new Set(dates).forEach((date) => {
+    if (!date) return;
+    const group = all.filter((p) => p.date === date).slice().sort((a, b) =>
+      priorityWeight(a.priority) - priorityWeight(b.priority) || (a.seq ?? 1e9) - (b.seq ?? 1e9) || (a.id - b.id));
+    group.forEach((p, i) => { if (p.seq !== i + 1) { p.seq = i + 1; changed.push(p); } });
+  });
+  return changed;
 }
 
 /* 엑셀 날짜(문자열·일련번호·Date) → YYYY-MM-DD */
@@ -946,6 +980,7 @@ function impParse() {
         : IMP.key === 'orders' ? (orderPartOf(obj.kind) || IMP.part)
         : IMP.part;
     }
+    if (IMP.key === 'orders') obj.priority = normPriority(obj.priority);
     // 수주주문서: 고객사코드(외부코드)가 있고 제품명이 비어있으면 제품표준서에서 매핑 조회해 채운다
     let mapMiss = false;
     if (IMP.key === 'orders' && obj.custCode && !obj.product) {
@@ -1558,11 +1593,12 @@ function planActual(p) {
 function renderPlans() {
   let plans = PLANS.filter((p) => (p.part || 'CAST') === PART);
   const from = $('#p-from').value, to = $('#p-to').value;
-  const mc = $('#p-machine').value, st = $('#p-status').value;
+  const mc = $('#p-machine').value, st = $('#p-status').value, pr = $('#p-priority').value;
   if (from) plans = plans.filter((p) => p.date >= from);
   if (to) plans = plans.filter((p) => p.date <= to);
   if (mc) plans = plans.filter((p) => p.machine === mc);
   if (st) plans = plans.filter((p) => (p.status || '계획') === st);
+  if (pr) plans = plans.filter((p) => (p.priority || '보통') === pr);
 
   if (!plans.length) { $('#plans-table').innerHTML = '<div class="empty">등록된 생산계획이 없습니다. [＋ 계획 등록] 또는 수주 관리에서 추가하세요.</div>'; return; }
 
@@ -1580,16 +1616,17 @@ function renderPlans() {
       : `<span class="badge ${achieve >= 100 ? 'ok' : 'warn'}">${achieve.toFixed(0)}%</span>`;
     return `<tr data-plan-id="${p.id}">
       <td class="drag-cell">${canDrag ? '<span class="drag-handle" title="끌어서 생산 순서 변경">⠿</span>' : ''}<span class="muted seq-no">${p.seq ?? ''}</span></td>
+      <td>${priorityBadge(p.priority, canDrag ? p.id : null)}</td>
       <td>${esc(p.date)}</td><td>${esc(p.dueDate ?? '-')}</td><td>${esc(p.machine)}</td><td>${esc(p.customer ?? '')}</td>
       <td class="num">${p.orderNo ?? '-'}</td><td><b>${esc(p.product)}</b> ${esc(p.color ?? '')}</td>
       <td class="num">${p.length ?? '-'}</td><td class="num">${fmt(p.planQty)}</td>
       <td class="num">${actual ? fmt(actual) : '-'}</td><td>${aBadge}</td>
-      <td>${statusBadge(p.status)}</td><td>${p.orderId ? '<span class="badge plain" title="수주 #' + p.orderId + ' 자동 생성">📦</span> ' : ''}${esc(p.note ?? '')}</td>
+      <td>${statusBadge(p.status)}</td><td>${p.orderId ? '<span class="badge plain" title="수주 #' + p.orderId + ' 자동 생성">📦</span> ' : ''}${p.orderException ? `<span class="badge warn" title="${esc(p.orderException)}">⚠ 조건</span> ` : ''}${esc(p.note ?? '')}</td>
       <td><button class="btn small order-btn" data-order-id="${p.id}">🖨 지시서</button></td>
     </tr>`;
   }).join('');
   $('#plans-table').innerHTML = `<table><thead><tr>
-    <th class="drag-cell">순서</th><th>생산일</th><th>출고일</th><th>호기</th><th>업체</th><th class="num">차수</th><th>제품</th>
+    <th class="drag-cell">순서</th><th>우선순위</th><th>생산일</th><th>출고일</th><th>호기</th><th>업체</th><th class="num">차수</th><th>제품</th>
     <th class="num">길이</th><th class="num">계획수량</th><th class="num">실적(정품)</th><th>달성률</th><th>상태</th><th>비고</th><th>작업지시</th>
   </tr></thead><tbody>${rows}</tbody></table>`
   + (canDrag ? '<p class="muted" style="margin:8px 0 0">⠿ 핸들을 끌어 생산 순서를 바꿀 수 있습니다. 다른 날짜 사이에 놓으면 그 날짜로 일정이 이동합니다. <span id="plan-drag-status"></span></p>' : '');
@@ -1702,8 +1739,17 @@ planForm.addEventListener('submit', async (e) => {
   try {
     // 수정 시 폼에 없는 필드(seq·orderId 등)가 지워지지 않도록 기존 문서에 병합
     const orig = editingPlanId ? (PLANS.find((x) => x.id === editingPlanId) || {}) : {};
-    if (editingPlanId) await post('/api/plans/' + editingPlanId, { ...orig, ...p }, 'PUT');
-    else await post('/api/plans', p);
+    const priorityChanged = editingPlanId && (orig.priority || '보통') !== (p.priority || '보통');
+    const saved = editingPlanId
+      ? await post('/api/plans/' + editingPlanId, { ...orig, ...p }, 'PUT')
+      : await post('/api/plans', p);
+    // 새로 만들었거나 우선순위가 바뀐 경우, 같은 날짜 안에서 우선순위 순서로 다시 배치(드래그로 잡은 순서는 그 외엔 안 건드림)
+    if (!editingPlanId || priorityChanged) {
+      const inMem = PLANS.find((x) => x.id === saved.id);
+      if (inMem) Object.assign(inMem, saved); else PLANS.push(saved);
+      const changed = reorderPlansByPriorityForDates([saved.date]);
+      if (changed.length) await dataService.updateMany('plans', changed);
+    }
     await loadPlans();
     $('#plan-modal').hidden = true;
     refreshCurrentPage();
@@ -1721,9 +1767,26 @@ document.addEventListener('click', (e) => {
   const orderBtn = e.target.closest('.order-btn');
   if (orderBtn) { openOrderModal(Number(orderBtn.dataset.orderId)); return; }
   if (e.target.closest('.drag-handle')) return;
+  const priBadge = e.target.closest('.plan-pri-badge');
+  if (priBadge) { cyclePlanPriority(Number(priBadge.dataset.priId)); return; }
   const tr = e.target.closest('tr[data-plan-id]');
   if (tr) openPlanModal(Number(tr.dataset.planId));
 });
+/* 계획 목록에서 우선순위 배지를 클릭하면 낮음→보통→높음→긴급 순으로 바로 바꾸고,
+   같은 날짜 안에서 우선순위 순서로 다시 배치한다(모달을 열지 않는 빠른 편집). */
+async function cyclePlanPriority(planId) {
+  const p = PLANS.find((x) => x.id === planId);
+  if (!p || !can('update', 'plans')) return;
+  const cur = PRIORITY_LEVELS.indexOf(p.priority || '보통');
+  p.priority = PRIORITY_LEVELS[(cur + 1) % PRIORITY_LEVELS.length];
+  try {
+    await dataService.update('plans', p.id, p);
+    const changed = reorderPlansByPriorityForDates([p.date]);
+    if (changed.length) await dataService.updateMany('plans', changed);
+    await loadPlans();
+    renderPlans();
+  } catch (e) { alert('우선순위 변경 실패: ' + e.message); }
+}
 
 /* ===================== 수주 관리 (수주주문서 → 생산계획 자동 생성) ===================== */
 /* ⚠ 생산계획 자동 생성 규칙 — 아직 "틀"입니다. 세부 조건(호기 배정·생산능력·소요일수·분할 생산 등)이
@@ -1735,6 +1798,7 @@ const orderDeadline = (o) => (o && o.dueDate) ? addDays(o.dueDate, -PLAN_LEAD_DA
 function planFromOrder(o) {
   return {
     part: o.part || 'CAST',
+    priority: normPriority(o.priority),
     date: orderDeadline(o) || o.date || todayStr(),
     machine: null,
     customer: o.customer ?? null,
@@ -1745,14 +1809,18 @@ function planFromOrder(o) {
     status: '계획',
     dueDate: o.dueDate ?? null,
     orderId: o.id,                       // 수주 문서와 연결
+    orderException: o.orderException ?? null,
     note: o.note ?? null,
   };
 }
-/* 계획이 아직 없는 수주들에 생산계획을 일괄 생성하고 수주에 planId를 기록 */
+/* 계획이 아직 없는 수주들에 생산계획을 일괄 생성하고 수주에 planId를 기록.
+   생성 직후 같은 날짜 안에서 우선순위 순서로 seq를 다시 매겨(기존 계획 순서는 유지, 새 계획만 우선순위에 맞게 삽입) 배치한다. */
 async function generatePlansForOrders(orderRecs) {
   const targets = (orderRecs || []).filter((o) => o && !o.planId);
   if (!targets.length) return 0;
   const created = await dataService.createMany('plans', targets.map(planFromOrder));
+  const reordered = reorderPlansByPriorityForDates(created.map((p) => p.date), created);
+  if (reordered.length) await dataService.updateMany('plans', reordered);
   await dataService.updateMany('orders', targets.map((o, idx) => ({ ...o, planId: created[idx].id })));
   return created.length;
 }
@@ -1805,17 +1873,18 @@ function renderOrders() {
       : `<span class="badge warn">미생성</span>${can('create', 'plans') ? ` <button type="button" class="btn small gen-plan-btn" data-oid="${o.id}">생성</button>` : ''}`;
     return `<tr data-oid="${o.id}">
       <td>${esc(o.date ?? '')}</td>
+      <td>${priorityBadge(o.priority)}</td>
       <td><span class="badge plain">${esc(o.part || 'CAST')}</span></td>
       <td>${esc(o.customer ?? '')}</td><td>${esc(o.poNo ?? '')}</td>
       <td class="muted">${esc(o.custCode ?? '-')}</td>
       <td><b>${esc(o.product ?? '')}</b> ${esc(o.color ?? '')}</td>
       <td class="num">${fmt(o.qty)}</td>
       <td>${esc(o.dueDate ?? '')}</td><td>${dlBadge}</td>
-      <td>${planCell}</td><td>${esc(o.note ?? '')}</td>
+      <td>${planCell}</td><td>${o.orderException ? `<span class="badge warn" title="${esc(o.orderException)}">⚠ 조건</span> ` : ''}${esc(o.note ?? '')}</td>
     </tr>`;
   }).join('');
   box.innerHTML = `<table><thead><tr>
-    <th>수주일</th><th>공정</th><th>업체</th><th>발주번호</th><th>고객사코드</th><th>제품</th>
+    <th>수주일</th><th>우선순위</th><th>공정</th><th>업체</th><th>발주번호</th><th>고객사코드</th><th>제품</th>
     <th class="num">수주수량</th><th>희망출고일</th><th>생산마감(D−${PLAN_LEAD_DAYS})</th><th>생산계획</th><th>비고</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -1974,6 +2043,7 @@ async function soExtractFromFile(file) {
   return rows.map((r) => {
     const row = {
       part: orderPartOf(r.part) || null,
+      priority: '보통',
       date: impDate(r.date) || todayStr(),
       customer: String(r.customer || '').trim() || null,
       poNo: String(r.poNo || '').trim() || null,
@@ -1983,6 +2053,7 @@ async function soExtractFromFile(file) {
       color: String(r.color || '').trim() || null,
       qty: impNum(r.qty),
       dueDate: impDate(r.dueDate),
+      orderException: null,
       note: String(r.note || '').trim() || null,
     };
     // 고객사코드가 있고 제품명이 비어있으면 제품표준서 매핑으로 자동 채움
@@ -2005,8 +2076,10 @@ function renderSoDraft() {
     const err = soRowErr(r);
     const dup = !err && dupSet.has(soDupKey({ ...r, part: r.part || 'CAST' }));
     const badge = err ? `<span class="badge bad">${esc(err)}</span>` : dup ? '<span class="badge warn" title="같은 수주가 이미 있어 건너뜁니다">중복</span>' : '<span class="badge ok">등록</span>';
+    const priOpts = ['낮음', '보통', '높음', '긴급'].map((p) => `<option ${p === (r.priority || '보통') ? 'selected' : ''}>${p}</option>`).join('');
     return `<tr>
       <td><select data-si="${i}" data-sf="part">${partOpts(r.part)}</select></td>
+      <td><select data-si="${i}" data-sf="priority">${priOpts}</select></td>
       <td><input type="date" data-si="${i}" data-sf="date" value="${esc(r.date ?? '')}"></td>
       <td><input data-si="${i}" data-sf="customer" value="${esc(r.customer ?? '')}" placeholder="업체명"></td>
       <td><input data-si="${i}" data-sf="poNo" value="${esc(r.poNo ?? '')}" style="width:90px"></td>
@@ -2014,14 +2087,15 @@ function renderSoDraft() {
       <td><input data-si="${i}" data-sf="product" value="${esc(r.product ?? '')}" placeholder="제품명(내부)"></td>
       <td><input type="number" data-si="${i}" data-sf="qty" value="${esc(r.qty ?? '')}" style="width:80px"></td>
       <td><input type="date" data-si="${i}" data-sf="dueDate" value="${esc(r.dueDate ?? '')}"></td>
+      <td><input data-si="${i}" data-sf="orderException" value="${esc(r.orderException ?? '')}" placeholder="우선순위 조건"></td>
       <td><input data-si="${i}" data-sf="note" value="${esc(r.note ?? '')}"></td>
       <td>${badge}</td>
       <td><button type="button" class="btn icon" data-sdel="${i}" title="행 삭제">✕</button></td>
     </tr>`;
   }).join('');
   box.innerHTML = `<table><thead><tr>
-    <th>공정</th><th>수주일</th><th>업체명</th><th>발주번호</th><th>고객사코드</th><th>제품명(내부)</th>
-    <th class="num">수량</th><th>희망출고일</th><th>비고</th><th>상태</th><th></th>
+    <th>공정</th><th>우선순위</th><th>수주일</th><th>업체명</th><th>발주번호</th><th>고객사코드</th><th>제품명(내부)</th>
+    <th class="num">수량</th><th>희망출고일</th><th>조건·특이사항</th><th>비고</th><th>상태</th><th></th>
   </tr></thead><tbody>${rows}</tbody></table>`;
   const ok = SO_DRAFT.filter((r) => !soRowErr(r) && !dupSet.has(soDupKey({ ...r, part: r.part || 'CAST' })));
   const errN = SO_DRAFT.filter((r) => soRowErr(r)).length;
@@ -2087,7 +2161,7 @@ if ($('#so-upload-modal')) {
     if (del) { SO_DRAFT.splice(Number(del.dataset.sdel), 1); renderSoDraft(); }
   });
   $('#so-extract-add').addEventListener('click', () => {
-    SO_DRAFT.push({ part: PART, date: todayStr(), customer: null, poNo: null, custCode: null, product: null, productCode: null, color: null, qty: null, dueDate: null, note: null });
+    SO_DRAFT.push({ part: PART, priority: '보통', date: todayStr(), customer: null, poNo: null, custCode: null, product: null, productCode: null, color: null, qty: null, dueDate: null, orderException: null, note: null });
     renderSoDraft();
   });
   $('#so-extract-run').addEventListener('click', async () => {
@@ -5161,7 +5235,7 @@ $('#a-reset').addEventListener('click', () => {
   ['a-from', 'a-to', 'a-machine', 'a-customer', 'a-product'].forEach((id) => ($('#' + id).value = ''));
   renderAnalysis();
 });
-['p-from', 'p-to', 'p-machine', 'p-status'].forEach((id) => $('#' + id).addEventListener('input', renderPlans));
+['p-from', 'p-to', 'p-machine', 'p-status', 'p-priority'].forEach((id) => $('#' + id).addEventListener('input', renderPlans));
 ['s-month', 's-machine'].forEach((id) => $('#' + id).addEventListener('input', renderSheets));
 
 /* ===================== 초기화 (Firebase 로그인 후 부팅) ===================== */
