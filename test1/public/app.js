@@ -825,11 +825,22 @@ const impHasDate = () => impFields(IMPORT_DEFS[IMP.key]).some((f) => f.k === 'da
 
 /* 품목 매핑의 업체명 열은 콤마로 여러 업체를 묶어서 쓰기도 한다 (예: "A상사, B무역, 그 외").
    "그 외/기타/외 다수" 같은 토큰은 특정 업체가 아니라 "이 외에도 해당될 수 있는 업체가 있다"는 포괄 표기다. */
+const PM_AUTO_NOTE = '수주주문서에서 자동 등록';   // 품목 매핑 목록에서 자동 생성된 행을 구분해 보여주는 데도 씀
 const CATCHALL_TOKEN_RE = /^(그\s*외|기타|외\s*다수|외)$/;
+// 콤마 없이 마지막 업체명 뒤에 바로 붙는 경우도 있다: "동성화인텍 외", "...한양이엔씨, 디엠이앤씨 외"
+const CATCHALL_SUFFIX_RE = /\s+(그\s*외|외\s*다수|외)$/;
 const custTokens = (s) => String(s ?? '').split(',').map((t) => t.trim()).filter(Boolean);
 function custParse(s) {
   const tokens = custTokens(s);
-  return { names: tokens.filter((t) => !CATCHALL_TOKEN_RE.test(t)), hasCatchAll: tokens.some((t) => CATCHALL_TOKEN_RE.test(t)) };
+  let hasCatchAll = false;
+  const names = [];
+  tokens.forEach((t) => {
+    if (CATCHALL_TOKEN_RE.test(t)) { hasCatchAll = true; return; }   // 토큰 전체가 "그 외"/"기타"/"외 다수"/"외"
+    const m = CATCHALL_SUFFIX_RE.exec(t);
+    if (m) { hasCatchAll = true; const rest = t.slice(0, m.index).trim(); if (rest) names.push(rest); }
+    else names.push(t);
+  });
+  return { names, hasCatchAll };
 }
 /* orderCustomer가 매핑 행의 업체명 표기에 해당하는지 판정.
    - 명시된 업체명 중 하나와 정확히 같으면 확실한 매칭(certain)
@@ -1900,7 +1911,7 @@ async function learnProductMapFromOrders(orderRecs) {
     // 단, 그 행이 업체를 확실히 하나로 가리킬 때만 — "A, B, 그 외"처럼 여러 업체가 걸린 공용 행에 특정 코드를 채우면 다른 업체와 헷갈리게 되므로 그런 경우는 새 행을 만든다.
     const blank = PRODUCTMAP.find((m) => !m.custCode && impNorm(m.product) === impNorm(o.product) && custMatch(m.customer, o.customer).certain);
     if (blank) toUpdate.push({ ...blank, custCode: o.custCode, productCode: blank.productCode || o.productCode || null });
-    else toCreate.push({ customer: o.customer ?? null, custCode: o.custCode, product: o.product, productCode: o.productCode ?? null, note: '수주주문서에서 자동 등록' });
+    else toCreate.push({ customer: o.customer ?? null, custCode: o.custCode, product: o.product, productCode: o.productCode ?? null, note: PM_AUTO_NOTE });
   });
   if (toUpdate.length) {
     await dataService.updateMany('productmap', toUpdate);
@@ -2314,8 +2325,14 @@ function renderProductMap() {
   const impBtn = $('#btn-import-productmap');
   if (impBtn) impBtn.hidden = !canAccessPage('import');
   const missingN = PRODUCTMAP.filter((m) => !m.custCode).length;
+  const autoN = PRODUCTMAP.filter((m) => m.note === PM_AUTO_NOTE).length;
   const sumEl = $('#pm-missing-sum');
-  if (sumEl) sumEl.textContent = missingN ? `⚠ 외부품명/코드 미입력 ${missingN}건 — 행을 클릭해 채워 넣으세요` : '';
+  if (sumEl) {
+    const parts = [];
+    if (missingN) parts.push(`⚠ 외부품명/코드 미입력 ${missingN}건`);
+    if (autoN) parts.push(`🤖 수주에서 자동 등록됨 ${autoN}건 — 맞는지 한 번 확인해주세요`);
+    sumEl.textContent = parts.length ? parts.join(' · ') + ' — 행을 클릭하면 수정할 수 있습니다' : '';
+  }
 
   if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목 매핑이 없습니다. [＋ 매핑 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
   const rows = list.map((m) => `<tr data-pmid="${m.id}">
@@ -2323,7 +2340,7 @@ function renderProductMap() {
     <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : '<span class="badge warn">미입력</span>'}</td>
     <td>${esc(m.product ?? '')}</td>
     <td class="muted">${esc(m.productCode ?? '-')}</td>
-    <td>${esc(m.note ?? '')}</td>
+    <td>${m.note === PM_AUTO_NOTE ? '<span class="badge plain" title="수주주문서 등록 시 자동으로 생성됨">🤖 자동</span>' : esc(m.note ?? '')}</td>
   </tr>`).join('');
   box.innerHTML = `<table><thead><tr>
     <th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>비고</th>
