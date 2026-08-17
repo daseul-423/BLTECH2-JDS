@@ -1167,12 +1167,13 @@ async function impRun() {
       MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
       fillMasterInputs();
     } else {
-    let genPlans = 0;
+    let genPlans = 0, learnedMaps = 0;
     if (news.length) {
       const recs = await dataService.createMany(def.coll, news.map((r) => r.obj), (d, t) => { if (pg) pg.textContent = `등록 중… ${d}/${t}`; });
       added = news.length;
-      // 수주주문서는 등록 즉시 생산계획 자동 생성 (희망출고일 − 3일 = 생산 마감)
+      // 수주주문서는 등록 즉시 생산계획 자동 생성 (희망출고일 − 3일 = 생산 마감) + 매핑 안 된 코드는 품목 매핑에 자동 학습
       if (IMP.key === 'orders') {
+        learnedMaps = await learnProductMapFromOrders(recs);
         if (pg) pg.textContent = '생산계획 생성 중…';
         genPlans = await generatePlansForOrders(recs);
       }
@@ -1184,9 +1185,9 @@ async function impRun() {
         if (pg) pg.textContent = `덮어쓰는 중… ${i + 1}/${dups.length}`;
       }
     }
-    await { records: loadRecords, plans: loadPlans, orders: async () => { await loadOrders(); await loadPlans(); }, productmap: loadProductMap, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
+    await { records: loadRecords, plans: loadPlans, orders: async () => { await loadOrders(); await loadPlans(); await loadProductMap(); }, productmap: loadProductMap, standards: loadStandards, custspecs: loadCustSpecs }[IMP.key]();
     if (pg) pg.textContent = '';
-    alert(`완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건${failed ? `\n· 실패 ${failed}건` : ''}${genPlans ? `\n· 생산계획 자동 생성 ${genPlans}건` : ''}`);
+    alert(`완료\n· 신규 ${added}건\n· 덮어쓰기 ${updated}건${failed ? `\n· 실패 ${failed}건` : ''}${genPlans ? `\n· 생산계획 자동 생성 ${genPlans}건` : ''}${learnedMaps ? `\n· 품목 매핑 자동 반영 ${learnedMaps}건` : ''}`);
     IMP.wb = null; IMP.headers = []; IMP.rows = []; IMP.parsed = [];
     renderImport();
     return;
@@ -1849,6 +1850,36 @@ function planFromOrder(o) {
     note: o.note ?? null,
   };
 }
+/* 수주에 고객사 외부품명/코드 + 내부 품명이 둘 다 있는데 품목 매핑에 아직 없는 조합이면 자동으로 매핑을 학습시켜 등록한다.
+   (수동 등록에서 매핑 안 된 코드를 사용자가 직접 채워 넣었거나, AI추출·엑셀 파일 자체에 이미 내부 품명이 같이 있던 경우)
+   같은 배치 안에 같은 업체+코드가 여러 번 나와도 한 번만 만들고, 방금 만든 매핑도 바로 이어서 재사용한다. */
+async function learnProductMapFromOrders(orderRecs) {
+  const candidates = (orderRecs || []).filter((o) => o && o.custCode && o.product && !resolveByCustCode(o.custCode, o.customer, o.part));
+  if (!candidates.length) return 0;
+  // 같은 배치 안에 같은 업체+코드가 여러 번 나와도 대표 1건만 사용
+  const seen = new Map();
+  candidates.forEach((o) => {
+    const key = (o.customer ?? '') + '|' + impNorm(o.custCode);
+    if (!seen.has(key)) seen.set(key, o);
+  });
+  const toUpdate = [], toCreate = [];
+  seen.forEach((o) => {
+    // 업체+내부품명은 이미 등록돼 있는데 외부품명/코드만 비어있는 행이 있으면(엑셀로 미리 넣어둔 "미입력" 행)
+    // 새로 만들지 않고 그 행에 코드를 채워 넣는다
+    const blank = PRODUCTMAP.find((m) => !m.custCode && (m.customer ?? '') === (o.customer ?? '') && impNorm(m.product) === impNorm(o.product));
+    if (blank) toUpdate.push({ ...blank, custCode: o.custCode, productCode: blank.productCode || o.productCode || null });
+    else toCreate.push({ customer: o.customer ?? null, custCode: o.custCode, product: o.product, productCode: o.productCode ?? null, note: '수주주문서에서 자동 등록' });
+  });
+  if (toUpdate.length) {
+    await dataService.updateMany('productmap', toUpdate);
+    toUpdate.forEach((u) => { const i = PRODUCTMAP.findIndex((m) => m.id === u.id); if (i >= 0) PRODUCTMAP[i] = u; });
+  }
+  if (toCreate.length) {
+    const created = await dataService.createMany('productmap', toCreate);
+    PRODUCTMAP.push(...created);   // 같은 배치의 다음 주문이 바로 이어서 참조할 수 있게
+  }
+  return toUpdate.length + toCreate.length;
+}
 /* 계획이 아직 없는 수주들에 생산계획을 일괄 생성하고 수주에 planId를 기록.
    생성 직후 같은 날짜 안에서 우선순위 순서로 seq를 다시 매겨(기존 계획 순서는 유지, 새 계획만 우선순위에 맞게 삽입) 배치한다. */
 async function generatePlansForOrders(orderRecs) {
@@ -1864,10 +1895,11 @@ async function genPlansFor(ids) {
   const targets = ORDERS.filter((o) => ids.includes(o.id) && !o.planId);
   if (!targets.length) return;
   try {
+    const learned = await learnProductMapFromOrders(targets);
     const n = await generatePlansForOrders(targets);
-    await Promise.all([loadOrders(), loadPlans()]);
+    await Promise.all([loadOrders(), loadPlans(), loadProductMap()]);
     refreshCurrentPage();
-    alert(`생산계획 ${n}건을 생성했습니다. (생산 마감 = 희망출고일 − ${PLAN_LEAD_DAYS}일)`);
+    alert(`생산계획 ${n}건을 생성했습니다. (생산 마감 = 희망출고일 − ${PLAN_LEAD_DAYS}일)${learned ? `\n· 품목 매핑 자동 반영 ${learned}건` : ''}`);
   } catch (e) { alert('계획 생성 실패: ' + e.message); }
 }
 
@@ -1992,8 +2024,9 @@ if (soForm) {
       } else {
         rec = await post('/api/orders', o);
       }
+      await learnProductMapFromOrders([rec]);   // 코드는 있는데 매핑에 없던 조합이면 자동으로 품목 매핑에 등록
       if (!rec.planId) await generatePlansForOrders([rec]);   // 계획 미생성 수주는 자동 생성
-      await Promise.all([loadOrders(), loadPlans()]);
+      await Promise.all([loadOrders(), loadPlans(), loadProductMap()]);
       $('#order-modal').hidden = true;
       refreshCurrentPage();
     } catch (err) { alert('저장 실패: ' + err.message); }
@@ -2210,11 +2243,12 @@ if ($('#so-upload-modal')) {
     btn.disabled = true;
     try {
       const recs = await dataService.createMany('orders', valid);
+      const learned = await learnProductMapFromOrders(recs);
       const n = await generatePlansForOrders(recs);
-      await Promise.all([loadOrders(), loadPlans()]);
+      await Promise.all([loadOrders(), loadPlans(), loadProductMap()]);
       $('#so-upload-modal').hidden = true;
       refreshCurrentPage();
-      alert(`완료\n· 수주 등록 ${recs.length}건\n· 생산계획 자동 생성 ${n}건`);
+      alert(`완료\n· 수주 등록 ${recs.length}건\n· 생산계획 자동 생성 ${n}건${learned ? `\n· 품목 매핑 자동 반영 ${learned}건` : ''}`);
     } catch (err) { alert('등록 실패: ' + err.message); }
     finally { btn.disabled = false; }
   });
