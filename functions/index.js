@@ -1,6 +1,6 @@
 /* AI 어시스턴트 (Firebase Cloud Functions v2, OpenAI 프록시).
  *
- *   chat         : 생산데이터·사내규정 질의응답 (+ 사용자가 첨부한 이미지 인식)
+ *   chat         : 생산데이터·사내규정 질의응답 (+ 이미지 인식, + 웹 검색 필요 시 자동 전환)
  *   image        : 이미지 생성 (gpt-image-2, /v1/images/generations)
  *   extractOrder : 문서(PDF·이미지) 분석 — 수주주문서 등에서 항목 추출 (/v1/responses)
  *
@@ -22,6 +22,9 @@ setGlobalOptions({ region: 'us-central1', maxInstances: 10 });
 const CHAT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-2';
 const DOC_MODEL = process.env.OPENAI_DOC_MODEL || CHAT_MODEL;   // PDF·이미지 문서 분석(Responses API)도 같은 모델 사용
+const SEARCH_MODEL = process.env.OPENAI_SEARCH_MODEL || 'gpt-4.1-mini';   // 웹 검색(web_search 도구) 지원 확인된 모델
+// 사용자가 웹 검색·팩트체크·실시간 정보를 명시적으로 요청하면 web_search 도구 경로로 전환
+const WEB_SEARCH_RE = /웹\s*검색|웹서치|팩트\s*체크|팩트체크|실시간|최신|검색해\s*줘|검색해서|인터넷에서\s*찾아|구글링/i;
 const DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
 const DOC_FILE_RE = /^data:(application\/pdf|image\/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=]+)$/;
 const MAX_DOC_BYTES = 15 * 1024 * 1024;   // 원본 15MB(≈base64 20MB) — Cloud Functions 요청 크기(32MB) 여유 확보
@@ -58,7 +61,47 @@ async function requireActiveUser(req, res, roles) {
   return { uid, role };
 }
 
-/* ─────────────── 질의응답 (이미지 인식 지원) ─────────────── */
+/* Responses API 출력에서 본문 텍스트 + 인용 URL을 뽑아낸다 (web_search 결과에는 annotations로 출처가 붙는다) */
+function responsesMessage(data) {
+  const out = (data && Array.isArray(data.output)) ? data.output : [];
+  for (const item of out) {
+    if (item.type === 'message' && Array.isArray(item.content)) {
+      const t = item.content.find((c) => c.type === 'output_text' && c.text);
+      if (t) {
+        const citations = (t.annotations || [])
+          .filter((a) => a.type === 'url_citation' && a.url)
+          .map((a) => ({ url: a.url, title: a.title || a.url }));
+        return { text: t.text, citations };
+      }
+    }
+  }
+  return { text: (data && data.output_text) || '', citations: [] };
+}
+
+/* 웹 검색(web_search 도구) 경로 — Responses API. 사내 데이터(context)도 참고자료로 같이 넘겨서
+ * "이 불량률이 업계 평균보다 어때?" 같은 내부+외부 결합 질문도 다룰 수 있게 한다. */
+async function runWebSearch(key, question, context, images) {
+  const instructions = `당신은 BL-TECH 생산1팀의 AI 어시스턴트입니다. 아래 사용자 요청은 웹 검색·최신 정보·사실 확인이 필요한 질문입니다.
+반드시 web_search 도구로 검색한 뒤 그 결과를 근거로 한국어로 간결하고 정확하게 답하세요. 마크다운(표·목록·굵게)을 적절히 쓰세요.
+${context ? `\n[참고용 사내 생산데이터 — 관련 있을 때만 활용]\n${context}\n` : ''}
+[사용자 요청]
+${question}`;
+  const content = [{ type: 'input_text', text: instructions }];
+  (images || []).forEach((u) => content.push({ type: 'input_image', image_url: u }));
+  const r = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: SEARCH_MODEL,
+      tools: [{ type: 'web_search' }],
+      input: [{ role: 'user', content }],
+    }),
+  });
+  const data = await r.json();
+  return { ok: r.ok, status: r.status, data };
+}
+
+/* ─────────────── 질의응답 (이미지 인식 지원, 웹 검색 자동 전환) ─────────────── */
 exports.chat = onRequest({ secrets: ['OPENAI_API_KEY'], cors: false, timeoutSeconds: 120 }, async (req, res) => {
   if (req.method !== 'POST') { res.status(405).json({ error: 'POST only' }); return; }
   if (!(await requireActiveUser(req, res))) return;
@@ -71,6 +114,19 @@ exports.chat = onRequest({ secrets: ['OPENAI_API_KEY'], cors: false, timeoutSeco
     const context = body.context ? JSON.stringify(body.context).slice(0, 60000) : '';
     const images = Array.isArray(body.images) ? body.images.filter((u) => DATA_URL_RE.test(u)).slice(0, 4) : [];
     if (!question && !images.length) { res.status(400).json({ error: 'question 필요' }); return; }
+
+    // "웹 검색을 통해", 팩트체크, 실시간 자료 요청 등은 web_search 도구 경로로 전환
+    if (WEB_SEARCH_RE.test(question)) {
+      const { ok, status, data } = await runWebSearch(key, question, context, images);
+      if (!ok) { res.status(502).json({ error: 'OpenAI 오류: ' + ((data.error && data.error.message) || status) }); return; }
+      const { text, citations } = responsesMessage(data);
+      const seen = new Set();
+      const uniqCites = citations.filter((c) => !seen.has(c.url) && seen.add(c.url));
+      let answer = '🔎 **웹 검색 결과**\n\n' + (text || '(응답 없음)');
+      if (uniqCites.length) answer += '\n\n**출처**\n' + uniqCites.map((c) => `- [${c.title}](${c.url})`).join('\n');
+      res.status(200).json({ answer, webSearch: true });
+      return;
+    }
 
     const sys = `당신은 BL-TECH 생산1팀의 생산데이터 분석 도우미입니다. 아래 JSON 데이터(생산실적·불량·사양·설비·사내규정 등)를 근거로 한국어로 간결하고 정확하게 답합니다. 숫자는 데이터에서 계산해 제시하고, 근거가 없으면 모른다고 하세요.
 답변은 **마크다운**으로 작성하세요: 비교·집계는 표(|---|)로, 목록은 -, 핵심 수치는 **굵게**, 필요하면 ## 소제목을 쓰고 적절한 이모지로 가독성을 높이세요. 사용자가 이미지를 첨부하면 그 이미지를 함께 해석해 답하세요.
