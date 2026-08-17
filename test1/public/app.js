@@ -5401,9 +5401,21 @@ function renderMasters() {
   });
 }
 
+/* 업체명 자동완성 목록: 🏭 업체 정보(companies, 정식 등록)를 기본으로 하되, 기준정보 목록과
+   실제 데이터(수주·품목매핑·표준서·사양)에 이미 쓰인 이름도 합친다 — 업체 정보에 아직 등록 안 된
+   업체명이 있어도 자동완성에서 사라지지 않게 하기 위함(무엇을 입력할 수 있는지는 안 바뀜, 자유 입력은 그대로 됨). */
+function allCustomerNames() {
+  const set = new Set();
+  (MASTERS.companies || []).forEach((c) => { if (c && c.name) set.add(c.name); });
+  (MASTERS.customers || []).forEach((c) => { if (c) set.add(c); });
+  [ORDERS, PRODUCTMAP, STANDARDS, CUSTSPECS].forEach((list) => (list || []).forEach((r) => { if (r && r.customer) set.add(r.customer); }));
+  return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
+}
 function fillMasterInputs() {
   const dl = (id, key) => { const el = $(id); if (el) el.innerHTML = (MASTERS[key] || []).map((v) => `<option value="${esc(v)}">`).join(''); };
-  dl('#dl-customers', 'customers'); dl('#dl-products', 'products'); dl('#dl-colors', 'colors');
+  const custDl = $('#dl-customers');
+  if (custDl) custDl.innerHTML = allCustomerNames().map((v) => `<option value="${esc(v)}">`).join('');
+  dl('#dl-products', 'products'); dl('#dl-colors', 'colors');
   dl('#dl-productCodes', 'productCodes'); dl('#dl-baseTypes', 'baseTypes');
   dl('#dl-resins', 'resins'); dl('#dl-pouches', 'pouches'); dl('#dl-workers', 'workers'); dl('#dl-toners', 'toners'); dl('#dl-cores', 'cores'); dl('#dl-lossTypes', 'lossTypes'); dl('#dl-qcItems', 'qcItems');
   const mcOpts = (first) => first + (MASTERS.machines || []).map((m) => `<option>${esc(m)}</option>`).join('');
