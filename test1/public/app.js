@@ -215,6 +215,25 @@ function splintWsCalc(r) {
 
 /* ===================== 네비게이션 ===================== */
 $$('.nav-btn').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
+
+/* ===================== 모바일 사이드바 서랍 ===================== */
+function closeMobileNav() {
+  $('.sidebar')?.classList.remove('open');
+  const bd = $('#sidebar-backdrop');
+  if (bd) { bd.hidden = true; bd.removeAttribute('data-show'); }
+}
+function toggleMobileNav() {
+  const sb = $('.sidebar');
+  if (!sb) return;
+  if (sb.classList.contains('open')) { closeMobileNav(); return; }
+  sb.classList.add('open');
+  const bd = $('#sidebar-backdrop');
+  if (bd) { bd.hidden = false; bd.setAttribute('data-show', ''); }
+}
+$('#mobile-nav-toggle')?.addEventListener('click', toggleMobileNav);
+$('#sidebar-backdrop')?.addEventListener('click', closeMobileNav);
+$$('.nav-btn, .hub-card[data-goto]').forEach((b) => b.addEventListener('click', closeMobileNav));   // 메뉴 선택하면 서랍 자동으로 닫기
+
 /* ===================== 역할 기반 권한 (RBAC) — PIN 관리자모드 대체 ===================== */
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
@@ -1690,7 +1709,7 @@ function renderPlans() {
     const aBadge = actual === 0 ? '<span class="badge plain">-</span>'
       : `<span class="badge ${achieve >= 100 ? 'ok' : 'warn'}">${achieve.toFixed(0)}%</span>`;
     return `<tr data-plan-id="${p.id}">
-      <td class="drag-cell">${canDrag ? '<span class="drag-handle" title="끌어서 생산 순서 변경">⠿</span>' : ''}<span class="muted seq-no">${p.seq ?? ''}</span></td>
+      <td class="drag-cell">${canDrag ? `<span class="drag-handle" title="끌어서 생산 순서 변경">⠿</span><span class="seq-step"><button type="button" class="seq-btn" data-step="-1" data-plan-id="${p.id}" aria-label="위로 이동" title="위로 이동(터치에서도 동작)">▲</button><button type="button" class="seq-btn" data-step="1" data-plan-id="${p.id}" aria-label="아래로 이동" title="아래로 이동(터치에서도 동작)">▼</button></span>` : ''}<span class="muted seq-no">${p.seq ?? ''}</span></td>
       <td>${priorityBadge(p.priority, canDrag ? p.id : null)}</td>
       <td>${esc(p.date)}</td><td>${esc(p.dueDate ?? '-')}</td><td>${esc(p.machine)}</td><td>${esc(p.customer ?? '')}</td>
       <td class="num">${p.orderNo ?? '-'}</td><td><b>${esc(p.product)}</b> ${esc(p.color ?? '')}</td>
@@ -1842,11 +1861,24 @@ document.addEventListener('click', (e) => {
   const orderBtn = e.target.closest('.order-btn');
   if (orderBtn) { openOrderModal(Number(orderBtn.dataset.orderId)); return; }
   if (e.target.closest('.drag-handle')) return;
+  const seqBtn = e.target.closest('.seq-btn');
+  if (seqBtn) { movePlanStep(Number(seqBtn.dataset.planId), Number(seqBtn.dataset.step)); return; }
   const priBadge = e.target.closest('.plan-pri-badge');
   if (priBadge) { cyclePlanPriority(Number(priBadge.dataset.priId)); return; }
   const tr = e.target.closest('tr[data-plan-id]');
   if (tr) openPlanModal(Number(tr.dataset.planId));
 });
+/* 터치 화면은 드래그(HTML5 DnD)가 안 되므로, ▲▼ 버튼으로도 같은 순서변경이 되게 한다(로직은 드래그와 동일하게 재사용) */
+async function movePlanStep(planId, dir) {
+  const tbody = $('#plans-table tbody');
+  if (!tbody) return;
+  const tr = tbody.querySelector(`tr[data-plan-id="${planId}"]`);
+  if (!tr) return;
+  const sib = dir < 0 ? tr.previousElementSibling : tr.nextElementSibling;
+  if (!sib) return;   // 맨 위/아래면 더 이상 이동 안 함
+  if (dir < 0) tbody.insertBefore(tr, sib); else tbody.insertBefore(sib, tr);
+  await persistPlanOrder(tr);
+}
 /* 계획 목록에서 우선순위 배지를 클릭하면 낮음→보통→높음→긴급 순으로 바로 바꾸고,
    같은 날짜 안에서 우선순위 순서로 다시 배치한다(모달을 열지 않는 빠른 편집). */
 async function cyclePlanPriority(planId) {

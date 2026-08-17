@@ -54,7 +54,37 @@ nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; }
 .main { flex: 1; padding: 24px 28px; min-width: 0; }
 .page-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
 .page-head h1 { font-size: 22px; }
-.head-actions { display: flex; gap: 8px; align-items: center; }
+.head-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* ---- 모바일: 사이드바를 서랍(드로어)으로 ---- */
+.mobile-nav-toggle { display: none; }
+.sidebar-backdrop { display: none; }
+@media (max-width: 860px) {
+  body { overflow-x: hidden; }
+  .mobile-nav-toggle {
+    display: flex; align-items: center; justify-content: center;
+    position: fixed; top: 12px; left: 12px; z-index: 120;
+    width: 42px; height: 42px; border: none; border-radius: 10px;
+    background: #16213a; color: #fff; font-size: 19px; cursor: pointer;
+    box-shadow: 0 3px 12px rgba(0,0,0,.25);
+  }
+  .sidebar-backdrop[data-show] {
+    display: block; position: fixed; inset: 0; z-index: 140;
+    background: rgba(10,15,28,.45);
+  }
+  .sidebar {
+    position: fixed; top: 0; bottom: 0; left: -260px; z-index: 150;
+    width: 250px; max-width: 82vw;
+    transition: left .22s ease;
+    box-shadow: 4px 0 24px rgba(0,0,0,.3);
+  }
+  .sidebar.open { left: 0; }
+  .main { padding: 16px 14px; padding-top: 64px; }
+  .modal { padding: 16px 16px; max-width: calc(100vw - 24px); }
+  .modal-back { padding: 12px; }
+  .modal-head { top: -17px; }
+  .modal-foot { bottom: -17px; }
+}
 .muted { color: var(--muted); font-size: 13px; }
 
 .card {
@@ -895,6 +925,13 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .drag-handle:active { cursor: grabbing; }
 .seq-no { font-size: 11px; margin-left: 2px; }
 #plans-table tr.dragging { opacity: .45; background: #eef2fb; }
+/* 드래그가 안 되는 터치 화면을 위한 ▲▼ 순서변경 버튼 (마우스로도 동작) */
+.seq-step { display: inline-flex; flex-direction: column; vertical-align: middle; margin: 0 2px; }
+.seq-btn {
+  border: none; background: none; color: var(--muted); cursor: pointer;
+  font-size: 9px; line-height: 1; padding: 1px 3px; border-radius: 3px;
+}
+.seq-btn:hover { background: var(--brand-soft); color: var(--brand); }
 
 /* 수주주문서 AI 추출 편집 표 */
 .so-draft table { min-width: 900px; }
