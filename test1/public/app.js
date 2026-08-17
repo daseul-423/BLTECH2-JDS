@@ -4831,12 +4831,28 @@ function recordTable(recs, full = false) {
         <td>${lossBadge(r.totalLossRate)}</td>
         ${full ? `<td>${esc(r.workers ?? '')}</td><td>${esc(r.note ?? r.remarks ?? '')}</td>` : ''}
       </tr>`).join('');
+    // 합계: 평균무게는 합산 대상이 아니라 '-' 표시, 총로스율은 합계 로스÷(합계 총수량+합계 로스)로 재계산
+    const tRoll = recs.reduce((a, r) => a + rollOf(r), 0);
+    const tPrecut = recs.reduce((a, r) => a + precutOf(r), 0);
+    const tLoss = recs.reduce((a, r) => a + lossOf(r), 0);
+    const tTotal = recs.reduce((a, r) => a + num(r.totalRoll), 0);
+    const tRate = (tTotal + tLoss) ? +(tLoss / (tTotal + tLoss) * 100).toFixed(2) : 0;
     return `<table><thead><tr>
       <th>생산일</th><th>호기</th><th>업체</th><th>제품</th><th class="num">평균무게(g)</th>
       <th class="num">ROLL</th><th class="num">PRECUT</th><th class="num">로스</th><th class="num">총수량</th>
       <th>총로스율</th>
       ${full ? '<th>작업자</th><th>특이사항</th>' : ''}
-    </tr></thead><tbody>${rows}</tbody></table>`;
+    </tr></thead><tbody>${rows}</tbody>
+    <tfoot><tr class="prod-total">
+      <td colspan="4"><b>합계</b> <span class="muted">${recs.length}건</span></td>
+      <td class="num">-</td>
+      <td class="num"><b>${fmt(tRoll, 1)}</b></td>
+      <td class="num"><b>${fmt(tPrecut, 1)}</b></td>
+      <td class="num"><b>${fmt(tLoss, 1)}</b></td>
+      <td class="num"><b>${fmt(tTotal, 1)}</b></td>
+      <td>${lossBadge(tRate)}</td>
+      ${full ? '<td colspan="2"></td>' : ''}
+    </tr></tfoot></table>`;
   }
   const rows = recs.map((r) => `
     <tr data-id="${r.id}">
@@ -4852,12 +4868,29 @@ function recordTable(recs, full = false) {
       <td>${lossBadge(r.totalLossRate)}</td>
       ${full ? `<td>${esc(r.workers ?? '')}</td><td>${esc(r.note ?? r.remarks ?? '')}</td>` : ''}
     </tr>`).join('');
+  // 합계: 총로스율은 (공정불량+생산불량)합 ÷ 총생산(loss포함)합으로 재계산 — 개별 로스율을 단순 평균하지 않음
+  const tPlan = recs.reduce((a, r) => a + num(r.planQty), 0);
+  const tProd = recs.reduce((a, r) => a + num(r.prodQty), 0);
+  const tTotalProdLoss = recs.reduce((a, r) => a + num(r.totalProdLoss), 0);
+  const tProcessDefect = recs.reduce((a, r) => a + num(r.processDefect), 0);
+  const tProdDefect = recs.reduce((a, r) => a + num(r.prodDefect), 0);
+  const tRate = tTotalProdLoss ? +((tProcessDefect + tProdDefect) / tTotalProdLoss * 100).toFixed(2) : 0;
   return `<table><thead><tr>
     <th>생산일</th><th>호기</th><th>업체</th><th>제품</th>
     <th class="num">계획</th><th class="num">정품</th><th class="num">총생산(loss포함)</th>
     <th class="num">공정불량</th><th class="num">생산불량</th><th>총로스율</th>
     ${full ? '<th>작업자</th><th>특이사항</th>' : ''}
-  </tr></thead><tbody>${rows}</tbody></table>`;
+  </tr></thead><tbody>${rows}</tbody>
+  <tfoot><tr class="prod-total">
+    <td colspan="4"><b>합계</b> <span class="muted">${recs.length}건</span></td>
+    <td class="num"><b>${fmt(tPlan)}</b></td>
+    <td class="num"><b>${fmt(tProd)}</b></td>
+    <td class="num"><b>${fmt(tTotalProdLoss)}</b></td>
+    <td class="num"><b>${fmt(tProcessDefect)}</b></td>
+    <td class="num"><b>${fmt(tProdDefect)}</b></td>
+    <td>${lossBadge(tRate)}</td>
+    ${full ? '<td colspan="2"></td>' : ''}
+  </tr></tfoot></table>`;
 }
 
 /* 실적 행 클릭: 원본 공정일지가 있으면 일지를 열어 수정 (실적은 일지의 산출물).
