@@ -180,6 +180,11 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 /* 사이드바 메뉴 그룹 */
 .nav-group { margin-bottom: 4px; }
 .nav-group-label { font-size: 10.5px; color: rgba(255,255,255,.4); padding: 10px 14px 3px; letter-spacing: .05em; font-weight: 600; }
+.nav-sublabel {
+  font-size: 10px; color: rgba(255,255,255,.32); padding: 9px 14px 3px;
+  margin-top: 3px; border-top: 1px solid rgba(255,255,255,.08); letter-spacing: .03em;
+}
+.nav-sublabel:first-of-type { border-top: none; margin-top: 0; }
 /* 작업지시 배지(크게) · 예외/사양 섹션 */
 .order-badge { display: inline-block; padding: 4px 12px; border-radius: 8px; font-size: 13px; font-weight: 700; }
 .order-badge.neal { background: #e8efff; color: var(--brand); }
