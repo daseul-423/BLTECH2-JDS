@@ -29,6 +29,7 @@ service cloud.firestore {
     match /plans/{id}     { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
     match /orders/{id}    { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
     match /standards/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
+    match /productmap/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
     match /custspecs/{id} { allow read: if active(); allow create, update: if isStaff(); allow delete: if isAdmin(); }
 
     // 설비: manager 등록·수정 가능, 삭제는 admin
