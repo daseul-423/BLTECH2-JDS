@@ -1201,13 +1201,14 @@
     </div>
   </div>
 
-  <!-- 예시 질문 — 대화 중에도 계속 표시(스크롤되는 메시지 목록 밖에 고정) -->
-  <div class="ai-quick-chips" id="ai-quick-chips">
-    <button type="button" class="ai-chip" data-q="이번 달 호기별 불량률 알려줘">📊 이번 달 호기별 불량률</button>
-    <button type="button" class="ai-chip" data-q="작업자별 총로스율 순위 알려줘">🏆 작업자별 로스율 순위</button>
-    <button type="button" class="ai-chip" data-q="연차 휴가 규정 알려줘">📕 연차 휴가 규정</button>
-    <button type="button" class="ai-chip" data-q="최근 설비 점검 이력 요약해줘">🛠 설비 점검 이력</button>
-    <button type="button" class="ai-chip" data-q="웹 검색을 통해 오늘 플라스틱 원자재 시세 알려줘">🔎 웹 검색 예시</button>
+  <!-- 예시 질문 팝업 — 처음엔 펼쳐져 있다가 첫 질문 후 접힘, 입력창 옆 아이콘 버튼으로 다시 열고 닫을 수 있음 -->
+  <div class="ai-quick-panel" id="ai-quick-panel">
+    <div class="ai-chips">
+      <button type="button" class="ai-chip" data-q="이번 달 호기별 불량률 알려줘">📊 이번 달 호기별 불량률</button>
+      <button type="button" class="ai-chip" data-q="작업자별 총로스율 순위 알려줘">🏆 작업자별 로스율 순위</button>
+      <button type="button" class="ai-chip" data-q="연차 휴가 규정 알려줘">📕 연차 휴가 규정</button>
+      <button type="button" class="ai-chip" data-q="최근 설비 점검 이력 요약해줘">🛠 설비 점검 이력</button>
+    </div>
   </div>
 
   <!-- 이미지 생성 패널 -->
@@ -1227,6 +1228,9 @@
   <div class="ai-attach" id="ai-attach" hidden></div>
 
   <div class="ai-input">
+    <button type="button" class="ai-tool" id="ai-quick-toggle" aria-label="예시 질문" title="예시 질문">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9c.4.3.7.8.7 1.3v.3h5.6v-.3c0-.5.3-1 .7-1.3A6 6 0 0012 3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <button type="button" class="ai-tool" id="ai-attach-btn" aria-label="이미지 첨부" title="이미지 첨부">
       <svg viewBox="0 0 24 24" fill="none"><path d="M18.5 11.5l-6.8 6.8a4.5 4.5 0 01-6.4-6.4l7.6-7.6a3 3 0 014.3 4.3l-7.6 7.6a1.5 1.5 0 01-2.2-2.2l6.8-6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>

@@ -1356,7 +1356,16 @@ function mdToHtml(src) {
 /* ---- 챗봇 공통 ---- */
 let AI_IMAGES = [];          // 첨부한 이미지(dataURL)
 const aiMsgs = () => $('#ai-messages');
-function aiHideHero() { const h = $('#ai-hero'); if (h) h.remove(); }
+function aiHideHero() {
+  const h = $('#ai-hero'); if (h) h.remove();
+  // 첫 질문부터는 예시 질문 팝업을 접어둔다 — 입력창의 아이콘 버튼으로 언제든 다시 열 수 있음
+  const qp = $('#ai-quick-panel'); if (qp) { qp.hidden = true; $('#ai-quick-toggle')?.classList.remove('on'); }
+}
+function aiToggleQuickPanel() {
+  const qp = $('#ai-quick-panel'); if (!qp) return;
+  qp.hidden = !qp.hidden;
+  $('#ai-quick-toggle')?.classList.toggle('on', !qp.hidden);
+}
 function aiScroll() { const m = aiMsgs(); m.scrollTop = m.scrollHeight; }
 function aiPush(cls, html) {
   aiHideHero();
@@ -1481,8 +1490,9 @@ aiTA.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey &
 $('#ai-messages').addEventListener('click', (e) => {
   const c = e.target.closest('.ai-chip'); if (c) { aiAsk(c.dataset.q); return; }
 });
-$('#ai-quick-chips')?.addEventListener('click', (e) => {
-  const c = e.target.closest('.ai-chip'); if (c) aiAsk(c.dataset.q);
+$('#ai-quick-toggle')?.addEventListener('click', aiToggleQuickPanel);
+$('#ai-quick-panel')?.addEventListener('click', (e) => {
+  const c = e.target.closest('.ai-chip'); if (c) aiAsk(c.dataset.q);   // 질문을 고르면 aiHideHero()가 팝업을 접는다
 });
 // 이미지 첨부
 $('#ai-attach-btn').addEventListener('click', () => $('#ai-file').click());
