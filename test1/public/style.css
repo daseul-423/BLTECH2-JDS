@@ -1,5 +1,5 @@
 :root {
-  --bg: #F5F7F8;
+  --bg: #F3F9FA;
   --card: #ffffff;
   --ink: #17191F;
   --muted: #8A93A4;
@@ -26,8 +26,9 @@ body {
 /* ---- 사이드바 ---- */
 .sidebar {
   width: 220px;
-  background: var(--side);
-  color: #C9D2E3;
+  background: #FFFFFF;
+  color: #3D4351;
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   position: sticky;
@@ -40,7 +41,7 @@ body {
 /* 사이드바 상단 브랜드 — 로고를 흰 판 위에 크게, 여백은 최소로 */
 .logo { padding: 11px 12px 8px; }
 .logo-box {
-  background: #fff; border-radius: 10px; padding: 7px 10px;
+  background: transparent; border-radius: 10px; padding: 4px 0 2px;
   display: flex; align-items: center; justify-content: center; min-height: 42px;
 }
 /* 로고 파일 비율이 어떻든 사이드바를 밀지 않도록 높이를 기준으로 맞춘다 */
@@ -51,19 +52,17 @@ body {
 .logo-fallback b { color: #1b3a8f; }
 .logo-fallback::after { content: ''; display: inline-block; width: 9px; height: 9px; margin-left: 5px;
   border-radius: 50% 50% 50% 0; background: linear-gradient(135deg, #4aa72e, #1b56c4); vertical-align: 2px; }
-.logo-title { font-weight: 700; color: #fff; font-size: 13.5px; margin-top: 8px; text-align: center; letter-spacing: -.2px; }
-.logo-sub { font-size: 11px; color: #8fa0c0; text-align: center; margin-top: 1px; }
-/* 사이드바가 밝은 테마일 때는 흰 판이 필요 없다 */
-.sidebar-light .logo-box { background: transparent; padding: 4px 0; }
-.sidebar-light .logo-title { color: var(--ink); }
+.logo-title { font-weight: 700; color: var(--ink); font-size: 13.5px; margin-top: 6px; text-align: center; letter-spacing: -.2px; }
+.logo-sub { font-size: 11px; color: var(--muted); text-align: center; margin-top: 1px; }
+
 nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; }
 .nav-btn {
-  background: none; border: none; color: #C9D2E3; text-align: left;
+  background: none; border: none; color: #3D4351; text-align: left;
   padding: 10px 14px; border-radius: 9px; font-size: 14px; cursor: pointer;
 }
-.nav-btn:hover { background: rgba(255,255,255,.07); color: #fff; }
-.nav-btn.active { background: rgba(0,175,193,.32); color: #fff; font-weight: 600; }
-.sidebar-foot { margin-top: auto; padding: 16px 18px; font-size: 11px; color: #8fa0c0; }
+.nav-btn:hover { background: #F1F7F8; color: var(--ink); }
+.nav-btn.active { background: var(--brand-soft); color: var(--brand-fill); font-weight: 700; }
+.sidebar-foot { margin-top: auto; padding: 14px 18px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); }
 
 /* ---- 메인 ---- */
 .main { flex: 1; padding: 24px 28px; min-width: 0; }
@@ -80,7 +79,7 @@ nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; }
     display: flex; align-items: center; justify-content: center;
     position: fixed; top: 12px; left: 12px; z-index: 120;
     width: 42px; height: 42px; border: none; border-radius: 10px;
-    background: var(--side); color: #fff; font-size: 19px; cursor: pointer;
+    background: var(--brand-fill); color: #fff; font-size: 19px; cursor: pointer;
     box-shadow: 0 3px 12px rgba(0,0,0,.25);
   }
   .sidebar-backdrop[data-show] {
@@ -121,6 +120,7 @@ nav { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; }
 .kpi .k-value { font-size: 24px; font-weight: 800; letter-spacing: -.6px; }
 .kpi .k-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
 .kpi.accent { border-top: 3px solid var(--brand); }
+.kpi .k-label { color: var(--brand-fill); font-weight: 700; }
 .kpi.red .k-value { color: var(--danger); }
 .kpi.green .k-value { color: var(--ok); }
 
@@ -150,7 +150,7 @@ input[readonly] { background: var(--brand-soft); border-color: transparent; colo
 .table-wrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; white-space: nowrap; }
 th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); font-size: 13.5px; text-align: left; }
-th { background: #FAFBFC; color: #6B7480; font-weight: 700; font-size: 11.5px; padding: 11px 10px; position: sticky; top: 0; }
+th { background: #EFF8F9; color: #4F6B70; font-weight: 700; font-size: 11.5px; padding: 11px 10px; position: sticky; top: 0; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr:hover { background: var(--brand-soft); cursor: pointer; }
 tbody tr.no-click:hover { background: none; cursor: default; }
@@ -254,10 +254,10 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .badge.oem { background: #F1EEFF; color: #6B46E5; }
 /* 사이드바 메뉴 그룹 */
 .nav-group { margin-bottom: 4px; }
-.nav-group-label { font-size: 10.5px; color: rgba(255,255,255,.4); padding: 10px 14px 3px; letter-spacing: .05em; font-weight: 600; }
+.nav-group-label { font-size: 10.5px; color: #A2AAB8; padding: 12px 14px 4px; letter-spacing: .05em; font-weight: 700; }
 .nav-sublabel {
-  font-size: 10px; color: rgba(255,255,255,.32); padding: 9px 14px 3px;
-  margin-top: 3px; border-top: 1px solid rgba(255,255,255,.08); letter-spacing: .03em;
+  font-size: 10px; color: #B4BCC8; padding: 10px 14px 3px;
+  margin-top: 3px; border-top: 1px solid var(--line); letter-spacing: .03em;
 }
 .nav-sublabel:first-of-type { border-top: none; margin-top: 0; }
 /* 작업지시 배지(크게) · 예외/사양 섹션 */
@@ -650,7 +650,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .ws-card { display: flex; flex-direction: column; height: 100%; }
 .ws-header {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
-  padding: 12px 20px; background: var(--side); color: #fff; flex-wrap: wrap;
+  padding: 12px 20px; background: var(--brand-fill); color: #fff; flex-wrap: wrap;
 }
 .ws-head-left { display: flex; align-items: center; gap: 14px; }
 .ws-title { font-size: 16px; font-weight: 700; }
@@ -668,9 +668,9 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .ws-part-badge.hybrid { background: #0c8599; }
 
 /* 탭바 — 태블릿 터치 친화 */
-.ws-tabs { display: flex; gap: 4px; padding: 8px 14px 0; background: #17323C; overflow-x: auto; flex-shrink: 0; }
+.ws-tabs { display: flex; gap: 4px; padding: 8px 14px 0; background: var(--brand-deep); overflow-x: auto; flex-shrink: 0; }
 .ws-tabs button {
-  border: none; background: #24454F; color: #C9D2E3; padding: 14px 22px; font-size: 15px;
+  border: none; background: rgba(255,255,255,.16); color: #EAF9FB; padding: 14px 22px; font-size: 15px;
   font-weight: 600; border-radius: 10px 10px 0 0; cursor: pointer; white-space: nowrap;
 }
 .ws-tabs button.active { background: var(--bg); color: var(--ink); }
@@ -894,7 +894,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .login-screen {
   position: fixed; inset: 0; z-index: 200;
   display: flex; align-items: center; justify-content: center; padding: 20px;
-  background: linear-gradient(135deg, #10242B, #1B4854);
+  background: linear-gradient(135deg, #E8F6F8, #CDEBEF 55%, #B7E2E8);
 }
 .login-card {
   width: 100%; max-width: 360px; background: #fff; border-radius: 16px;
