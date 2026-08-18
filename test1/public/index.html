@@ -363,7 +363,6 @@
         <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 · 제품 검색">
         <span class="muted" id="co-count"></span>
         <button class="btn" id="btn-co-dedupe" hidden>🔗 중복 업체 합치기</button>
-        <button class="btn" id="btn-co-fixtype" hidden>⚠ 구분 일괄 수정</button>
         <button class="btn" id="btn-co-migrate" hidden>🧹 예전 값 일괄 정리</button>
         <button class="btn" id="btn-neal-specs">기본 NEAL 사양 관리</button>
         <button class="btn primary" id="btn-new-company">＋ 고객사 등록</button>
@@ -1023,7 +1022,7 @@
     </div>
     <div class="co-pane" id="co-pane-spec" hidden>
       <div class="card-head-row" style="margin-bottom:10px">
-        <p class="muted" style="margin:0">이 업체 전용 <b>OEM 생산사양</b>입니다. 작업지시서의 코팅량·토너·포장·사진이 여기서 나갑니다.</p>
+        <p class="muted" style="margin:0">이 업체만 <b>기본 NEAL 사양과 다른 항목</b>을 적습니다. 적은 항목만 작업지시서에서 바뀌고, 비운 항목은 기본 NEAL 값을 씁니다.</p>
         <button type="button" class="btn primary small" id="co-add-spec">＋ 사양 등록</button>
       </div>
       <div id="co-spec-list"></div>

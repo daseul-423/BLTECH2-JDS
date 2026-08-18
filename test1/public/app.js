@@ -2510,9 +2510,33 @@ function findCustSpec(p) {
     }
     return best;
   };
-  let spec = pick(type), fellBack = false;
-  if (!spec && type === 'OEM') { spec = pick('NEAL'); fellBack = !!spec; }
-  return { spec: spec || null, type, fellBack };
+  /* 기본 NEAL 사양(NEAL 파우치·인박스·아웃박스 등 제품 공통) 위에
+     그 고객사 사양에서 '값이 채워진 항목만' 덮어쓴다.
+     - NEAL 업체라도 코팅량·토너 등이 조금 다르면 고객사 사양에 그 항목만 적어두면 된다(특이사항)
+     - OEM 업체는 보통 포장까지 전용이라 대부분의 항목이 채워져 있다
+     즉 '고객사 사양이 있다 = OEM'이 아니다. 구분(OEM/NEAL)은 업체 정보에서만 정한다. */
+  const base = pick('NEAL');
+  const custom = pick('OEM');                       // 저장 구조상 고객사 지정 사양은 specType='OEM'
+  const overrides = [];
+  let spec = null;
+  if (base || custom) {
+    spec = { ...(base || {}) };
+    if (custom) {
+      Object.entries(custom).forEach(([k, v]) => {
+        if (k === 'id' || k === 'specType' || k === 'customer') return;
+        const filled = v != null && v !== '' && !(typeof v === 'object' && !Object.values(v || {}).filter(Boolean).length);
+        if (!filled) return;
+        if (base && String(base[k] ?? '') !== String(v ?? '') && typeof v !== 'object') overrides.push(k);
+        spec[k] = v;
+      });
+      spec.id = custom.id;                          // 행 클릭 시 고객사 사양을 열도록
+      spec.specType = 'OEM';
+      spec.customer = custom.customer;
+    }
+  }
+  // OEM으로 지정됐는데 그 업체 사양이 아예 없으면 기본 NEAL로 대체된 상태
+  const fellBack = type === 'OEM' && !custom && !!base;
+  return { spec: spec || null, type, fellBack, base: base || null, custom: custom || null, overrides };
 }
 
 function orderPhoto(label, url) {
@@ -2530,13 +2554,15 @@ function openOrderModal(planId) {
    자재기준=제품표준서(standards), 생산/포장 사양=고객사별 생산사양(custspecs), 예외=p.orderException */
 function openOrderDoc(p, docNo) {
   const s = findStandard(p) || {};
-  const { spec, type, fellBack } = findCustSpec(p);
+  const { spec, type, fellBack, custom, overrides } = findCustSpec(p);
   const cs = spec || {};
   const img = cs.images || {};
-  const row = (label, v) => `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}</td></tr>`;
+  const ovSet = new Set(overrides || []);
+  // 고객사 특이사항으로 덮어쓴 항목은 표시해 준다 (현장에서 "이 업체만 다른 값"을 알 수 있게)
+  const row = (label, v, key) => `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}${key && ovSet.has(key) ? ' <span class="badge warn">고객사 특이사항</span>' : ''}</td></tr>`;
   const badge = type === 'OEM'
-    ? `<span class="order-badge oem">고객사 OEM 사양</span>${fellBack ? ' <span class="badge warn">OEM 사양 미등록 → 기본 NEAL 대체</span>' : ''}`
-    : '<span class="order-badge neal">기본 NEAL 사양</span>';
+    ? `<span class="order-badge oem">고객사 OEM 사양</span>${fellBack ? ' <span class="badge warn">OEM 전용 사양 미등록 → 기본 NEAL 적용</span>' : ''}`
+    : `<span class="order-badge neal">기본 NEAL 사양</span>${custom ? ' <span class="badge warn">＋ 고객사 특이사항</span>' : ''}`;
 
   $('#order-body').innerHTML = `
     <div class="order-doc">
@@ -2556,13 +2582,13 @@ function openOrderDoc(p, docNo) {
       <table class="order-table">
         ${row('기재 종류', s.baseType)}${row('수지 종류', s.resinType)}${row('촉매', s.catalyst)}${row('코어 종류', s.core)}
       </table>
-      <h4>3. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${type === 'OEM' && !fellBack ? 'OEM: ' + esc(cs.customer || '') : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 고객사별 생산사양에서 등록</span>'}</h4>
+      <h4>3. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${custom ? '기본 NEAL + ' + esc(custom.customer || '') + ' 특이사항' : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 업체 정보 › 생산사양에서 등록</span>'}</h4>
       <table class="order-table">
-        ${row('코팅량 규격', coatingSpec(cs))}${row('토너', cs.toner)}
+        ${row('코팅량 규격', coatingSpec(cs), 'coatingMid')}${row('토너', cs.toner, 'toner')}
       </table>
       <h4>4. 포장 사양</h4>
       <table class="order-table">
-        ${row('라벨 표기', cs.labelSpec)}${row('파우치', cs.pouchType)}${row('In Box', cs.inBoxSpec)}${row('Out Box', cs.outBoxSpec)}
+        ${row('라벨 표기', cs.labelSpec, 'labelSpec')}${row('파우치', cs.pouchType, 'pouchType')}${row('In Box', cs.inBoxSpec, 'inBoxSpec')}${row('Out Box', cs.outBoxSpec, 'outBoxSpec')}
         ${row('설명서', cs.manualSpec)}${row('동봉품', cs.enclosures)}${row('포장 주의사항', cs.packingNote)}
       </table>
       <div class="order-photos">
@@ -3059,9 +3085,9 @@ function renderCompanies() {
   const q = $('#co-search').value.trim().toLowerCase();
   let items = (MASTERS.companies || []).slice().map((c) => {
     const specs = specsOfCompany(c);
-    // 작업지시서가 실제로 적용하는 값(업체 정보의 구분이 정본)
+    // 구분(OEM/NEAL)은 포장 기준이고, 고객사 사양은 NEAL 업체도 가질 수 있다(특이사항)
     const eff = customerSpecType(c.name);
-    return { ...c, _specs: specs, _oem: eff === 'OEM', _orphan: eff !== 'OEM' && specs.length > 0 };
+    return { ...c, _specs: specs, _oem: eff === 'OEM' };
   });
   if (q) items = items.filter((c) => ['name', 'country', 'colors', 'resin', 'toner', 'notes'].some((f) => String(c[f] ?? '').toLowerCase().includes(q))
     || c._specs.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
@@ -3074,11 +3100,6 @@ function renderCompanies() {
   const migBtn = $('#btn-co-migrate');
   migBtn.hidden = !legacyCount || !can('update', 'companies') || !can('create', 'custspecs');
   migBtn.textContent = `🧹 예전 값 일괄 정리 (${legacyCount})`;
-  // OEM 사양은 있는데 구분이 OEM이 아닌 업체 → 한 번에 맞추기
-  const orphanCount = items.filter((c) => c._orphan).length;
-  const fixBtn = $('#btn-co-fixtype');
-  fixBtn.hidden = !orphanCount || !can('update', 'companies');
-  fixBtn.textContent = `⚠ 구분 일괄 수정 (${orphanCount})`;
   // 이름이 비슷해 같은 업체로 보이는 묶음
   const dupeGroups = can('update', 'companies') ? findCoDupeGroups().length : 0;
   const dupBtn = $('#btn-co-dedupe');
@@ -3087,12 +3108,12 @@ function renderCompanies() {
   const specCell = (c) => {
     if (c._specs.length) {
       const names = [...new Set(c._specs.map((s) => s.product).filter(Boolean))].join(', ');
-      return `<span class="badge ok">${c._specs.length}건</span> <span class="muted">${esc(names)}</span>`
-        + (c._orphan ? ' <span class="badge warn" title="구분이 OEM이 아니라서 작업지시서에는 기본 NEAL 사양이 적용됩니다">⚠ 구분 확인</span>' : '');
+      const label = c._oem ? '전용사양' : '특이사항';
+      return `<span class="badge ok">${label} ${c._specs.length}건</span> <span class="muted">${esc(names)}</span>`;
     }
     return c._oem
-      ? '<span class="badge bad" title="OEM 업체인데 전용 사양이 없어 작업지시서에 기본 NEAL 사양이 적용됩니다">미등록</span>'
-      : '<span class="badge plain">기본 사양 사용</span>';
+      ? '<span class="badge bad" title="OEM(전용 포장) 업체인데 전용 사양이 없어 작업지시서에 기본 NEAL 사양이 적용됩니다">미등록</span>'
+      : '<span class="badge plain">기본 사양 그대로</span>';
   };
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b>${coLegacyValues(c).length ? ' <span class="badge warn" title="업체 정보에서 뺀 예전 값이 남아 있습니다. 열어서 생산사양으로 옮기거나 지워주세요">예전 값</span>' : ''}</td>
@@ -3111,16 +3132,14 @@ function renderCompanySpecs(co) {
   $('#co-spec-count').textContent = specs.length;
   $('#co-add-spec').hidden = !can('create', 'custspecs');
   const eff = co ? customerSpecType(co.name) : 'NEAL';
-  const warn = (co && eff !== 'OEM' && specs.length)
-    ? `<div class="co-warn">⚠️ 이 업체의 <b>구분</b>이 OEM이 아니라서, 아래 사양이 있어도 작업지시서에는 <b>기본 NEAL 사양</b>이 적용됩니다. [업체 정보] 탭에서 구분을 <b>OEM(전용)</b>으로 바꿔주세요.</div>`
-    : '';
+  const warn = `<div class="co-warn">기본 NEAL 사양(NEAL 파우치·인박스·아웃박스 등) 위에 <b>여기 적은 항목만 덮어씁니다.</b> 비워둔 항목은 기본 NEAL 값을 그대로 씁니다. 코팅량·토너만 다르면 그 칸만 채우면 됩니다.</div>`;
   if (!specs.length) {
     $('#co-spec-list').innerHTML = `<div class="co-spec-empty">
       <div style="font-size:28px;margin-bottom:6px">📋</div>
-      <b>이 업체의 생산사양이 없습니다.</b><br>
+      <b>이 업체만의 사양이 없습니다.</b><br>
       ${eff === 'OEM'
-        ? '지금 상태로 작업지시서를 만들면 <b>기본 NEAL 사양</b>이 대신 적용되고, 문서에 「OEM 사양 미등록 → 기본 NEAL 대체」 배지가 표시됩니다.'
-        : '이 업체는 <b>기본 NEAL 사양</b>을 사용합니다. 전용 사양이 필요하면 [업체 정보] 탭에서 구분을 OEM으로 바꾸고 등록하세요.'}
+        ? '이 업체는 <b>OEM(전용 포장)</b>으로 지정돼 있는데 전용 사양이 없어, 지금은 <b>기본 NEAL 사양</b>이 그대로 나갑니다.'
+        : '기본 NEAL 사양이 그대로 적용됩니다. <b>코팅량·토너 등이 조금 다르면</b> 그 항목만 적어두세요 (나머지는 기본값 사용).'}
       ${can('create', 'custspecs') ? `<div class="co-empty-btns">
         <button type="button" class="btn primary small" id="co-spec-new">＋ 사양 등록</button>
         <button type="button" class="btn small" id="co-spec-copy">기본 NEAL 사양 복사해서 시작</button>
@@ -3144,6 +3163,7 @@ function renderCompanySpecs(co) {
     <thead><tr><th>공정</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>인박스</th><th>아웃박스</th><th>사진</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
     <p class="muted" style="margin-top:8px;font-size:12px">행을 클릭하면 사양 수정 창이 열립니다 (코팅량 · 포장 · 사진 3장).</p>${warn}`;
+  $('#co-spec-count').textContent = specs.length;
 }
 
 /* 업체 정보에서 뺀 중복 필드(제품마다 달라지는 값) — 문서에는 남겨두고 화면에서만 이전 안내로 보여준다.
@@ -3462,21 +3482,6 @@ $('#codedupe-close').addEventListener('click', () => ($('#codedupe-modal').hidde
 $('#codedupe-cancel').addEventListener('click', () => ($('#codedupe-modal').hidden = true));
 $('#codedupe-run').addEventListener('click', runCoDedupe);
 
-/* OEM 전용 사양을 등록해 놓고도 구분이 OEM이 아닌 업체를 한 번에 OEM으로 맞춘다.
-   (구분이 NEAL이면 작업지시서가 그 업체 사양을 무시하고 기본 NEAL 사양을 쓴다) */
-$('#btn-co-fixtype').addEventListener('click', async () => {
-  const targets = (MASTERS.companies || []).filter((c) => customerSpecType(c.name) !== 'OEM' && specsOfCompany(c).length);
-  if (!targets.length) return;
-  const names = targets.map((c) => `· ${c.name} (사양 ${specsOfCompany(c).length}건)`).join('\n');
-  if (!confirm(`아래 ${targets.length}개 업체의 구분을 OEM(전용)으로 바꿉니다.\n\n${names}\n\n이 업체들은 전용 사양이 등록돼 있는데 구분이 OEM이 아니어서, 지금은 작업지시서에 기본 NEAL 사양이 나가고 있습니다.`)) return;
-  const ids = new Set(targets.map((c) => c.id));
-  const list = (MASTERS.companies || []).map((c) => (ids.has(c.id) ? { ...c, specType: 'OEM' } : c));
-  try {
-    MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
-    refreshCurrentPage();
-    alert(`${targets.length}개 업체를 OEM으로 변경했습니다.\n이제 작업지시서에 각 업체 전용 사양이 적용됩니다.`);
-  } catch (err) { alert('저장 실패: ' + err.message); }
-});
 $('#btn-co-migrate').addEventListener('click', openCoMigrateModal);
 $('#comigrate-close').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
 $('#comigrate-cancel').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
