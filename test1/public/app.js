@@ -6178,3 +6178,46 @@ async function bootApp() {
     await bootApp();   // 권한 확인 후에만 업무 데이터 로드
   });
 })();
+
+/* ===================== 로고 여백 자동 정리 =====================
+   회사 로고 파일(logo.png)은 보통 상하좌우에 흰 여백이 넉넉히 들어 있다.
+   그대로 넣으면 실제 로고가 작게 보이므로, 불러온 뒤 흰 여백을 잘라내고 다시 그린다.
+   (파일을 새로 만들지 않아도 되고, 어떤 파일을 넣어도 알아서 맞춰진다) */
+function trimLogoWhitespace(img) {
+  if (!img || img.dataset.trimmed) return;
+  const w = img.naturalWidth, h = img.naturalHeight;
+  if (!w || !h) return;
+  try {
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    const d = ctx.getImageData(0, 0, w, h).data;
+    let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        const a = d[i + 3];
+        if (a < 24) continue;                                   // 투명
+        if (d[i] > 244 && d[i + 1] > 244 && d[i + 2] > 244) continue;   // 흰 배경
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+      }
+    }
+    if (x1 < 0 || y1 < 0) return;                               // 내용이 없으면 그대로 둔다
+    const pad = Math.round(Math.max(w, h) * 0.02);
+    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
+    x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+    const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+    if (cw >= w * 0.98 && ch >= h * 0.98) { img.dataset.trimmed = '1'; return; }   // 이미 딱 맞음
+    const out = document.createElement('canvas');
+    out.width = cw; out.height = ch;
+    out.getContext('2d').drawImage(cv, x0, y0, cw, ch, 0, 0, cw, ch);
+    img.dataset.trimmed = '1';
+    img.src = out.toDataURL('image/png');
+  } catch (e) { /* 캔버스를 못 쓰면 원본 그대로 */ }
+}
+$$('.logo-img').forEach((img) => {
+  if (img.complete) trimLogoWhitespace(img);
+  else img.addEventListener('load', () => trimLogoWhitespace(img), { once: true });
+});

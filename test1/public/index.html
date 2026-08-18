@@ -10,7 +10,11 @@
 <!-- 로그인 게이트 (인증 전 전체 화면 차단) -->
 <div id="login-screen" class="login-screen">
   <form id="login-form" class="login-card">
-    <div class="login-mark">C</div>
+    <div class="login-logo">
+      <img class="logo-img" src="logo.png" alt="BL tech"
+           onerror="this.remove(); document.getElementById('login-logo-fallback').hidden = false;">
+      <div class="logo-fallback" id="login-logo-fallback" hidden><b>BL</b> tech</div>
+    </div>
     <h1>생산관리 플랫폼</h1>
     <p class="muted">승인된 계정만 로그인할 수 있습니다.</p>
     <label>이메일<input type="email" name="email" required autocomplete="username"></label>
@@ -23,11 +27,13 @@
 <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 <aside class="sidebar">
   <div class="logo">
-    <div class="logo-mark">C</div>
-    <div>
-      <div class="logo-title">생산관리 플랫폼</div>
-      <div class="logo-sub">BL-TECH 생산1팀</div>
+    <!-- 로고 파일(logo.png)이 없으면 글자 대체 표시로 자동 전환 -->
+    <div class="logo-box">
+      <img class="logo-img" src="logo.png" alt="BL tech"
+           onerror="this.remove(); document.getElementById('logo-fallback').hidden = false;">
+      <div class="logo-fallback" id="logo-fallback" hidden><b>BL</b> tech</div>
     </div>
+    <div class="logo-title">생산관리 플랫폼</div>
   </div>
   <nav>
     <button class="nav-btn home-btn active" data-page="home">🏠 홈</button>
