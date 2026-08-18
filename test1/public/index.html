@@ -362,6 +362,7 @@
       <div class="head-actions">
         <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 · 제품 검색">
         <span class="muted" id="co-count"></span>
+        <button class="btn" id="btn-co-migrate" hidden>🧹 예전 값 일괄 정리</button>
         <button class="btn" id="btn-neal-specs">기본 NEAL 사양 관리</button>
         <button class="btn primary" id="btn-new-company">＋ 고객사 등록</button>
       </div>
@@ -892,6 +893,23 @@
   </div>
 </div>
 
+<!-- 업체 정보 예전 값 → 생산사양 일괄 정리 -->
+<div class="modal-back" id="comigrate-modal" hidden>
+  <div class="modal" style="max-width:960px">
+    <div class="modal-head">
+      <h2>예전 값 일괄 정리</h2>
+      <button class="btn icon" id="comigrate-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px">업체 정보에서 뺀 값(토너·파우치·인박스·아웃박스)을 <b>생산사양으로 옮깁니다.</b> 아래 내용을 확인하고 실행하세요. <b>기존 사양 값은 덮어쓰지 않고 비어 있는 칸만 채웁니다.</b> 수지·기재는 제품표준서 소관이라 옮기지 않고 값만 정리합니다.</p>
+    <div id="comigrate-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="comigrate-cancel">취소</button>
+      <button type="button" class="btn primary" id="comigrate-run">선택한 항목 실행</button>
+    </div>
+  </div>
+</div>
+
 <!-- 고객사별 생산사양 등록/수정 모달 -->
 <div class="modal-back" id="custspec-modal" hidden>
   <div class="modal" style="max-width:900px">
@@ -993,31 +1011,17 @@
     </div>
     <form id="company-form">
       <fieldset>
-        <legend>기본</legend>
+        <legend>업체</legend>
         <div class="form-grid">
           <label>업체명 *<input type="text" name="name" required></label>
           <label>나라<input type="text" name="country"></label>
           <label>구분<select name="specType"><option value="NEAL">기본 NEAL</option><option value="OEM">OEM(전용)</option></select></label>
+          <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN — 이 업체에 납품하는 컬러 목록"></label>
+          <label class="wide">특이사항<input type="text" name="notes" placeholder="예: 일본향 표기 필수"></label>
         </div>
+        <p class="muted" style="margin-top:8px">※ 토너·파우치·라벨·인박스·아웃박스처럼 <b>제품마다 달라지는 값</b>은 [생산사양] 탭에서 관리합니다. 기재·수지·촉매·코어는 <b>제품표준서</b>에 있습니다.</p>
       </fieldset>
-      <fieldset>
-        <legend>생산 사양</legend>
-        <div class="form-grid">
-          <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN"></label>
-          <label>수지 종류<input type="text" name="resin"></label>
-          <label>기재 / 길이<input type="text" name="baseLength" placeholder="예: 50TEX / 3.6M"></label>
-          <label class="wide">토너 종류<input type="text" name="toner"></label>
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend>포장</legend>
-        <div class="form-grid">
-          <label>인박스<input type="text" name="packInBox" placeholder="NEAL / 무지 / 전용"></label>
-          <label>아웃박스<input type="text" name="packOutBox"></label>
-          <label>파우치 / 라벨<input type="text" name="packLabel"></label>
-          <label class="wide">특이사항<input type="text" name="notes"></label>
-        </div>
-      </fieldset>
+      <div id="co-legacy" hidden></div>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="company-delete" hidden>삭제</button>
         <span class="spacer"></span>

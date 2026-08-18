@@ -799,17 +799,14 @@ const IMPORT_DEFS = {
     calcCols: [],
   },
   companies: {
-    label: '업체 정보(컬러·수지·토너)', coll: 'companies', hasPart: false,
-    desc: '회사당 1행 — 업체별 컬러·수지·토너 요약. 업체 정보 화면의 목록입니다 (고객사별 사양과 별개)',
+    label: '업체 정보(업체명·나라·컬러)', coll: 'companies', hasPart: false,
+    desc: '회사당 1행 — 업체 자체 정보만. 토너·포장은 [생산사양], 기재·수지는 [제품표준서]에서 관리하므로 여기서 올리지 않습니다',
     dupKey: (r) => String(r.name || '').trim().toLowerCase(),
     dupLabel: '업체명',
     fields: [
       F('name', '업체명', ['업체명', '고객사', '회사명']),
       F('country', '나라', ['나라', '국가']),
       F('colors', '컬러', ['컬러', '칼라', '색상']),
-      F('resin', '수지 종류', ['수지종류', '수지']),
-      F('baseLength', '기재 / 길이', ['기재길이', '기재']),
-      F('toner', '토너 종류', ['토너종류등록일', '토너종류', '토너']),
       F('regDate', '등록일', ['등록일']),
       F('notes', '특이사항', ['특이사항', '특이상항', '비고']),
     ],
@@ -2830,7 +2827,8 @@ function fillSpecTarget() {
 }
 
 /* prefill: { customer } 업체 상세에서 등록 시 대상 업체 고정,
-            { copyNeal:true } 같은 제품의 기본 NEAL 사양 값을 복사해 시작 */
+            { copyNeal:true } 같은 제품의 기본 NEAL 사양 값을 복사해 시작,
+            { values:{필드:값} } 업체 정보의 예전 요약값을 옮겨올 때 */
 function openCustSpecModal(id = null, prefill = null) {
   editingCustSpecId = id;
   custspecForm.reset();
@@ -2854,6 +2852,12 @@ function openCustSpecModal(id = null, prefill = null) {
           if (base[el.name] != null && typeof base[el.name] !== 'object') el.value = base[el.name];
         });
       }
+    }
+    if (prefill.values) {
+      Object.entries(prefill.values).forEach(([k, v]) => {
+        const el = custspecForm.elements[k];
+        if (el && v != null) el.value = v;
+      });
     }
     $$('#custspec-form .photo-slot').forEach((slot) => slot._setUrl(''));
     gateModal('#custspec-form', can('create', 'custspecs'), false);
@@ -2945,8 +2949,7 @@ function renderOverview() {
   /* 업체 정보(masters.companies) 기준으로 블록을 만든다 — 사양이 없는 업체도 빠지지 않게.
      업체 정보에 없는데 사양에만 있는 업체명은 뒤에 따로 붙인다. */
   const usedGroups = new Set();
-  const infoBits = (co) => [['컬러', co.colors], ['토너', co.toner], ['수지/기재', [co.resin, co.baseLength].filter(Boolean).join(' ')],
-    ['인박스', co.packInBox], ['아웃박스', co.packOutBox], ['파우치/라벨', co.packLabel], ['특이사항', co.notes]]
+  const infoBits = (co) => [['나라', co.country], ['컬러', co.colors], ['특이사항', co.notes]]
     .filter(([, v]) => v).map(([k, v]) => `<div><span>${k}</span>${esc(v)}</div>`).join('');
   const companies = (MASTERS.companies || []).slice()
     .filter((co) => !q || String(co.name || '').toLowerCase().includes(q) || specsOfCompany(co).some((s) => hit(s, ['product', 'color', 'toner'])))
@@ -3066,6 +3069,11 @@ function renderCompanies() {
   const oemNoSpec = items.filter((c) => c._oem && !c._specs.length).length;
   $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c._oem).length}`
     + (oemNoSpec ? ` · 사양 미등록 ${oemNoSpec}` : '');
+  // 예전 값이 남아 있으면 일괄 정리 버튼 노출 (admin/manager)
+  const legacyCount = (MASTERS.companies || []).filter((c) => coLegacyValues(c).length).length;
+  const migBtn = $('#btn-co-migrate');
+  migBtn.hidden = !legacyCount || !can('update', 'companies') || !can('create', 'custspecs');
+  migBtn.textContent = `🧹 예전 값 일괄 정리 (${legacyCount})`;
   const specCell = (c) => {
     if (c._specs.length) {
       const names = [...new Set(c._specs.map((s) => s.product).filter(Boolean))].join(', ');
@@ -3077,14 +3085,13 @@ function renderCompanies() {
       : '<span class="badge plain">기본 사양 사용</span>';
   };
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
-    <td><b>${esc(c.name || '')}</b></td><td>${esc(c.country || '-')}</td><td>${specBadge(c._oem ? 'OEM' : 'NEAL')}</td>
+    <td><b>${esc(c.name || '')}</b>${coLegacyValues(c).length ? ' <span class="badge warn" title="업체 정보에서 뺀 예전 값이 남아 있습니다. 열어서 생산사양으로 옮기거나 지워주세요">예전 값</span>' : ''}</td>
+    <td>${esc(c.country || '-')}</td><td>${specBadge(c._oem ? 'OEM' : 'NEAL')}</td>
     <td>${specCell(c)}</td>
-    <td>${esc(c.colors || '-')}</td><td>${esc(c.toner || '-')}</td>
-    <td>${esc(c.packInBox || '-')}</td><td>${esc(c.packOutBox || '-')}</td><td>${esc(c.packLabel || '-')}</td>
-    <td>${esc(c.resin || '-')} ${esc(c.baseLength || '')}</td><td>${esc(c.notes || '')}</td>
+    <td>${esc(c.colors || '-')}</td><td>${esc(c.notes || '')}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table><thead><tr><th>고객사</th><th>나라</th><th>구분</th><th>생산사양</th><th>컬러</th><th>토너</th><th>인박스</th><th>아웃박스</th><th>파우치/라벨</th><th>수지/기재</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>고객사</th><th>나라</th><th>구분</th><th>생산사양</th><th>컬러</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 고객사가 없습니다.</div>';
 }
 
@@ -3129,11 +3136,196 @@ function renderCompanySpecs(co) {
     <p class="muted" style="margin-top:8px;font-size:12px">행을 클릭하면 사양 수정 창이 열립니다 (코팅량 · 포장 · 사진 3장).</p>${warn}`;
 }
 
+/* 업체 정보에서 뺀 중복 필드(제품마다 달라지는 값) — 문서에는 남겨두고 화면에서만 이전 안내로 보여준다.
+   토너·포장은 생산사양, 수지·기재는 제품표준서가 정본이다. */
+const CO_LEGACY_FIELDS = [
+  { key: 'toner', label: '토너 종류', to: '생산사양의 토너', spec: 'toner' },
+  { key: 'packLabel', label: '파우치 / 라벨', to: '생산사양의 파우치·라벨', spec: 'pouchType' },
+  { key: 'packInBox', label: '인박스', to: '생산사양의 In Box 기준', spec: 'inBoxSpec' },
+  { key: 'packOutBox', label: '아웃박스', to: '생산사양의 Out Box 기준', spec: 'outBoxSpec' },
+  { key: 'resin', label: '수지 종류', to: '제품표준서의 수지 종류', spec: null },
+  { key: 'baseLength', label: '기재 / 길이', to: '제품표준서의 기재·규격', spec: null },
+];
+const coLegacyValues = (co) => CO_LEGACY_FIELDS.filter((f) => co && co[f.key] != null && String(co[f.key]).trim() !== '');
+
+function renderCompanyLegacy(co) {
+  const box = $('#co-legacy');
+  const vals = coLegacyValues(co);
+  box.hidden = !vals.length;
+  if (!vals.length) { box.innerHTML = ''; return; }
+  const canEdit = can('update', 'companies');
+  box.innerHTML = `<fieldset style="border-color:var(--warn);background:#fffdf6">
+    <legend style="color:#a9700a">예전에 입력해둔 값</legend>
+    <p class="muted" style="margin-bottom:10px">아래 값들은 <b>제품마다 달라지는 항목</b>이라 업체 정보에서 뺐습니다. 지금은 <b>작업지시서에 쓰이지 않습니다.</b> 옮기거나 지워주세요.</p>
+    <table><thead><tr><th>항목</th><th>값</th><th>옮길 곳</th></tr></thead><tbody>
+      ${vals.map((f) => `<tr class="no-click"><td>${f.label}</td><td><b>${esc(co[f.key])}</b></td><td class="muted">${f.to}</td></tr>`).join('')}
+    </tbody></table>
+    ${canEdit ? `<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+      ${vals.some((f) => f.spec) ? '<button type="button" class="btn primary small" id="co-legacy-move">이 값으로 생산사양 만들기</button>' : ''}
+      <button type="button" class="btn small danger" id="co-legacy-clear">이 값 지우기</button>
+    </div>` : ''}
+  </fieldset>`;
+}
+
 function setCompanyTab(tab) {
   $$('#co-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.cotab === tab));
   $('#co-pane-spec').hidden = tab !== 'spec';
   companyForm.hidden = tab !== 'info';
 }
+
+/* ── 예전 값 일괄 정리 ─────────────────────────────────────────────
+   업체 정보에서 뺀 값을 생산사양으로 자동 이관한다.
+   - 사양이 이미 있는 업체: 그 사양들의 '빈 칸'만 채운다 (기존 값 절대 덮어쓰지 않음)
+   - 사양이 없는 업체: 수주·실적·표준서·품목매핑에서 그 업체 제품을 찾아 사양을 새로 만든다
+   - 제품을 못 찾으면 사람이 골라야 하므로 건너뛴다 */
+
+/* 그 업체 이름으로 데이터에 등장한 제품 목록 (공정 정보까지) */
+function productsOfCustomer(name) {
+  const target = String(name || '').trim().toLowerCase();
+  if (!target) return [];
+  const match = (v) => { const c = String(v ?? '').trim().toLowerCase(); return !!c && (c === target || c.includes(target) || target.includes(c)); };
+  const found = new Map();
+  const add = (product, part) => {
+    const p = String(product ?? '').trim();
+    if (!p) return;
+    if (!found.has(p)) found.set(p, part || null);
+    else if (!found.get(p) && part) found.set(p, part);
+  };
+  (STANDARDS || []).forEach((s) => { if (match(s.customer)) add(s.product, s.part); });
+  (ORDERS || []).forEach((o) => { if (match(o.customer)) add(o.product, o.part); });
+  (PRODUCTMAP || []).forEach((m) => { if (match(m.customer)) add(m.product, m.part); });
+  (RECORDS || []).forEach((r) => { if (match(r.customer)) add(r.product, partOf(r)); });
+  return [...found.entries()].map(([product, part]) => ({ product, part: part || 'CAST' }));
+}
+
+/* 업체별 이관 계획 세우기 */
+function buildCoMigratePlan() {
+  return (MASTERS.companies || []).map((co) => {
+    const legacy = coLegacyValues(co);
+    if (!legacy.length) return null;
+    const movable = legacy.filter((f) => f.spec);
+    const specs = specsOfCompany(co);
+    const plan = { co, legacy, movable, specs, kind: 'clear', fills: [], creates: [] };
+    if (!movable.length) return plan;                       // 수지·기재만 있음 → 값 정리만
+    if (specs.length) {
+      specs.forEach((s) => {
+        const blanks = movable.filter((f) => s[f.spec] == null || String(s[f.spec]).trim() === '');
+        if (blanks.length) plan.fills.push({ spec: s, fields: blanks });
+      });
+      plan.kind = plan.fills.length ? 'fill' : 'clear';     // 이미 다 채워져 있으면 값만 정리
+    } else {
+      plan.candidates = productsOfCustomer(co.name);
+      plan.kind = plan.candidates.length ? 'create' : 'manual';
+    }
+    return plan;
+  }).filter(Boolean);
+}
+
+let CO_MIGRATE_PLANS = [];
+function openCoMigrateModal() {
+  CO_MIGRATE_PLANS = buildCoMigratePlan();
+  const valTxt = (co, fields) => fields.map((f) => `${f.label} <b>${esc(co[f.key])}</b>`).join(' · ');
+  const rowsOf = (kind, title, desc, render) => {
+    const list = CO_MIGRATE_PLANS.map((p, i) => ({ p, i })).filter(({ p }) => p.kind === kind);
+    if (!list.length) return '';
+    return `<h3 style="margin:18px 0 6px;font-size:14px">${title} <span class="muted" style="font-weight:400">${list.length}곳</span></h3>
+      <p class="muted" style="margin-bottom:8px;font-size:12.5px">${desc}</p>
+      <table><tbody>${list.map(({ p, i }) => render(p, i)).join('')}</tbody></table>`;
+  };
+  const chk = (i, on) => `<td style="width:34px"><input type="checkbox" data-mig="${i}"${on ? ' checked' : ''}></td>`;
+  $('#comigrate-body').innerHTML =
+    rowsOf('fill', '✅ 기존 사양의 빈 칸 채우기', '이미 있는 사양에서 비어 있는 항목만 채웁니다. 값이 있는 칸은 그대로 둡니다.',
+      (p, i) => `<tr class="no-click">${chk(i, true)}
+        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
+        <td class="muted">${p.fills.map((f) => `${esc(f.spec.product || '')} → ${f.fields.map((x) => x.label).join(', ')}`).join('<br>')}</td></tr>`) +
+    rowsOf('create', '🆕 사양 새로 만들기', '이 업체 사양이 아직 없습니다. 수주·실적·표준서에서 찾은 제품으로 사양을 만듭니다. 제품을 골라주세요.',
+      (p, i) => `<tr class="no-click">${chk(i, true)}
+        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
+        <td><select data-migprod="${i}">${p.candidates.map((c, k) => `<option value="${k}">${esc(c.product)} (${esc(c.part)})</option>`).join('')}</select></td></tr>`) +
+    rowsOf('manual', '⚠️ 제품을 찾지 못함', '이 업체 이름으로 등록된 제품이 없어 사양을 만들 수 없습니다. 업체 정보를 열어 직접 등록하거나, 값만 지우세요.',
+      (p, i) => `<tr class="no-click">${chk(i, false)}
+        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
+        <td class="muted">체크하면 <b>값만 지웁니다</b> (사양은 안 만듦)</td></tr>`) +
+    rowsOf('clear', '🧹 값만 정리', '옮길 곳이 없거나(수지·기재는 제품표준서 소관) 이미 사양에 값이 있는 업체입니다.',
+      (p, i) => `<tr class="no-click">${chk(i, true)}
+        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.legacy)}</div></td>
+        <td class="muted">값만 지움</td></tr>`);
+  if (!CO_MIGRATE_PLANS.length) $('#comigrate-body').innerHTML = '<div class="empty">정리할 예전 값이 없습니다.</div>';
+  $('#comigrate-run').hidden = !CO_MIGRATE_PLANS.length;
+  $('#comigrate-modal').hidden = false;
+}
+
+async function runCoMigrate() {
+  const picked = $$('#comigrate-body input[data-mig]:checked').map((el) => CO_MIGRATE_PLANS[Number(el.dataset.mig)]).filter(Boolean);
+  if (!picked.length) { alert('실행할 항목을 선택하세요.'); return; }
+  const btn = $('#comigrate-run');
+  btn.disabled = true; btn.textContent = '처리 중…';
+  let filled = 0, created = 0, cleared = 0;
+  try {
+    for (const p of picked) {
+      if (p.kind === 'fill') {
+        for (const f of p.fills) {
+          const patch = {};
+          f.fields.forEach((x) => { patch[x.spec] = p.co[x.key]; });
+          await post('/api/custspecs/' + f.spec.id, { ...f.spec, ...patch }, 'PUT');
+          filled++;
+        }
+      } else if (p.kind === 'create') {
+        const sel = $(`#comigrate-body select[data-migprod="${CO_MIGRATE_PLANS.indexOf(p)}"]`);
+        const cand = p.candidates[Number(sel ? sel.value : 0)] || p.candidates[0];
+        const obj = { part: cand.part || 'CAST', product: cand.product, specType: 'OEM', customer: p.co.name, images: {} };
+        p.movable.forEach((f) => { obj[f.spec] = p.co[f.key]; });
+        await post('/api/custspecs', obj);
+        created++;
+      }
+      cleared++;
+    }
+    // 옮긴 업체의 예전 값 제거 (한 번에 저장)
+    const ids = new Set(picked.map((p) => p.co.id));
+    const list = (MASTERS.companies || []).map((x) => {
+      if (!ids.has(x.id)) return x;
+      const next = { ...x };
+      CO_LEGACY_FIELDS.forEach((f) => { delete next[f.key]; });
+      return next;
+    });
+    MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
+    await loadCustSpecs();
+    $('#comigrate-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`정리 완료\n\n· 기존 사양 빈 칸 채움: ${filled}건\n· 사양 새로 만듦: ${created}건\n· 업체 예전 값 정리: ${cleared}곳`);
+  } catch (err) {
+    alert('처리 중 오류가 발생했습니다: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 화면을 새로고침한 뒤 다시 실행하세요.');
+  } finally {
+    btn.disabled = false; btn.textContent = '선택한 항목 실행';
+  }
+}
+$('#btn-co-migrate').addEventListener('click', openCoMigrateModal);
+$('#comigrate-close').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
+$('#comigrate-cancel').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
+$('#comigrate-run').addEventListener('click', runCoMigrate);
+
+/* 예전 요약값 → 생산사양으로 옮기기 / 지우기 */
+$('#co-legacy').addEventListener('click', async (e) => {
+  const co = (MASTERS.companies || []).find((x) => x.id === editingCompanyId);
+  if (!co) return;
+  if (e.target.closest('#co-legacy-move')) {
+    const prefill = { customer: co.name, values: {} };
+    coLegacyValues(co).forEach((f) => { if (f.spec) prefill.values[f.spec] = co[f.key]; });
+    openCustSpecModal(null, prefill);
+    return;
+  }
+  if (e.target.closest('#co-legacy-clear')) {
+    if (!confirm('이 업체의 예전 요약값을 지웁니다.\n(생산사양·제품표준서 데이터는 그대로입니다.)')) return;
+    const next = { ...co };
+    CO_LEGACY_FIELDS.forEach((f) => { delete next[f.key]; });
+    const list = (MASTERS.companies || []).map((x) => (x.id === co.id ? next : x));
+    try {
+      MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
+      renderCompanyLegacy((MASTERS.companies || []).find((x) => x.id === co.id));
+      refreshCurrentPage();
+    } catch (err) { alert('저장 실패: ' + err.message); }
+  }
+});
 
 function openCompanyModal(id = null) {
   editingCompanyId = id;
@@ -3146,6 +3338,7 @@ function openCompanyModal(id = null) {
   // 신규 등록 중에는 붙일 사양이 없으므로 탭을 감춘다
   $('#co-tabs').hidden = !c;
   if (c) renderCompanySpecs(c);
+  renderCompanyLegacy(c);
   setCompanyTab('info');
   gateModal('#company-form', id ? can('update', 'companies') : can('create', 'companies'), !!id && can('delete', 'companies'));
   $('#company-modal').hidden = false;
@@ -3179,7 +3372,8 @@ companyForm.addEventListener('submit', async (e) => {
   if (editingCompanyId) {
     c.id = editingCompanyId;
     const i = MASTERS.companies.findIndex((x) => x.id === editingCompanyId);
-    if (i >= 0) MASTERS.companies[i] = c; else MASTERS.companies.push(c);
+    // 폼에 없는 필드(예전 요약값·등록일 등)가 저장하면서 지워지지 않도록 기존 문서에 병합
+    if (i >= 0) MASTERS.companies[i] = { ...MASTERS.companies[i], ...c }; else MASTERS.companies.push(c);
   } else {
     c.id = Math.max(0, ...MASTERS.companies.map((x) => x.id || 0)) + 1;
     MASTERS.companies.push(c);
