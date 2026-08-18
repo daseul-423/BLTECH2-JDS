@@ -3079,6 +3079,11 @@ function renderCompanies() {
   const fixBtn = $('#btn-co-fixtype');
   fixBtn.hidden = !orphanCount || !can('update', 'companies');
   fixBtn.textContent = `⚠ 구분 일괄 수정 (${orphanCount})`;
+  // 이름이 비슷해 같은 업체로 보이는 묶음
+  const dupeGroups = can('update', 'companies') ? findCoDupeGroups().length : 0;
+  const dupBtn = $('#btn-co-dedupe');
+  dupBtn.hidden = !dupeGroups;
+  dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
   const specCell = (c) => {
     if (c._specs.length) {
       const names = [...new Set(c._specs.map((s) => s.product).filter(Boolean))].join(', ');
@@ -3315,6 +3320,148 @@ async function runCoMigrate() {
     btn.disabled = false; btn.textContent = '선택한 항목 실행';
   }
 }
+/* ── 중복 업체 합치기 ──────────────────────────────────────────────
+   같은 회사가 이름만 다르게 두 번 등록된 경우(시그맥스/시그멕스, 아스터/아스터호주 등)를 찾아
+   대표 이름으로 합친다. 업체명은 여러 컬렉션에 문자열로 저장돼 있으므로 참조도 같이 바꾼다. */
+const CO_REF_COLLS = [
+  { coll: 'custspecs', label: '생산사양', get: () => CUSTSPECS },
+  { coll: 'standards', label: '제품표준서', get: () => STANDARDS },
+  { coll: 'productmap', label: '품목매핑', get: () => PRODUCTMAP },
+  { coll: 'orders', label: '수주', get: () => ORDERS },
+  { coll: 'plans', label: '생산계획', get: () => PLANS },
+  { coll: 'records', label: '생산실적', get: () => RECORDS },
+];
+/* 비교용 이름 정규화: 괄호 안·공백·기호 제거, 회사 형태 표기 제거, 소문자 */
+function normCoName(v) {
+  return String(v ?? '')
+    .replace(/\([^)]*\)/g, '').replace(/（[^）]*）/g, '')
+    .replace(/주식회사|\(주\)|㈜|유한회사|corp\.?|co\.?,?\s*ltd\.?|inc\.?/gi, '')
+    .replace(/[\s.,'"\-_/]/g, '')
+    .toLowerCase();
+}
+/* 한 글자 차이까지 같은 이름으로 본다 (시그맥스 ↔ 시그멕스) */
+function nearName(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length >= 3 && b.length >= 3 && (a.startsWith(b) || b.startsWith(a))) return true;
+  if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 3) return false;
+  // 편집거리 1 이내
+  let i = 0, j = 0, diff = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++diff > 1) return false;
+    if (a.length === b.length) { i++; j++; }
+    else if (a.length > b.length) i++;
+    else j++;
+  }
+  return diff + (a.length - i) + (b.length - j) <= 1;
+}
+const coRefCount = (name) => {
+  const t = String(name || '').trim();
+  return CO_REF_COLLS.map((c) => ({ label: c.label, n: (c.get() || []).filter((r) => String(r.customer || '').trim() === t).length }))
+    .filter((x) => x.n);
+};
+/* 이름이 비슷한 업체 묶음 찾기 */
+function findCoDupeGroups() {
+  const cos = (MASTERS.companies || []).map((c) => ({ co: c, key: normCoName(c.name) })).filter((x) => x.key);
+  const groups = [];
+  const used = new Set();
+  cos.forEach((a, i) => {
+    if (used.has(i)) return;
+    const g = [a];
+    cos.forEach((b, j) => { if (j > i && !used.has(j) && nearName(a.key, b.key)) { g.push(b); used.add(j); } });
+    if (g.length > 1) { used.add(i); groups.push(g.map((x) => x.co)); }
+  });
+  return groups;
+}
+
+let CO_DUPE_GROUPS = [];
+function openCoDedupeModal() {
+  CO_DUPE_GROUPS = findCoDupeGroups();
+  if (!CO_DUPE_GROUPS.length) { $('#codedupe-body').innerHTML = '<div class="empty">비슷한 이름의 업체를 찾지 못했습니다.</div>'; $('#codedupe-run').hidden = true; $('#codedupe-modal').hidden = false; return; }
+  const score = (co) => coRefCount(co.name).reduce((a, x) => a + x.n, 0);
+  $('#codedupe-body').innerHTML = CO_DUPE_GROUPS.map((g, gi) => {
+    const best = g.slice().sort((a, b) => score(b) - score(a) || String(b.name || '').length - String(a.name || '').length)[0];
+    const rows = g.map((co) => {
+      const refs = coRefCount(co.name);
+      const info = [co.country, co.colors, co.notes].filter(Boolean).join(' · ');
+      return `<tr class="no-click">
+        <td style="width:34px"><input type="radio" name="codedupe-${gi}" value="${co.id}"${co.id === best.id ? ' checked' : ''}></td>
+        <td><b>${esc(co.name)}</b>${co.id === best.id ? ' <span class="badge neal">대표 추천</span>' : ''}
+          ${info ? `<div class="muted" style="font-size:12px">${esc(info)}</div>` : ''}</td>
+        <td class="muted" style="font-size:12px">${refs.length ? refs.map((r) => `${r.label} ${r.n}`).join(' · ') : '연결된 데이터 없음'}</td>
+      </tr>`;
+    }).join('');
+    return `<fieldset style="margin-bottom:14px">
+      <legend><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" data-dupe="${gi}" checked> 이 그룹 합치기</label></legend>
+      <p class="muted" style="margin-bottom:8px;font-size:12.5px">대표로 남길 이름을 고르세요. 나머지 이름은 대표 이름으로 바뀝니다.</p>
+      <table><tbody>${rows}</tbody></table>
+    </fieldset>`;
+  }).join('');
+  $('#codedupe-run').hidden = false;
+  $('#codedupe-modal').hidden = false;
+}
+
+async function runCoDedupe() {
+  const picked = $$('#codedupe-body input[data-dupe]:checked').map((el) => Number(el.dataset.dupe));
+  if (!picked.length) { alert('합칠 그룹을 선택하세요.'); return; }
+  const btn = $('#codedupe-run');
+  btn.disabled = true; btn.textContent = '합치는 중…';
+  let renamed = 0, mergedCos = 0;
+  const renameMap = new Map();     // 없어지는 이름 → 대표 이름
+  try {
+    let companies = (MASTERS.companies || []).slice();
+    for (const gi of picked) {
+      const g = CO_DUPE_GROUPS[gi];
+      const keepId = Number(($(`#codedupe-body input[name="codedupe-${gi}"]:checked`) || {}).value);
+      const keep = g.find((c) => c.id === keepId) || g[0];
+      const others = g.filter((c) => c.id !== keep.id);
+      others.forEach((o) => renameMap.set(String(o.name || '').trim(), keep.name));
+      // 업체 정보 병합: 대표 값 우선, 비어 있는 칸만 상대 값으로 채움
+      const mergedInfo = { ...keep };
+      others.forEach((o) => {
+        Object.entries(o).forEach(([k, v]) => {
+          if (k === 'id' || k === 'name') return;
+          if ((mergedInfo[k] == null || String(mergedInfo[k]).trim() === '') && v != null && String(v).trim() !== '') mergedInfo[k] = v;
+        });
+      });
+      companies = companies.filter((c) => !others.some((o) => o.id === c.id)).map((c) => (c.id === keep.id ? mergedInfo : c));
+      // 참조 데이터의 업체명 교체
+      for (const def of CO_REF_COLLS) {
+        const targets = (def.get() || []).filter((r) => others.some((o) => String(r.customer || '').trim() === String(o.name || '').trim()));
+        for (const r of targets) {
+          await post(`/api/${def.coll}/${r.id}`, { ...r, customer: keep.name }, 'PUT');
+          renamed++;
+        }
+      }
+      mergedCos += others.length;
+    }
+    // 기준정보의 업체명 목록·구분에서도 없어진 이름을 대표 이름으로 바꾼다
+    // (합치기와 무관한 이름은 건드리지 않는다)
+    const nextCustomers = [...new Set((MASTERS.customers || [])
+      .map((n) => renameMap.get(String(n).trim()) || n).filter(Boolean))];
+    const nextTypes = {};
+    Object.entries(MASTERS.customerTypes || {}).forEach(([k, v]) => {
+      const nk = renameMap.get(String(k).trim()) || k;
+      if (nextTypes[nk] !== 'OEM') nextTypes[nk] = v;    // 합쳐지는 쪽 중 하나라도 OEM이면 OEM 유지
+    });
+    MASTERS = await post('/api/masters', { ...MASTERS, companies, customers: nextCustomers, customerTypes: nextTypes }, 'PUT');
+    await Promise.all([loadCustSpecs(), loadStandards(), loadProductMap(), loadOrders(), loadPlans(), loadRecords()]);
+    $('#codedupe-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`합치기 완료\n\n· 정리한 중복 업체: ${mergedCos}곳\n· 업체명을 바꾼 데이터: ${renamed}건`);
+  } catch (err) {
+    alert('처리 중 오류가 발생했습니다: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
+  } finally {
+    btn.disabled = false; btn.textContent = '선택한 그룹 합치기';
+  }
+}
+$('#btn-co-dedupe').addEventListener('click', openCoDedupeModal);
+$('#codedupe-close').addEventListener('click', () => ($('#codedupe-modal').hidden = true));
+$('#codedupe-cancel').addEventListener('click', () => ($('#codedupe-modal').hidden = true));
+$('#codedupe-run').addEventListener('click', runCoDedupe);
+
 /* OEM 전용 사양을 등록해 놓고도 구분이 OEM이 아닌 업체를 한 번에 OEM으로 맞춘다.
    (구분이 NEAL이면 작업지시서가 그 업체 사양을 무시하고 기본 NEAL 사양을 쓴다) */
 $('#btn-co-fixtype').addEventListener('click', async () => {

@@ -362,6 +362,7 @@
       <div class="head-actions">
         <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 · 제품 검색">
         <span class="muted" id="co-count"></span>
+        <button class="btn" id="btn-co-dedupe" hidden>🔗 중복 업체 합치기</button>
         <button class="btn" id="btn-co-fixtype" hidden>⚠ 구분 일괄 수정</button>
         <button class="btn" id="btn-co-migrate" hidden>🧹 예전 값 일괄 정리</button>
         <button class="btn" id="btn-neal-specs">기본 NEAL 사양 관리</button>
@@ -891,6 +892,23 @@
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- 중복 업체 합치기 -->
+<div class="modal-back" id="codedupe-modal" hidden>
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-head">
+      <h2>중복 업체 합치기</h2>
+      <button class="btn icon" id="codedupe-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px">이름이 비슷해 <b>같은 업체로 보이는 것</b>을 찾았습니다. 합칠 그룹만 체크하고, <b>대표로 쓸 이름</b>을 골라주세요. 합치면 나머지 이름으로 저장된 <b>사양 · 수주 · 계획 · 실적 · 표준서 · 품목매핑의 업체명이 대표 이름으로 바뀝니다.</b> 빈 칸인 업체 정보는 상대 값으로 채웁니다. 이미 작성된 <b>공정일지에 적힌 업체명은 기록 보존을 위해 그대로 둡니다.</b></p>
+    <div id="codedupe-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="codedupe-cancel">취소</button>
+      <button type="button" class="btn primary" id="codedupe-run">선택한 그룹 합치기</button>
+    </div>
   </div>
 </div>
 
