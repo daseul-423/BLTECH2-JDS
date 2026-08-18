@@ -587,10 +587,10 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 
 /* ---- 인쇄 (작업지시서만 출력) ---- */
 @media print {
-  body.print-order > :not(#order-modal) { display: none !important; }
+  body.print-order > :not(#workorder-modal) { display: none !important; }
   body.print-order { display: block; background: #fff; }
-  body.print-order #order-modal { position: static; padding: 0; background: none; overflow: visible; display: block; }
-  body.print-order #order-modal .modal { max-width: none; padding: 0; border-radius: 0; }
+  body.print-order #workorder-modal { position: static; padding: 0; background: none; overflow: visible; display: block; }
+  body.print-order #workorder-modal .modal { max-width: none; padding: 0; border-radius: 0; }
   body.print-order .no-print { display: none !important; }
 }
 
@@ -733,7 +733,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .ws-textarea:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
 
 /* 작업지시서 모달이 워크스페이스 위에 표시 */
-#order-modal { z-index: 80; }
+#order-modal, #workorder-modal { z-index: 80; }
 #startcheck-modal { z-index: 80; }
 
 /* ===== 규정 · Q&A 관리 ===== */

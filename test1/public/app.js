@@ -2571,13 +2571,13 @@ function openOrderDoc(p, docNo) {
     </div>`;
   const startBtn = $('#order-start-record');
   if (startBtn) startBtn.addEventListener('click', () => startRecordingFrom(p));
-  $('#order-modal').hidden = false;
+  $('#workorder-modal').hidden = false;
 }
 
 /* 작업지시 → 공정기록·실적 입력: 같은 날짜/호기 일지가 있으면 열고, 없으면 새로 만들어 제품 프리필 */
 async function startRecordingFrom(p) {
   const part = p.part || 'CAST';
-  $('#order-modal').hidden = true;
+  $('#workorder-modal').hidden = true;
   const existing = SHEETS.find((x) => (x.part || 'CAST') === part && x.date === p.date && x.machine === p.machine);
   if (existing) { openWorkspace(part, existing.id); return; }
   try {
@@ -2592,8 +2592,8 @@ async function startRecordingFrom(p) {
     }
   } catch (e) { /* 프리필 실패해도 워크스페이스는 열림 */ }
 }
-$('#order-close').addEventListener('click', () => ($('#order-modal').hidden = true));
-$('#order-modal').addEventListener('click', (e) => { if (e.target === $('#order-modal')) $('#order-modal').hidden = true; });
+$('#order-close').addEventListener('click', () => ($('#workorder-modal').hidden = true));
+$('#workorder-modal').addEventListener('click', (e) => { if (e.target === $('#workorder-modal')) $('#workorder-modal').hidden = true; });
 $('#order-print').addEventListener('click', () => {
   document.body.classList.add('print-order');
   window.print();
