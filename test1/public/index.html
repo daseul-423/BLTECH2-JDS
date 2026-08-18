@@ -346,8 +346,8 @@
       </div>
     </div>
     <div class="card">
-      <h3 style="margin:0 0 10px">고객사별 생산사양 <span class="muted" style="font-size:13px;font-weight:400">OEM · NEAL 전체 · 행 클릭 시 수정</span></h3>
-      <div class="table-wrap" id="ov-custspecs"></div>
+      <h3 style="margin:0 0 10px">업체별 생산사양 <span class="muted" style="font-size:13px;font-weight:400">업체 정보 + 그 업체 사양 · 사양 행 클릭 시 수정</span></h3>
+      <div id="ov-custspecs"></div>
     </div>
     <div class="card" style="margin-top:16px">
       <h3 style="margin:0 0 10px">제품표준서 <span class="muted" style="font-size:13px;font-weight:400">제품 자체 기준 · 행 클릭 시 수정</span></h3>
@@ -360,13 +360,14 @@
     <div class="page-head">
       <h1>업체 정보</h1>
       <div class="head-actions">
-        <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 검색">
+        <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 · 제품 검색">
         <span class="muted" id="co-count"></span>
+        <button class="btn" id="btn-neal-specs">기본 NEAL 사양 관리</button>
         <button class="btn primary" id="btn-new-company">＋ 고객사 등록</button>
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·OSSUR·크로실 등) 포장사양(인박스/아웃박스/파우치·라벨)과 특이사항(코팅·토너·컬러 등)입니다. OEM(전용 사양)을 위에 표시하며, 행을 클릭하면 수정할 수 있습니다. 제품 자체 기준은 <b>제품표준서</b>에서 관리합니다.</p>
+      <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·크로실 등) 요약 정보와 <b>그 업체의 생산사양</b>을 함께 관리합니다. 행을 클릭하면 [업체 정보]·[생산사양] 탭이 열립니다. <b>구분(NEAL/OEM)은 여기가 기준</b>이며 작업지시서가 이 값을 따릅니다. 업체와 무관한 제품 기준은 <b>제품표준서</b>, 업체 지정이 없는 공통 사양은 <b>기본 NEAL 사양 관리</b>에 있습니다.</p>
       <div class="table-wrap" id="companies-list"></div>
     </div>
   </section>
@@ -978,6 +979,17 @@
     <div class="modal-head">
       <h2 id="company-modal-title">업체 등록</h2>
       <button class="btn icon" id="company-modal-close">✕</button>
+    </div>
+    <div class="co-tabs" id="co-tabs" hidden>
+      <button type="button" class="active" data-cotab="info">업체 정보</button>
+      <button type="button" data-cotab="spec">생산사양 <span id="co-spec-count" class="co-tab-cnt">0</span></button>
+    </div>
+    <div class="co-pane" id="co-pane-spec" hidden>
+      <div class="card-head-row" style="margin-bottom:10px">
+        <p class="muted" style="margin:0">이 업체 전용 <b>OEM 생산사양</b>입니다. 작업지시서의 코팅량·토너·포장·사진이 여기서 나갑니다.</p>
+        <button type="button" class="btn primary small" id="co-add-spec">＋ 사양 등록</button>
+      </div>
+      <div id="co-spec-list"></div>
     </div>
     <form id="company-form">
       <fieldset>

@@ -187,6 +187,35 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 .axis-label { font-size: 10px; fill: var(--muted); }
 .bar-value { font-size: 10px; fill: var(--ink); font-weight: 600; }
 
+/* ---- 업체 정보 모달: [업체 정보] / [생산사양] 탭 ---- */
+.co-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin: 2px 0 16px; }
+.co-tabs button {
+  border: none; background: none; padding: 10px 16px; font-size: 14px; font-weight: 700;
+  color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px;
+}
+.co-tabs button:hover { color: var(--ink); }
+.co-tabs button.active { color: var(--brand); border-bottom-color: var(--brand); }
+.co-tab-cnt { font-weight: 800; margin-left: 4px; }
+.co-pane[hidden] { display: none; }
+.co-spec-empty {
+  border: 1px dashed #c3cce0; border-radius: 10px; padding: 22px 16px; text-align: center;
+  color: var(--muted); font-size: 13px; line-height: 1.7;
+}
+.co-spec-empty b { color: var(--ink); }
+.co-spec-empty .co-empty-btns { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+.co-warn { border: 1px solid var(--warn); background: #fff8e8; border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 12.5px; color: #8a6d00; }
+
+/* ---- 전체 사양 보기: 업체별 블록 ---- */
+.ovc-block { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
+.ovc-head { display: flex; align-items: center; gap: 8px; padding: 11px 14px; background: #f7f9fd; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.ovc-head b { font-size: 14.5px; }
+.ovc-head .ovc-right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.ovc-info { display: flex; flex-wrap: wrap; gap: 0 22px; padding: 10px 14px; font-size: 12.5px; border-bottom: 1px solid var(--line); }
+.ovc-info div { padding: 2px 0; }
+.ovc-info span { color: var(--muted); margin-right: 5px; }
+.ovc-specs { overflow-x: auto; }
+.ovc-none { padding: 14px; color: var(--muted); font-size: 12.5px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
 /* ---- 점검/집계 입력 테이블 ---- */
 .input-table th, .input-table td { padding: 6px 8px; }
 .input-table td input { width: 100%; min-width: 70px; padding: 6px 8px; }
@@ -734,6 +763,8 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand); padding: 0 6px;
 
 /* 작업지시서 모달이 워크스페이스 위에 표시 */
 #order-modal, #workorder-modal { z-index: 80; }
+/* 생산사양 창은 업체 정보 창 위에서 열린다 (DOM 순서상 업체 창이 나중이라 명시 필요) */
+#custspec-modal { z-index: 85; }
 #startcheck-modal { z-index: 80; }
 
 /* ===== 규정 · Q&A 관리 ===== */
