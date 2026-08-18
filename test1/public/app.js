@@ -3122,7 +3122,7 @@ function renderCompanies() {
     <td>${esc(c.colors || '-')}</td><td>${esc(c.notes || '')}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table><thead><tr><th>고객사</th><th>나라</th><th>구분</th><th>생산사양</th><th>컬러</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>고객사</th><th>나라</th><th>포장 구분</th><th>생산사양</th><th>컬러</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 고객사가 없습니다.</div>';
 }
 
@@ -5986,8 +5986,8 @@ function renderMasters() {
       <label>${MASTER_LABELS[k]}</label>
       <input type="text" data-key="${k}" value="${esc((MASTERS[k] || []).join(', '))}">
     </div>`).join('') +
-    '<h3 style="margin:20px 0 6px">고객사 사양 구분 (NEAL / OEM)</h3>' +
-    '<p class="muted" style="margin-bottom:10px">작업지시서에 <b>기본 NEAL 사양</b>과 <b>고객사 OEM 사양</b> 중 무엇을 쓸지 정합니다. 🏭 <b>업체 정보</b>에서 구분을 지정한 업체는 그 값을 그대로 따르므로 여기서는 바꿀 수 없습니다. 업체 정보에 없는 이름만 여기서 직접 지정합니다.</p>' +
+    '<h3 style="margin:20px 0 6px">고객사 포장 구분 (NEAL / OEM)</h3>' +
+    '<p class="muted" style="margin-bottom:10px">파우치·인박스·아웃박스를 <b>NEAL 포장</b>으로 쓸지 <b>고객사 전용(OEM) 포장</b>으로 쓸지 정합니다. 🏭 <b>업체 정보</b>에서 지정한 업체는 그 값을 따르므로 여기서는 바꿀 수 없습니다. 업체 정보에 없는 이름만 여기서 직접 지정합니다.</p>' +
     custRows +
     '<div style="margin-top:16px"><button class="btn primary" id="btn-save-masters">기준정보 저장</button></div>';
   $('#btn-save-masters').addEventListener('click', async () => {
