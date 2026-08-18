@@ -882,7 +882,39 @@
           <label>코어 종류<input type="text" name="core" list="dl-cores"></label>
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
-        <p class="muted" style="margin-top:8px">※ 코팅량·토너·라벨·파우치·박스 등은 <b>고객사별 생산사양</b>에서 관리합니다.</p>
+        <p class="muted" style="margin-top:8px">※ 코팅량·토너·라벨·파우치·박스 등은 <b>업체 정보 › 생산사양</b>에서 관리합니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>제품 사진 <span class="auto-tag">제품 자체 사진 (포장 사진은 생산사양에서 등록)</span></legend>
+        <div class="photo-grid">
+          <div class="photo-slot" data-img="product">
+            <div class="photo-head">제품 외관</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" hidden>
+          </div>
+          <div class="photo-slot" data-img="base">
+            <div class="photo-head">기재 / 원단</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" hidden>
+          </div>
+          <div class="photo-slot" data-img="core">
+            <div class="photo-head">코어 / 기타</div>
+            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
+            <div class="photo-btns">
+              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
+              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
+            </div>
+            <input type="file" accept="image/*" hidden>
+          </div>
+        </div>
       </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="standard-delete" hidden>삭제</button>

@@ -2698,7 +2698,8 @@ function renderStandards() {
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
     const img = s.images || {};
-    const thumb = img.pouch || img.inBox || img.outBox;
+    // 제품 사진 우선, 옛 데이터(포장 사진 키)도 썸네일로 계속 보여준다
+    const thumb = img.product || img.base || img.core || img.pouch || img.inBox || img.outBox;
     return `<div class="standard-card" data-standard-id="${s.id}">
       <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'📦'}))">` : '<span>📦</span>'}</div>
       <div class="standard-info">
@@ -2749,6 +2750,15 @@ $$('#standard-form .photo-slot').forEach(initPhotoSlot);
 $$('#custspec-form .photo-slot').forEach(initPhotoSlot);
 $$('#equipcheck-form .photo-slot').forEach(initPhotoSlot);
 
+/* 사진은 문서 안에 dataURL로 들어간다(Storage 미사용). Firestore 문서 한도 1MiB를
+   넘으면 저장이 통째로 실패하므로, 넘칠 것 같으면 미리 알려준다. */
+function checkImagesSize(images) {
+  const bytes = Object.values(images || {}).reduce((a, v) => a + (typeof v === 'string' ? v.length : 0), 0);
+  if (bytes < 750 * 1024) return true;
+  return confirm(`첨부한 사진 용량이 큽니다 (약 ${Math.round(bytes / 1024)}KB).\n`
+    + '문서 한도(1MB)를 넘으면 저장이 실패할 수 있습니다.\n사진을 줄이는 편이 안전합니다.\n\n그래도 저장할까요?');
+}
+
 async function uploadImage(f) {
   // 큰 사진은 1280px로 줄여 저장 (db 용량·인쇄 속도 보호)
   const bmp = await createImageBitmap(f);
@@ -2789,8 +2799,11 @@ standardForm.addEventListener('submit', async (e) => {
     if (!el.name) return;
     s[el.name] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
   });
-  s.images = {};
+  // 화면에 슬롯이 없는 옛 키(pouch/inBox/outBox 등)까지 지워지지 않도록 기존 값에서 시작
+  const prevImgs = (editingStandardId ? (STANDARDS.find((x) => x.id === editingStandardId) || {}).images : null) || {};
+  s.images = { ...prevImgs };
   $$('#standard-form .photo-slot').forEach((slot) => (s.images[slot.dataset.img] = slot.dataset.url || ''));
+  if (!checkImagesSize(s.images)) return;
   try {
     if (editingStandardId) await post('/api/standards/' + editingStandardId, s, 'PUT');
     else await post('/api/standards', s);
@@ -2921,8 +2934,10 @@ custspecForm.addEventListener('submit', async (e) => {
   const target = s.specTarget; delete s.specTarget;
   s.specType = (target && target !== '__NEAL__') ? 'OEM' : 'NEAL';
   s.customer = s.specType === 'OEM' ? target : null;
-  s.images = {};
+  const prevCsImgs = (editingCustSpecId ? (CUSTSPECS.find((x) => x.id === editingCustSpecId) || {}).images : null) || {};
+  s.images = { ...prevCsImgs };
   $$('#custspec-form .photo-slot').forEach((slot) => (s.images[slot.dataset.img] = slot.dataset.url || ''));
+  if (!checkImagesSize(s.images)) return;
   try {
     if (editingCustSpecId) await post('/api/custspecs/' + editingCustSpecId, s, 'PUT');
     else await post('/api/custspecs', s);
