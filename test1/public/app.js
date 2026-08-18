@@ -3074,6 +3074,11 @@ function renderCompanies() {
   const migBtn = $('#btn-co-migrate');
   migBtn.hidden = !legacyCount || !can('update', 'companies') || !can('create', 'custspecs');
   migBtn.textContent = `🧹 예전 값 일괄 정리 (${legacyCount})`;
+  // OEM 사양은 있는데 구분이 OEM이 아닌 업체 → 한 번에 맞추기
+  const orphanCount = items.filter((c) => c._orphan).length;
+  const fixBtn = $('#btn-co-fixtype');
+  fixBtn.hidden = !orphanCount || !can('update', 'companies');
+  fixBtn.textContent = `⚠ 구분 일괄 수정 (${orphanCount})`;
   const specCell = (c) => {
     if (c._specs.length) {
       const names = [...new Set(c._specs.map((s) => s.product).filter(Boolean))].join(', ');
@@ -3310,6 +3315,21 @@ async function runCoMigrate() {
     btn.disabled = false; btn.textContent = '선택한 항목 실행';
   }
 }
+/* OEM 전용 사양을 등록해 놓고도 구분이 OEM이 아닌 업체를 한 번에 OEM으로 맞춘다.
+   (구분이 NEAL이면 작업지시서가 그 업체 사양을 무시하고 기본 NEAL 사양을 쓴다) */
+$('#btn-co-fixtype').addEventListener('click', async () => {
+  const targets = (MASTERS.companies || []).filter((c) => customerSpecType(c.name) !== 'OEM' && specsOfCompany(c).length);
+  if (!targets.length) return;
+  const names = targets.map((c) => `· ${c.name} (사양 ${specsOfCompany(c).length}건)`).join('\n');
+  if (!confirm(`아래 ${targets.length}개 업체의 구분을 OEM(전용)으로 바꿉니다.\n\n${names}\n\n이 업체들은 전용 사양이 등록돼 있는데 구분이 OEM이 아니어서, 지금은 작업지시서에 기본 NEAL 사양이 나가고 있습니다.`)) return;
+  const ids = new Set(targets.map((c) => c.id));
+  const list = (MASTERS.companies || []).map((c) => (ids.has(c.id) ? { ...c, specType: 'OEM' } : c));
+  try {
+    MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
+    refreshCurrentPage();
+    alert(`${targets.length}개 업체를 OEM으로 변경했습니다.\n이제 작업지시서에 각 업체 전용 사양이 적용됩니다.`);
+  } catch (err) { alert('저장 실패: ' + err.message); }
+});
 $('#btn-co-migrate').addEventListener('click', openCoMigrateModal);
 $('#comigrate-close').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
 $('#comigrate-cancel').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
