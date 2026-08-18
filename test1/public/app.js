@@ -3233,19 +3233,26 @@ function openCoMigrateModal() {
       <table><tbody>${list.map(({ p, i }) => render(p, i)).join('')}</tbody></table>`;
   };
   const chk = (i, on) => `<td style="width:34px"><input type="checkbox" data-mig="${i}"${on ? ' checked' : ''}></td>`;
+  const PARTS = ['CAST', 'SPLINT', 'PRE-CUT', 'HYBRID'];
+  // 제품은 자유 입력(자동완성) — 찾아둔 후보가 있으면 미리 채워둔다
+  const prodPicker = (i, cand) => `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+    <select data-migpart="${i}">${PARTS.map((p) => `<option${(cand && cand.part === p) || (!cand && p === PART) ? ' selected' : ''}>${p}</option>`).join('')}</select>
+    <input type="text" data-migprod="${i}" list="dl-products" style="width:180px"
+      value="${esc(cand ? cand.product : '')}" placeholder="제품명 (비우면 값만 지움)">
+  </div>`;
   $('#comigrate-body').innerHTML =
     rowsOf('fill', '✅ 기존 사양의 빈 칸 채우기', '이미 있는 사양에서 비어 있는 항목만 채웁니다. 값이 있는 칸은 그대로 둡니다.',
       (p, i) => `<tr class="no-click">${chk(i, true)}
         <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
         <td class="muted">${p.fills.map((f) => `${esc(f.spec.product || '')} → ${f.fields.map((x) => x.label).join(', ')}`).join('<br>')}</td></tr>`) +
-    rowsOf('create', '🆕 사양 새로 만들기', '이 업체 사양이 아직 없습니다. 수주·실적·표준서에서 찾은 제품으로 사양을 만듭니다. 제품을 골라주세요.',
+    rowsOf('create', '🆕 사양 새로 만들기', '이 업체 사양이 아직 없습니다. 수주·실적·표준서에서 찾은 제품을 미리 넣어뒀습니다. 바꾸려면 제품명을 고치세요.',
       (p, i) => `<tr class="no-click">${chk(i, true)}
         <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
-        <td><select data-migprod="${i}">${p.candidates.map((c, k) => `<option value="${k}">${esc(c.product)} (${esc(c.part)})</option>`).join('')}</select></td></tr>`) +
-    rowsOf('manual', '⚠️ 제품을 찾지 못함', '이 업체 이름으로 등록된 제품이 없어 사양을 만들 수 없습니다. 업체 정보를 열어 직접 등록하거나, 값만 지우세요.',
+        <td>${prodPicker(i, p.candidates[0])}</td></tr>`) +
+    rowsOf('manual', '✍️ 제품명을 입력해 주세요', '이 업체 이름으로 등록된 제품을 찾지 못했습니다. 제품명을 넣으면 그 제품으로 사양을 만들고, <b>비워두면 값만 지웁니다.</b>',
       (p, i) => `<tr class="no-click">${chk(i, false)}
         <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
-        <td class="muted">체크하면 <b>값만 지웁니다</b> (사양은 안 만듦)</td></tr>`) +
+        <td>${prodPicker(i, null)}</td></tr>`) +
     rowsOf('clear', '🧹 값만 정리', '옮길 곳이 없거나(수지·기재는 제품표준서 소관) 이미 사양에 값이 있는 업체입니다.',
       (p, i) => `<tr class="no-click">${chk(i, true)}
         <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.legacy)}</div></td>
@@ -3270,13 +3277,17 @@ async function runCoMigrate() {
           await post('/api/custspecs/' + f.spec.id, { ...f.spec, ...patch }, 'PUT');
           filled++;
         }
-      } else if (p.kind === 'create') {
-        const sel = $(`#comigrate-body select[data-migprod="${CO_MIGRATE_PLANS.indexOf(p)}"]`);
-        const cand = p.candidates[Number(sel ? sel.value : 0)] || p.candidates[0];
-        const obj = { part: cand.part || 'CAST', product: cand.product, specType: 'OEM', customer: p.co.name, images: {} };
-        p.movable.forEach((f) => { obj[f.spec] = p.co[f.key]; });
-        await post('/api/custspecs', obj);
-        created++;
+      } else if (p.kind === 'create' || p.kind === 'manual') {
+        const i = CO_MIGRATE_PLANS.indexOf(p);
+        const prodEl = $(`#comigrate-body input[data-migprod="${i}"]`);
+        const partEl = $(`#comigrate-body select[data-migpart="${i}"]`);
+        const product = prodEl ? prodEl.value.trim() : '';
+        if (product) {                                   // 제품을 적었으면 사양 생성, 비웠으면 값만 정리
+          const obj = { part: (partEl && partEl.value) || 'CAST', product, specType: 'OEM', customer: p.co.name, images: {} };
+          p.movable.forEach((f) => { obj[f.spec] = p.co[f.key]; });
+          await post('/api/custspecs', obj);
+          created++;
+        }
       }
       cleared++;
     }
