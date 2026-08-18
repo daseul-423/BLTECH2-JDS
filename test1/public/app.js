@@ -4784,7 +4784,7 @@ function recordTable(recs, full = false) {
     const tRoll = recs.reduce((a, r) => a + num(r.finishedRoll), 0);
     const tRate = tFab ? (tWaste / tFab * 100).toFixed(2) + '%' : '-';
     const rows = recs.map((r) => `
-      <tr data-id="${r.id}">
+      <tr class="rec-row" data-rec-id="${r.id}">
         <td>${esc(r.date)}</td>
         <td>${kindOf(r)}</td>
         <td><b>${esc(r.productCode ?? r.product ?? '')}</b>${r.size != null ? ' ' + esc(r.size) + '\"' : ''}</td>
@@ -4818,7 +4818,7 @@ function recordTable(recs, full = false) {
     const precutOf = (r) => r.precutQty != null ? num(r.precutQty) : num(r.prRoll);
     const lossOf = (r) => r.lossQty != null ? num(r.lossQty) : num(r.processDefect) + num(r.prodDefect);
     const rows = recs.map((r) => `
-      <tr data-id="${r.id}">
+      <tr class="rec-row" data-rec-id="${r.id}">
         <td>${esc(r.date)}</td>
         <td>${esc(r.machine ?? '')}</td>
         <td>${esc(r.customer ?? '')}</td>
@@ -4855,7 +4855,7 @@ function recordTable(recs, full = false) {
     </tr></tfoot></table>`;
   }
   const rows = recs.map((r) => `
-    <tr data-id="${r.id}">
+    <tr class="rec-row" data-rec-id="${r.id}">
       <td>${esc(r.date)}</td>
       <td>${esc(r.machine ?? '')}</td>
       <td>${esc(r.customer ?? '')}</td>
@@ -4898,11 +4898,12 @@ function recordTable(recs, full = false) {
 const sheetOfRecord = (recordId) => SHEETS.find((s) => (s.lines || []).some((l) => l.recordId === recordId));
 
 document.addEventListener('click', (e) => {
-  const tr = e.target.closest('tr[data-id]');
+  // 실적 행만 전용 속성(data-rec-id)으로 잡는다. 예전에는 tr[data-id]를 써서
+  // 업체 정보·통합조회·설비점검처럼 data-id를 쓰는 다른 표의 행을 누를 때도
+  // id가 같은 실적이 있으면 엉뚱한 공정일지·실적 모달이 같이 열렸다.
+  const tr = e.target.closest('tr[data-rec-id]');
   if (!tr) return;
-  // 설비 일상점검·설비 대장 행은 각자 전용 핸들러가 처리 (같은 data-id 사용으로 인한 오작동 방지)
-  if (tr.classList.contains('ec-row') || tr.classList.contains('eq-row')) return;
-  const id = Number(tr.dataset.id);
+  const id = Number(tr.dataset.recId);
   const rec = RECORDS.find((r) => r.id === id);
   if (!rec) return;
   const sheet = sheetOfRecord(id);
