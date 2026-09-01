@@ -5970,6 +5970,135 @@ $('#btn-delete').addEventListener('click', async () => {
 });
 
 /* ===================== 기준정보 ===================== */
+/* ===================== 작업자 배치 =====================
+   파트마다 필요한 자리(슬롯)가 다르다.
+   - CAST   : 호기당 호기장 + 보조
+   - SPLINT : 호기당 호기장 + 보조 + 포장1 + 포장2
+   - PRE-CUT: 호기당 1명 (호기장 구분 없음)
+   - HYBRID : 지지대 · 커버 · 파우치 3명 (호기장 구분 없음)
+   자격은 파트별로 따로 관리한다. CAST 호기장과 SPLINT 호기장은 완전히 별개다.
+   호기장뿐 아니라 보조·포장도 아무나 못 한다. 자리마다 자격을 따로 본다.
+   특히 SPLINT 포장2는 검수를 겸하므로 포장1과 다른 자격이다.
+   타 파트에서 지원 오는 사람은 보통 포장1(또는 보조)로 들어간다. */
+const CREW_SLOTS = {
+  CAST:      [{ key: 'lead', label: '호기장', cap: 'lead' }, { key: 'assist', label: '보조', cap: 'assist' }],
+  SPLINT:    [{ key: 'lead', label: '호기장', cap: 'lead' }, { key: 'assist', label: '보조', cap: 'assist' },
+              { key: 'pack1', label: '포장1', cap: 'pack' }, { key: 'pack2', label: '포장2(검수)', cap: 'inspect' }],
+  'PRE-CUT': [{ key: 'worker', label: '작업자', cap: 'work' }],
+  HYBRID:    [{ key: 'support', label: '지지대', cap: 'support' }, { key: 'cover', label: '커버', cap: 'cover' },
+              { key: 'pouch', label: '파우치', cap: 'pouch' }],
+};
+/* 파트별로 사람에게 물어보는 자격 항목 */
+const CREW_CAPS = {
+  CAST:      [{ cap: 'lead', label: '호기장' }, { cap: 'assist', label: '보조' }],
+  SPLINT:    [{ cap: 'lead', label: '호기장' }, { cap: 'assist', label: '보조' },
+              { cap: 'pack', label: '포장1' }, { cap: 'inspect', label: '포장2(검수)' }],
+  'PRE-CUT': [{ cap: 'work', label: '작업' }],
+  HYBRID:    [{ cap: 'support', label: '지지대' }, { cap: 'cover', label: '커버' }, { cap: 'pouch', label: '파우치' }],
+};
+const crewSlots = (part) => CREW_SLOTS[part] || CREW_SLOTS.CAST;
+/* 근무시간: 08:30~12:30 · 점심 12:30~13:30 · 13:30~17:30 (하루 8시간) */
+const WORK_AM = { start: '08:30', end: '12:30' };
+const WORK_PM = { start: '13:30', end: '17:30' };
+/* 근태 유형 — 오전/오후 반차는 빠지는 시간이 정해져 있고, 조퇴·출장지원은 시간을 직접 넣는다 */
+const ABSENT_TYPES = [
+  { type: '연차',     full: true },
+  { type: '결근',     full: true },
+  { type: '오전반차', start: WORK_AM.start, end: WORK_AM.end },
+  { type: '오후반차', start: WORK_PM.start, end: WORK_PM.end },
+  { type: '조퇴',     custom: true, start: '15:30', end: WORK_PM.end },
+  { type: '출장지원', custom: true, start: WORK_AM.start, end: WORK_PM.end },
+];
+const absentType = (t) => ABSENT_TYPES.find((x) => x.type === t) || ABSENT_TYPES[0];
+/* 근태: { name, type, from, to, start, end, note } — start/end는 그 날 빠지는 시간대 */
+const absentOn = (list, name, date) => (list || []).find((a) =>
+  a && a.name === name && (!a.from || a.from <= date) && (!a.to || a.to >= date));
+const isOutOn = (list, name, date) => { const a = absentOn(list, name, date); return !!a && absentType(a.type).full; };
+/* 그 날 몇 시간 일할 수 있나 (반차·조퇴·출장지원 반영) */
+function workHoursOn(absents, name, date) {
+  const a = absentOn(absents, name, date);
+  if (!a) return 8;
+  if (absentType(a.type).full) return 0;
+  const t = absentType(a.type);
+  const s = a.start || t.start || WORK_AM.start, e = a.end || t.end || WORK_PM.end;
+  const min = (v) => { const [h, m] = String(v).split(':').map(Number); return h * 60 + (m || 0); };
+  const overlap = (p) => Math.max(0, Math.min(min(e), min(p.end)) - Math.max(min(s), min(p.start)));
+  return Math.max(0, 8 - (overlap(WORK_AM) + overlap(WORK_PM)) / 60);
+}
+/* 화면 표시용: '오전반차(08:30~12:30)' */
+const absentLabel = (a) => {
+  if (!a) return '';
+  const t = absentType(a.type);
+  if (t.full) return a.type;
+  const s = a.start || t.start, e = a.end || t.end;
+  return `${a.type}(${s}~${e})`;
+};
+
+/* 계획 한 건의 인원 배치.
+   used: 그 날짜에 이미 배치된 사람(같은 날 두 자리 겹침 방지) — Set
+   반환: { crew:{슬롯:이름}, marks:{슬롯:'고정|대체|지원|반차'}, missing:[슬롯라벨] } */
+function assignCrew(plan, absents, used, opts = {}) {
+  const part = plan.part || 'CAST';
+  const date = plan.date;
+  const crew = {}, marks = {}, missing = [];
+  const free = (n) => n && !used.has(n) && !isOutOn(absents, n, date);
+  const pick = (cap) => {
+    const all = candidatesFor(part, cap).filter(free);
+    if (!all.length) return null;
+    // 1순위: 이 호기 고정 담당  2순위: 이 파트 소속  3순위: 타 파트 지원 가능자
+    const score = (n) => {
+      const w = workerInfo(n) || {};
+      if (w.machine && plan.machine && w.machine === plan.machine) return 0;
+      if (w.part === part) return 1;
+      return w.support ? 2 : 3;
+    };
+    // 같은 조건이면 그 날 오래 일할 수 있는 사람(반차·출장 아닌 사람)을 먼저 세운다
+    all.sort((a, b) => score(a) - score(b)
+      || workHoursOn(absents, b, date) - workHoursOn(absents, a, date)
+      || String(a).localeCompare(b, 'ko'));
+    if (opts.sameCrewOnly && score(all[0]) === 3) return null;   // 지원 불가자는 제외
+    return all[0];
+  };
+  for (const slot of crewSlots(part)) {
+    const n = pick(slot.cap);
+    if (!n) { missing.push(slot.label); continue; }
+    crew[slot.key] = n;
+    used.add(n);
+    const w = workerInfo(n) || {};
+    const half = absentOn(absents, n, date);          // 반차·조퇴·출장지원은 배치하되 빠지는 시간대를 표시
+    if (half) marks[slot.key] = absentLabel(half);
+    else if (w.machine && plan.machine && w.machine === plan.machine) marks[slot.key] = '고정';
+    else if (w.part && w.part !== part) marks[slot.key] = '타 파트 지원';
+    else if (slot.cap === 'lead') marks[slot.key] = '대체';
+  }
+  return { crew, marks, missing };
+}
+
+/* 여러 계획을 날짜별로 묶어 한 번에 배치한다. 우선순위 높은 계획부터 사람을 가져간다. */
+function assignCrewForPlans(plans, absents, opts = {}) {
+  const byDate = {};
+  plans.forEach((p) => { (byDate[p.date || ''] = byDate[p.date || ''] || []).push(p); });
+  const result = [];
+  Object.keys(byDate).sort().forEach((d) => {
+    const used = new Set();
+    byDate[d].slice()
+      .sort((a, b) => PRIORITY_LEVELS.indexOf(normPriority(b.priority)) - PRIORITY_LEVELS.indexOf(normPriority(a.priority)))
+      .forEach((p) => {
+        const r = assignCrew(p, absents, used, opts);
+        result.push({ ...p, crew: r.crew, crewMarks: r.marks, crewMissing: r.missing });
+      });
+  });
+  return result;
+}
+/* 작업자 상세: masters.workerInfo[이름] = { part, machine, caps:{파트:[자격]}, support:타파트지원 } */
+const workerInfo = (name) => (MASTERS.workerInfo || {})[String(name || '').trim()] || null;
+const workerCaps = (name, part) => ((workerInfo(name) || {}).caps || {})[part] || [];
+const canDoSlot = (name, part, cap) => workerCaps(name, part).includes(cap);
+/* 그 자리에 세울 수 있는 사람들 */
+function candidatesFor(part, cap) {
+  return (MASTERS.workers || []).filter((n) => canDoSlot(n, part, cap));
+}
+
 const MASTER_LABELS = {
   machines: '호기', customers: '업체명', products: '제품명', colors: '칼라',
   productCodes: '제품코드', baseTypes: '기재 타입', resins: '수지 종류',
@@ -6004,7 +6133,11 @@ function renderMasters() {
     '<h3 style="margin:20px 0 6px">고객사 포장 구분 (NEAL / OEM)</h3>' +
     '<p class="muted" style="margin-bottom:10px">파우치·인박스·아웃박스를 <b>NEAL 포장</b>으로 쓸지 <b>고객사 전용(OEM) 포장</b>으로 쓸지 정합니다. 🏭 <b>업체 정보</b>에서 지정한 업체는 그 값을 따르므로 여기서는 바꿀 수 없습니다. 업체 정보에 없는 이름만 여기서 직접 지정합니다.</p>' +
     custRows +
-    '<div style="margin-top:16px"><button class="btn primary" id="btn-save-masters">기준정보 저장</button></div>';
+    '<div style="margin-top:16px"><button class="btn primary" id="btn-save-masters">기준정보 저장</button></div>'
+    + '<h3 style="margin:26px 0 6px">작업자 · 배치 자격</h3>'
+    + '<p class="muted" style="margin-bottom:10px">생산계획을 만들 때 이 자격을 보고 사람을 배치합니다. <b>호기장 자격은 파트별로 따로</b>입니다(CAST 호기장과 SPLINT 호기장은 별개). PRE-CUT·HYBRID는 호기장 구분이 없습니다.</p>'
+    + '<div id="workers-box"></div>';
+  renderWorkerTable();
   $('#btn-save-masters').addEventListener('click', async () => {
     const next = { ...MASTERS };
     $$('#masters-form input[data-key]').forEach((el) => {
@@ -6030,6 +6163,108 @@ function allCustomerNames() {
   [ORDERS, PRODUCTMAP, STANDARDS, CUSTSPECS].forEach((list) => (list || []).forEach((r) => { if (r && r.customer) set.add(r.customer); }));
   return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
 }
+/* 작업자 표 — 이름은 기준정보 '작업자' 목록이 정본, 상세는 workerInfo에 붙는다 */
+function renderWorkerTable() {
+  const box = $('#workers-box');
+  if (!box) return;
+  const names = (MASTERS.workers || []).slice();
+  const capTxt = (n, part) => {
+    const list = workerCaps(n, part);
+    if (!list.length) return '<span class="muted">-</span>';
+    return list.map((c) => {
+      const lb = (CREW_CAPS[part].find((x) => x.cap === c) || {}).label || c;
+      return `<span class="badge ${c === 'lead' ? 'neal' : 'plain'}">${esc(lb)}</span>`;
+    }).join(' ');
+  };
+  const rows = names.map((n) => {
+    const w = workerInfo(n) || {};
+    return `<tr class="worker-row" data-name="${esc(n)}" style="cursor:pointer">
+      <td><b>${esc(n)}</b></td>
+      <td>${esc(w.part || '-')}</td>
+      <td>${w.machine ? `<b>${esc(w.machine)}</b>` : '<span class="muted">-</span>'}</td>
+      <td>${capTxt(n, 'CAST')}</td><td>${capTxt(n, 'SPLINT')}</td>
+      <td>${capTxt(n, 'PRE-CUT')}</td><td>${capTxt(n, 'HYBRID')}</td>
+      <td>${w.support ? '✅' : '<span class="muted">-</span>'}</td>
+      <td>${esc(w.note || '')}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = names.length
+    ? `<div class="table-wrap"><table>
+        <thead><tr><th>이름</th><th>소속 파트</th><th>고정 호기</th>
+        <th>CAST</th><th>SPLINT</th><th>PRE-CUT</th><th>HYBRID</th><th>타 파트 지원</th><th>비고</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+        <p class="muted" style="margin-top:8px;font-size:12.5px">행을 클릭해 자격을 지정하세요. 이름 추가·삭제는 위 <b>작업자</b> 칸에서 합니다.</p>`
+    : '<div class="empty">위 <b>작업자</b> 칸에 이름을 먼저 넣어주세요.</div>';
+}
+
+let editingWorker = null;
+function openWorkerModal(name) {
+  const w = workerInfo(name) || {};
+  editingWorker = name;
+  $('#worker-modal-title').textContent = `작업자 — ${name}`;
+  const f = $('#worker-form');
+  f.elements.part.innerHTML = '<option value="">미지정</option>'
+    + ['CAST', 'SPLINT', 'PRE-CUT', 'HYBRID'].map((p) => `<option${w.part === p ? ' selected' : ''}>${p}</option>`).join('');
+  f.elements.machine.innerHTML = '<option value="">없음</option>'
+    + (MASTERS.machines || []).map((m) => `<option${w.machine === m ? ' selected' : ''}>${esc(m)}</option>`).join('');
+  f.elements.note.value = w.note || '';
+  f.elements.startDate.value = w.startDate || '';
+  f.elements.support.checked = !!w.support;
+  // 역량 변경 이력 (언제 무엇이 늘고 줄었는지)
+  const hist = w.history || [];
+  $('#worker-history').innerHTML = hist.length
+    ? `<div class="table-wrap"><table><thead><tr><th>변경일</th><th>내용</th><th>변경자</th></tr></thead><tbody>${
+        hist.map((h) => `<tr class="no-click"><td>${esc(h.date || '')}</td><td>${esc(h.text || '')}</td><td class="muted">${esc(h.by || '')}</td></tr>`).join('')
+      }</tbody></table></div>`
+    : '<p class="muted" style="font-size:12.5px">아직 변경 이력이 없습니다. 자격을 바꿔 저장하면 여기에 쌓입니다.</p>';
+  $('#worker-caps').innerHTML = Object.keys(CREW_CAPS).map((part) => `
+    <div class="chk-row">
+      <span class="chk-title" style="width:74px">${part}</span>
+      ${CREW_CAPS[part].map((c) => `<label><input type="checkbox" data-part="${part}" data-cap="${c.cap}"
+        ${workerCaps(name, part).includes(c.cap) ? 'checked' : ''}> ${c.label}</label>`).join('')}
+    </div>`).join('');
+  gateModal('#worker-form', can('update', 'masters'), false);
+  $('#worker-modal').hidden = false;
+}
+document.addEventListener('click', (e) => {
+  const r = e.target.closest('.worker-row');
+  if (r) openWorkerModal(r.dataset.name);
+});
+$('#worker-modal-close').addEventListener('click', () => ($('#worker-modal').hidden = true));
+$('#worker-cancel').addEventListener('click', () => ($('#worker-modal').hidden = true));
+$('#worker-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = $('#worker-form');
+  const caps = {};
+  $$('#worker-caps input[type=checkbox]').forEach((el) => {
+    if (!el.checked) return;
+    (caps[el.dataset.part] = caps[el.dataset.part] || []).push(el.dataset.cap);
+  });
+  const prev = workerInfo(editingWorker) || {};
+  const info = { part: f.elements.part.value || null, machine: f.elements.machine.value || null,
+    caps, support: f.elements.support.checked, note: f.elements.note.value || null,
+    startDate: f.elements.startDate.value || null, history: (prev.history || []).slice() };
+  // 역량은 해가 바뀌며 늘어난다(보조만 하던 사람이 호기장까지). 무엇이 언제 바뀌었는지 남긴다.
+  const capLabel = (part, cap) => (CREW_CAPS[part].find((x) => x.cap === cap) || {}).label || cap;
+  const changes = [];
+  Object.keys(CREW_CAPS).forEach((part) => {
+    const before = (prev.caps || {})[part] || [], after = caps[part] || [];
+    after.filter((c) => !before.includes(c)).forEach((c) => changes.push(`＋ ${part} ${capLabel(part, c)}`));
+    before.filter((c) => !after.includes(c)).forEach((c) => changes.push(`－ ${part} ${capLabel(part, c)}`));
+  });
+  if ((prev.machine || '') !== (info.machine || '')) changes.push(`고정 호기 ${prev.machine || '없음'} → ${info.machine || '없음'}`);
+  if ((prev.part || '') !== (info.part || '')) changes.push(`소속 ${prev.part || '미지정'} → ${info.part || '미지정'}`);
+  if (changes.length) {
+    info.history = [{ date: todayStr(), by: (ME && (ME.name || ME.email)) || '', text: changes.join(', ') }, ...info.history].slice(0, 30);
+  }
+  const next = { ...MASTERS, workerInfo: { ...(MASTERS.workerInfo || {}), [editingWorker]: info } };
+  try {
+    MASTERS = await post('/api/masters', next, 'PUT');
+    $('#worker-modal').hidden = true;
+    renderWorkerTable();
+  } catch (err) { alert('저장 실패: ' + err.message); }
+});
+
 function fillMasterInputs() {
   const dl = (id, key) => { const el = $(id); if (el) el.innerHTML = (MASTERS[key] || []).map((v) => `<option value="${esc(v)}">`).join(''); };
   const custDl = $('#dl-customers');

@@ -933,6 +933,46 @@
   </div>
 </div>
 
+<!-- 작업자 배치 자격 -->
+<div class="modal-back" id="worker-modal" hidden>
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head">
+      <h2 id="worker-modal-title">작업자</h2>
+      <button class="btn icon" id="worker-modal-close">✕</button>
+    </div>
+    <form id="worker-form">
+      <fieldset>
+        <legend>기본</legend>
+        <div class="form-grid">
+          <label>소속 파트<select name="part"></select></label>
+          <label>고정 담당 호기<select name="machine"></select></label>
+          <label>입사일<input type="date" name="startDate"></label>
+          <label class="wide">비고<input type="text" name="note" placeholder="예: 1호기 대체 가능 · 교육 이수 예정"></label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ <b>고정 담당 호기</b>를 정하면 그 호기 계획에 이 사람이 먼저 배치됩니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>가능한 자리</legend>
+        <div id="worker-caps"></div>
+        <div class="chk-row" style="margin-top:10px">
+          <span class="chk-title" style="width:74px">지원</span>
+          <label><input type="checkbox" name="support"> 다른 파트에도 지원 갈 수 있음</label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ 역량이 늘면 여기서 체크만 추가하면 됩니다. 예전 계획은 그대로 남고, <b>다음 배치부터</b> 반영됩니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>역량 변경 이력 <span class="auto-tag">저장하면 자동 기록</span></legend>
+        <div id="worker-history"></div>
+      </fieldset>
+      <div class="modal-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="worker-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- 중복 업체 합치기 -->
 <div class="modal-back" id="codedupe-modal" hidden>
   <div class="modal" style="max-width:1000px">
