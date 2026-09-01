@@ -6117,6 +6117,36 @@ const CAP_DEFAULT = {
     splintMixCut: 32,       // 한 호기에서 인치 2종 이상을 생산하면 차감
   },
 };
+/* ===================== 호기 · 드럼 =====================
+   호기 이름은 파트마다 겹친다(CAST 2~6호기 / SPLINT 1~3호기). 파트별로 쓸 호기를 따로 둔다.
+   CAST는 2·3호기가 한 드럼, 4·5호기가 한 드럼을 같이 쓸 수 있다.
+   토너를 넣어 믹싱한 수지를 쓰므로 '수지 + 토너'가 같은 제품끼리 같은 드럼 조에 붙이면
+   드럼을 공유해 효율이 좋다. 강제는 아니고 되도록 붙이는 쪽으로만 본다. */
+const DRUM_DEFAULT = { CAST: [['2호기', '3호기'], ['4호기', '5호기']] };
+const drumGroups = (part) => ((MASTERS.drumGroups || DRUM_DEFAULT)[part] || []);
+const drumPartner = (part, machine) => {
+  const g = drumGroups(part).find((arr) => arr.includes(machine));
+  return g ? g.find((m) => m !== machine) || null : null;
+};
+/* 파트별 호기 목록 — 기준정보에서 지정, 없으면 전체 호기 */
+const partMachines = (part) => {
+  const m = (MASTERS.partMachines || {})[part];
+  return (m && m.length) ? m : (MASTERS.machines || []);
+};
+/* 믹싱 키: 수지 + 토너 (같으면 같은 드럼을 나눠 쓸 수 있다) */
+function mixKeyOf(plan) {
+  const s = findStandard(plan) || {};
+  const { spec } = findCustSpec(plan);
+  const resin = String(s.resinType || '').trim();
+  const toner = String((spec || {}).toner || '').trim();
+  return (resin || toner) ? `${resin}|${toner}` : '';
+}
+const mixLabel = (key) => {
+  if (!key) return '';
+  const [resin, toner] = key.split('|');
+  return [resin && `수지 ${resin}`, toner && `토너 ${toner}`].filter(Boolean).join(' · ');
+};
+
 /* 배관·특수 인치는 표준 표에 안 맞으므로 따로 지정한다. 상황에 따라 자주 바뀌므로 값은 기준정보에서 수정 */
 const CAP_SPECIAL_DEFAULT = [
   { part: 'CAST', label: '배관 2인치 15m', size: 2, length: 15, qty: 1600 },
@@ -6302,6 +6332,15 @@ function renderCapacityBox() {
       </div>
     </div>
 
+    <h4 style="font-size:13.5px;margin:18px 0 8px">파트별 호기 · 드럼 조 <span class="muted" style="font-weight:400">호기 이름이 파트마다 겹치므로 따로 지정 · 쉼표로 구분</span></h4>
+    <div class="form-grid">
+      ${['CAST', 'SPLINT', 'PRE-CUT', 'HYBRID'].map((p) => `<label class="wide">${p} 호기
+        <input type="text" data-pm="${p}" value="${esc(((MASTERS.partMachines || {})[p] || []).join(', '))}" placeholder="예: 2호기, 3호기, 4호기, 5호기, 6호기"></label>`).join('')}
+      <label class="wide">CAST 드럼 조 <span class="auto-tag">한 드럼을 같이 쓰는 호기끼리 묶음 · 조는 세미콜론(;)으로 구분</span>
+        <input type="text" data-drum="CAST" value="${esc(drumGroups('CAST').map((g) => g.join(', ')).join(' ; '))}" placeholder="예: 2호기, 3호기 ; 4호기, 5호기"></label>
+    </div>
+    <p class="muted" style="font-size:12px;margin-top:6px">※ 같은 드럼 조에는 <b>수지와 토너가 같은 제품</b>을 붙이면 드럼을 공유해 효율이 좋습니다. 계획을 만들 때 되도록 그렇게 묶습니다(강제 아님).</p>
+
     <h4 style="font-size:13.5px;margin:18px 0 8px">특수 · 배관 <span class="muted" style="font-weight:400">표준 표에 없는 인치·길이는 여기서 직접 지정 (상황에 따라 자주 바뀜)</span></h4>
     <div class="table-wrap"><table>
       <thead><tr><th>이름</th><th>공정</th><th class="num">인치</th><th class="num">길이(m)</th><th>전용 호기</th><th class="num">하루 생산량</th><th></th></tr></thead>
@@ -6357,8 +6396,18 @@ function renderCapacityBox() {
       sp[i][k] = (k === 'size' || k === 'length' || k === 'qty') ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
     });
     next.special = sp.filter((s) => s && s.qty);
+    const pm = {};
+    $$('#capacity-box [data-pm]').forEach((el) => {
+      const list = el.value.split(',').map((s) => s.trim()).filter(Boolean);
+      if (list.length) pm[el.dataset.pm] = list;
+    });
+    const drums = {};
+    $$('#capacity-box [data-drum]').forEach((el) => {
+      const groups = el.value.split(';').map((g) => g.split(',').map((s) => s.trim()).filter(Boolean)).filter((g) => g.length > 1);
+      if (groups.length) drums[el.dataset.drum] = groups;
+    });
     try {
-      MASTERS = await post('/api/masters', { ...MASTERS, capacity: next }, 'PUT');
+      MASTERS = await post('/api/masters', { ...MASTERS, capacity: next, partMachines: pm, drumGroups: drums }, 'PUT');
       renderCapacityBox();
       alert('생산 가능량을 저장했습니다.');
     } catch (err) { alert('저장 실패: ' + err.message); }
