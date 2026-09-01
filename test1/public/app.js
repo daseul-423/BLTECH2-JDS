@@ -6099,6 +6099,78 @@ function candidatesFor(part, cap) {
   return (MASTERS.workers || []).filter((n) => canDoSlot(n, part, cap));
 }
 
+/* ===================== 하루 생산 가능량 =====================
+   CAST  : 호기당, 제품 길이(3.6m·4m) × 인치로 기본량이 정해진다.
+   SPLINT: 호기마다 기본량이 다르다.
+   여기에 그 날 그 호기에 어떤 제품들이 섞였는지에 따라 차감이 붙는다.
+   숫자는 모두 기준정보에서 고칠 수 있게 두었다(현장 수치가 바뀌므로 하드코딩하지 않는다). */
+const CAP_DEFAULT = {
+  CAST: { '3.6': { 2: 1500, 3: 1600, 4: 1500, 5: 1400 }, '4': { 2: 1400, 3: 1500, 4: 1400, 5: 1300 } },
+  SPLINT: { '1호기': 224, '2호기': 240, '3호기': 224 },
+  rules: {
+    castColorChange: 200,   // 색상이 바뀔 때마다 차감 (2종이면 −200, 3종이면 −400)
+    castInchTypes: 5,       // 한 호기에 들어가는 인치 종류가 이 개수 이상이면
+    castInchTypesCut: 100,  // 그때 차감
+    splintBigSize: 5,       // SPLINT에서 '큰 인치'로 보는 기준
+    splintBigRatio: 50,     // 그 인치가 총량의 이 % 이상이면
+    splintBigCut: 16,       // 차감
+    splintMixCut: 32,       // 한 호기에서 인치 2종 이상을 생산하면 차감
+  },
+};
+/* 배관·특수 인치는 표준 표에 안 맞으므로 따로 지정한다. 상황에 따라 자주 바뀌므로 값은 기준정보에서 수정 */
+const CAP_SPECIAL_DEFAULT = [
+  { part: 'CAST', label: '배관 2인치 15m', size: 2, length: 15, qty: 1600 },
+  { part: 'CAST', label: '배관 2인치 18m', size: 2, length: 18, qty: 1500 },
+  { part: 'CAST', label: '배관 6인치 50m', size: 6, length: 50, qty: 1000 },
+  { part: 'CAST', label: '배관 8인치 100m', size: 8, length: 100, qty: 350, machine: '6호기' },
+];
+const capMaster = () => ({ ...CAP_DEFAULT, ...(MASTERS.capacity || {}),
+  rules: { ...CAP_DEFAULT.rules, ...((MASTERS.capacity || {}).rules || {}) } });
+const capSpecial = () => ((MASTERS.capacity || {}).special || CAP_SPECIAL_DEFAULT);
+
+/* items: 그 날 그 호기에 넣을 계획들 [{ size(인치), length(m), color, qty }]
+   반환: { base, cut, qty, notes[] } */
+function dailyCapacity(part, machine, items) {
+  const cap = capMaster(), r = cap.rules, notes = [];
+  const list = (items || []).filter(Boolean);
+  const sizes = [...new Set(list.map((x) => num(x.size)).filter((v) => v > 0))];
+  const first = list[0] || {};
+  // 별도 지정(특수 인치·배관)이 있으면 그것을 우선 적용
+  const sp = capSpecial().find((s) => s.part === part
+    && (!s.size || num(s.size) === num(first.size))
+    && (!s.length || num(s.length) === num(first.length))
+    && (!s.machine || s.machine === machine));
+  let base = 0;
+  if (sp) { base = num(sp.qty); notes.push(`특수 지정: ${sp.label || sp.keyword || sp.size + '인치'}`); }
+  else if (part === 'CAST') {
+    const lenKey = String(num(first.length) >= 4 ? '4' : '3.6');
+    base = num((cap.CAST[lenKey] || {})[num(first.size)]);
+    if (!base) notes.push(`CAST ${lenKey}m ${first.size}인치 기준량 미등록`);
+  } else if (part === 'SPLINT') {
+    base = num(cap.SPLINT[machine]);
+    if (!base) notes.push(`SPLINT ${machine || ''} 기준량 미등록`);
+  }
+  let cut = 0;
+  if (part === 'CAST') {
+    const colors = [...new Set(list.map((x) => String(x.color || '').trim()).filter(Boolean))];
+    if (colors.length > 1) {
+      const c = r.castColorChange * (colors.length - 1);
+      cut += c; notes.push(`색상 ${colors.length}종 −${c}`);
+    }
+    if (sizes.length >= r.castInchTypes) {
+      cut += r.castInchTypesCut; notes.push(`인치 ${sizes.length}종 −${r.castInchTypesCut}`);
+    }
+  } else if (part === 'SPLINT') {
+    const total = list.reduce((a, x) => a + num(x.qty), 0);
+    const big = list.filter((x) => num(x.size) >= r.splintBigSize).reduce((a, x) => a + num(x.qty), 0);
+    if (total && (big / total) * 100 >= r.splintBigRatio) {
+      cut += r.splintBigCut; notes.push(`${r.splintBigSize}인치 ${Math.round(big / total * 100)}% −${r.splintBigCut}`);
+    }
+    if (sizes.length > 1) { cut += r.splintMixCut; notes.push(`인치 ${sizes.length}종 −${r.splintMixCut}`); }
+  }
+  return { base, cut, qty: Math.max(0, base - cut), notes };
+}
+
 const MASTER_LABELS = {
   machines: '호기', customers: '업체명', products: '제품명', colors: '칼라',
   productCodes: '제품코드', baseTypes: '기재 타입', resins: '수지 종류',
@@ -6136,8 +6208,12 @@ function renderMasters() {
     '<div style="margin-top:16px"><button class="btn primary" id="btn-save-masters">기준정보 저장</button></div>'
     + '<h3 style="margin:26px 0 6px">작업자 · 배치 자격</h3>'
     + '<p class="muted" style="margin-bottom:10px">생산계획을 만들 때 이 자격을 보고 사람을 배치합니다. <b>호기장 자격은 파트별로 따로</b>입니다(CAST 호기장과 SPLINT 호기장은 별개). PRE-CUT·HYBRID는 호기장 구분이 없습니다.</p>'
-    + '<div id="workers-box"></div>';
+    + '<div id="workers-box"></div>'
+    + '<h3 style="margin:26px 0 6px">하루 생산 가능량</h3>'
+    + '<p class="muted" style="margin-bottom:10px">계획을 하루치씩 나눠 짤 때 쓰는 기준량입니다. <b>호기 1대가 하루에 만드는 양</b>이며, 그 날 그 호기에 섞이는 제품에 따라 아래 규칙만큼 줄여서 계산합니다.</p>'
+    + '<div id="capacity-box"></div>';
   renderWorkerTable();
+  renderCapacityBox();
   $('#btn-save-masters').addEventListener('click', async () => {
     const next = { ...MASTERS };
     $$('#masters-form input[data-key]').forEach((el) => {
@@ -6195,6 +6271,98 @@ function renderWorkerTable() {
         <tbody>${rows}</tbody></table></div>
         <p class="muted" style="margin-top:8px;font-size:12.5px">행을 클릭해 자격을 지정하세요. 이름 추가·삭제는 위 <b>작업자</b> 칸에서 합니다.</p>`
     : '<div class="empty">위 <b>작업자</b> 칸에 이름을 먼저 넣어주세요.</div>';
+}
+
+/* 하루 생산 가능량 편집 — 표준(인치별) · 호기별 · 특수/배관 · 차감 규칙 */
+function renderCapacityBox() {
+  const box = $('#capacity-box');
+  if (!box) return;
+  const cap = capMaster(), r = cap.rules;
+  const castSizes = [...new Set([...Object.keys(cap.CAST['3.6'] || {}), ...Object.keys(cap.CAST['4'] || {})]
+    .map(Number))].sort((a, b) => a - b);
+  const splintMachines = [...new Set([...Object.keys(cap.SPLINT || {}), ...(MASTERS.machines || [])])];
+  const nInput = (key, v, w = 90) => `<input type="number" data-cap="${key}" value="${v == null ? '' : v}" style="width:${w}px">`;
+  box.innerHTML = `
+    <div class="grid-2">
+      <div>
+        <h4 style="font-size:13.5px;margin-bottom:8px">CAST — 길이 × 인치 <span class="muted" style="font-weight:400">호기당</span></h4>
+        <div class="table-wrap"><table><thead><tr><th>인치</th><th>3.6m</th><th>4m</th></tr></thead><tbody>
+          ${castSizes.map((s) => `<tr class="no-click"><td><b>${s}인치</b></td>
+            <td>${nInput(`CAST|3.6|${s}`, (cap.CAST['3.6'] || {})[s])}</td>
+            <td>${nInput(`CAST|4|${s}`, (cap.CAST['4'] || {})[s])}</td></tr>`).join('')}
+        </tbody></table></div>
+      </div>
+      <div>
+        <h4 style="font-size:13.5px;margin-bottom:8px">SPLINT — 호기별</h4>
+        <div class="table-wrap"><table><thead><tr><th>호기</th><th>하루 생산량</th></tr></thead><tbody>
+          ${splintMachines.map((m) => `<tr class="no-click"><td><b>${esc(m)}</b></td>
+            <td>${nInput(`SPLINT|${m}`, (cap.SPLINT || {})[m])}</td></tr>`).join('')}
+        </tbody></table></div>
+        <p class="muted" style="font-size:12px;margin-top:6px">※ PRE-CUT · HYBRID는 아직 미설정입니다.</p>
+      </div>
+    </div>
+
+    <h4 style="font-size:13.5px;margin:18px 0 8px">특수 · 배관 <span class="muted" style="font-weight:400">표준 표에 없는 인치·길이는 여기서 직접 지정 (상황에 따라 자주 바뀜)</span></h4>
+    <div class="table-wrap"><table>
+      <thead><tr><th>이름</th><th>공정</th><th class="num">인치</th><th class="num">길이(m)</th><th>전용 호기</th><th class="num">하루 생산량</th><th></th></tr></thead>
+      <tbody id="cap-special-rows">
+        ${capSpecial().map((s, i) => `<tr class="no-click">
+          <td><input type="text" data-sp="${i}|label" value="${esc(s.label || '')}" style="width:150px"></td>
+          <td><select data-sp="${i}|part">${['CAST', 'SPLINT'].map((p) => `<option${s.part === p ? ' selected' : ''}>${p}</option>`).join('')}</select></td>
+          <td class="num"><input type="number" data-sp="${i}|size" value="${s.size ?? ''}" style="width:70px"></td>
+          <td class="num"><input type="number" step="0.1" data-sp="${i}|length" value="${s.length ?? ''}" style="width:80px"></td>
+          <td><select data-sp="${i}|machine"><option value="">전체</option>
+            ${(MASTERS.machines || []).map((m) => `<option${s.machine === m ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select></td>
+          <td class="num"><input type="number" data-sp="${i}|qty" value="${s.qty ?? ''}" style="width:90px"></td>
+          <td><button type="button" class="btn small danger" data-sp-del="${i}">삭제</button></td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+    <button type="button" class="btn small" id="cap-special-add" style="margin-top:8px">＋ 행 추가</button>
+
+    <h4 style="font-size:13.5px;margin:18px 0 8px">차감 규칙</h4>
+    <div class="form-grid">
+      <label>CAST 색상 바뀔 때마다 −${nInput('rules|castColorChange', r.castColorChange, 80)}</label>
+      <label>CAST 인치 종류 ${nInput('rules|castInchTypes', r.castInchTypes, 60)}종 이상이면 −${nInput('rules|castInchTypesCut', r.castInchTypesCut, 80)}</label>
+      <label>SPLINT ${nInput('rules|splintBigSize', r.splintBigSize, 60)}인치가 ${nInput('rules|splintBigRatio', r.splintBigRatio, 60)}% 이상이면 −${nInput('rules|splintBigCut', r.splintBigCut, 70)}</label>
+      <label>SPLINT 인치 2종 이상이면 −${nInput('rules|splintMixCut', r.splintMixCut, 70)}</label>
+    </div>
+    <div style="margin-top:14px"><button type="button" class="btn primary" id="btn-save-capacity">생산 가능량 저장</button></div>`;
+
+  $('#cap-special-add').addEventListener('click', () => {
+    const list = capSpecial().slice();
+    list.push({ part: 'CAST', label: '', size: null, length: null, qty: null });
+    MASTERS = { ...MASTERS, capacity: { ...(MASTERS.capacity || {}), special: list } };
+    renderCapacityBox();
+  });
+  $$('#capacity-box [data-sp-del]').forEach((b) => b.addEventListener('click', () => {
+    const list = capSpecial().slice();
+    list.splice(Number(b.dataset.spDel), 1);
+    MASTERS = { ...MASTERS, capacity: { ...(MASTERS.capacity || {}), special: list } };
+    renderCapacityBox();
+  }));
+  $('#btn-save-capacity').addEventListener('click', async () => {
+    const next = { CAST: { '3.6': {}, '4': {} }, SPLINT: {}, rules: { ...r }, special: [] };
+    $$('#capacity-box [data-cap]').forEach((el) => {
+      const [a, b, c] = el.dataset.cap.split('|');
+      const v = el.value === '' ? null : Number(el.value);
+      if (a === 'CAST') next.CAST[b][c] = v;
+      else if (a === 'SPLINT') next.SPLINT[b] = v;
+      else if (a === 'rules') next.rules[b] = v;
+    });
+    const sp = [];
+    $$('#capacity-box [data-sp]').forEach((el) => {
+      const [i, k] = el.dataset.sp.split('|');
+      sp[i] = sp[i] || {};
+      sp[i][k] = (k === 'size' || k === 'length' || k === 'qty') ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
+    });
+    next.special = sp.filter((s) => s && s.qty);
+    try {
+      MASTERS = await post('/api/masters', { ...MASTERS, capacity: next }, 'PUT');
+      renderCapacityBox();
+      alert('생산 가능량을 저장했습니다.');
+    } catch (err) { alert('저장 실패: ' + err.message); }
+  });
 }
 
 let editingWorker = null;
