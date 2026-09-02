@@ -6125,6 +6125,24 @@ const CAP_DEFAULT = {
    SPLINT은 호기마다 쓰는 수지가 다르다(1·2호기는 수지 종류는 같아도 촉매량이 다름).
    그래서 호기별로 드럼 수지를 따로 쓰며, 묶어서 생산하지 않는다 — 드럼 조는 CAST에만 있다. */
 const DRUM_DEFAULT = { CAST: [['2호기', '3호기'], ['4호기', '5호기']] };
+/* 호기에서 만들 수 있는 제품 종류
+   CAST는 호기 제한이 없다. SPLINT는 호기마다 만드는 타입이 정해져 있다
+   (1호기 SP타입 · 2호기 N타입 · 3호기 F타입). 제품명 앞의 영문으로 타입을 본다. */
+const machineTypes = (part, machine) => {
+  const v = (((MASTERS.machineResin || {})[part] || {})[machine] || {}).types;
+  return String(v || '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+};
+const productTypeToken = (product) => (String(product || '').trim().toUpperCase().match(/^[A-Z]+/) || [''])[0];
+function machineAllowsProduct(part, machine, product) {
+  const types = machineTypes(part, machine);
+  if (!types.length) return true;                 // 지정 안 했으면 제한 없음
+  const token = productTypeToken(product);
+  return types.some((t) => token === t || String(product || '').trim().toUpperCase().startsWith(t));
+}
+/* 그 제품을 만들 수 있는 호기들 */
+const machinesForProduct = (part, product) =>
+  partMachines(part).filter((m) => machineAllowsProduct(part, m, product));
+
 /* 무엇에 담아 쓰는지 (계획·작업지시 표시용)
    CAST: 두 호기를 묶으면 드럼 공유, 한 호기만 돌리면 캔이나 드럼 아무거나
    SPLINT: 호기마다 수지·촉매가 달라 항상 그 호기 전용 드럼 */
@@ -6351,19 +6369,21 @@ function renderCapacityBox() {
     </div>
     <p class="muted" style="font-size:12px;margin-top:6px">※ <b>CAST만</b> 드럼을 묶어 씁니다. 같은 조에 <b>수지와 토너가 같은 제품</b>을 붙이면 드럼 공유(효율 ↑), 한 호기만 돌리면 캔이나 드럼 아무거나 씁니다. 계획을 만들 때 되도록 묶는 쪽으로 봅니다(강제 아님).</p>
 
-    <h4 style="font-size:13.5px;margin:18px 0 8px">SPLINT 호기별 수지 <span class="muted" style="font-weight:400">호기마다 수지·촉매가 달라 전용 드럼을 씁니다 (묶음 없음)</span></h4>
+    <h4 style="font-size:13.5px;margin:18px 0 8px">SPLINT 호기별 생산 타입 · 수지 <span class="muted" style="font-weight:400">호기마다 만드는 제품과 수지·촉매가 정해져 있습니다 (드럼 묶음 없음)</span></h4>
     <div class="table-wrap"><table>
-      <thead><tr><th>호기</th><th>수지 종류</th><th>촉매량</th><th>비고</th></tr></thead>
+      <thead><tr><th>호기</th><th>생산 가능 타입</th><th>수지 종류</th><th>촉매량</th><th>비고</th></tr></thead>
       <tbody>
         ${partMachines('SPLINT').map((m) => {
           const r = ((MASTERS.machineResin || {}).SPLINT || {})[m] || {};
           return `<tr class="no-click"><td><b>${esc(m)}</b></td>
+            <td><input type="text" data-mr="SPLINT|${m}|types" value="${esc(r.types || '')}" placeholder="예: SP" style="width:110px"></td>
             <td><input type="text" data-mr="SPLINT|${m}|resin" value="${esc(r.resin || '')}" list="dl-resins" style="width:130px"></td>
             <td><input type="text" data-mr="SPLINT|${m}|catalyst" value="${esc(r.catalyst || '')}" placeholder="예: 1.6%" style="width:110px"></td>
             <td><input type="text" data-mr="SPLINT|${m}|note" value="${esc(r.note || '')}" style="width:100%"></td></tr>`;
         }).join('')}
       </tbody>
     </table></div>
+    <p class="muted" style="font-size:12px;margin-top:6px">※ <b>생산 가능 타입</b>은 제품명 앞 글자로 판단합니다 (예: 1호기 <b>SP</b> · 2호기 <b>N</b> · 3호기 <b>F</b>). 여러 개면 쉼표로 구분하고, 비워두면 제한 없음입니다. <b>CAST는 호기 제한이 없습니다.</b></p>
 
     <h4 style="font-size:13.5px;margin:18px 0 8px">특수 · 배관 <span class="muted" style="font-weight:400">표준 표에 없는 인치·길이는 여기서 직접 지정 (상황에 따라 자주 바뀜)</span></h4>
     <div class="table-wrap"><table>
