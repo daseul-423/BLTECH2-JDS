@@ -872,8 +872,7 @@
         <div class="form-grid">
           <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
           <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
-          <label>제품코드<input type="text" name="productCode" placeholder="예: NHC-3F-BK"></label>
-          <label>칼라<input type="text" name="color" list="dl-colors"></label>
+          <label>제품코드<input type="text" name="productCode" placeholder="예: NHC-3F"></label>
           <label>업체명<input type="text" name="customer" list="dl-customers" placeholder="비우면 공용"></label>
           <label>브랜드<input type="text" name="brand" placeholder="예: NEAL CAST PLUS"></label>
           <label class="wide">규격<input type="text" name="sizeSpec" placeholder="예: 3inch x 4.4yds (7.5cm x 4.0m)"></label>
@@ -890,38 +889,6 @@
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
         <p class="muted" style="margin-top:8px">※ 코팅량·토너·라벨·파우치·박스 등은 <b>업체 정보 › 생산사양</b>에서 관리합니다.</p>
-      </fieldset>
-      <fieldset>
-        <legend>제품 사진 <span class="auto-tag">제품 자체 사진 (포장 사진은 생산사양에서 등록)</span></legend>
-        <div class="photo-grid">
-          <div class="photo-slot" data-img="product">
-            <div class="photo-head">제품 외관</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-          <div class="photo-slot" data-img="base">
-            <div class="photo-head">기재 / 원단</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-          <div class="photo-slot" data-img="core">
-            <div class="photo-head">코어 / 기타</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-        </div>
       </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="standard-delete" hidden>삭제</button>
@@ -1038,36 +1005,7 @@
         </div>
       </fieldset>
       <fieldset>
-        <legend>포장 사양 · 사진</legend>
-        <div class="photo-grid">
-          <div class="photo-slot" data-img="pouch">
-            <div class="photo-head">라벨 · 파우치</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-          <div class="photo-slot" data-img="inBox">
-            <div class="photo-head">In Box (내박스)</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-          <div class="photo-slot" data-img="outBox">
-            <div class="photo-head">Out Box (외박스)</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-        </div>
+        <legend>포장 사양</legend>
         <div class="form-grid" style="margin-top:12px">
           <label class="wide">라벨 표기사항<input type="text" name="labelSpec" placeholder="LOT/EXP/Model 표기 규칙 등"></label>
           <label class="wide">In Box 기준<input type="text" name="inBoxSpec" placeholder="예: 10 ROLL, 라벨 표기사항"></label>

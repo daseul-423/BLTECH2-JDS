@@ -2451,8 +2451,6 @@ function findStandard(plan) {
     else if (sp === fam || spBase === fam) score = 5;
     else continue;
     if (variant) score += plan.customer && String(plan.customer).includes(variant) ? 3 : -2;
-    if (s.color && plan.color && s.color.trim().toUpperCase() === String(plan.color).trim().toUpperCase()) score += 2;
-    else if (s.color && plan.color) score -= 1;
     if (s.customer && s.customer === plan.customer) score += 1;
     if (score > bestScore) { bestScore = score; best = s; }
   }
@@ -2539,13 +2537,6 @@ function findCustSpec(p) {
   return { spec: spec || null, type, fellBack, base: base || null, custom: custom || null, overrides };
 }
 
-function orderPhoto(label, url) {
-  return `<div class="order-photo">
-    <div class="order-photo-label">${esc(label)}</div>
-    ${url ? `<img src="${esc(url)}" alt="${esc(label)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'order-photo-empty',textContent:'사진 없음'}))">` : '<div class="order-photo-empty">사진 미등록</div>'}
-  </div>`;
-}
-
 function openOrderModal(planId) {
   const p = PLANS.find((x) => x.id === planId);
   if (p) openOrderDoc(p, `WO-${esc(p.date ?? '').replace(/-/g, '')}-${p.id}`);
@@ -2556,7 +2547,11 @@ function openOrderDoc(p, docNo) {
   const s = findStandard(p) || {};
   const { spec, type, fellBack, custom, overrides } = findCustSpec(p);
   const cs = spec || {};
-  const img = cs.images || {};
+  // 업체 정보(masters.companies)도 문서에 싣는다 — 나라·컴러·특이사항
+  const co = (MASTERS.companies || []).find((x) => {
+    const a = String(x.name || '').trim().toLowerCase(), b = String(p.customer || '').trim().toLowerCase();
+    return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
+  }) || {};
   const ovSet = new Set(overrides || []);
   // 고객사 특이사항으로 덮어쓴 항목은 표시해 준다 (현장에서 "이 업체만 다른 값"을 알 수 있게)
   const row = (label, v, key) => `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}${key && ovSet.has(key) ? ' <span class="badge warn">고객사 특이사항</span>' : ''}</td></tr>`;
@@ -2568,35 +2563,38 @@ function openOrderDoc(p, docNo) {
     <div class="order-doc">
       <div class="order-head">
         <div class="order-title">작 업 지 시 서</div>
-        <table class="order-sign"><tr><th>작성</th><th>검토</th><th>승인</th></tr><tr><td></td><td></td><td></td></tr></table>
       </div>
       <div class="order-meta">발행일: ${todayStr()} · 문서번호: ${esc(docNo || '')}</div>
       <div style="margin:10px 0">${badge}</div>
       <h4>1. 생산 계획</h4>
       <table class="order-table">
-        ${row('생산일', p.date)}${row('호기', p.machine)}${row('업체명', p.customer)}${row('주문 차수', p.orderNo)}
-        ${row('제품명', `${p.product ?? ''} ${p.color ?? ''}`)}${row('제품코드', s.productCode)}${row('브랜드', s.brand)}
-        ${row('규격', s.sizeSpec || (p.length ? p.length + 'm' : ''))}${row('계획수량', p.planQty != null ? fmt(p.planQty) + ' EA' : '')}${row('비고', p.note)}
+        ${row('생산일', p.date)}${row('호기', p.machine)}${row('주문 차수', p.orderNo)}
+        ${row('제품명', p.product)}${row('제품코드', s.productCode)}${row('브랜드', s.brand)}
+        ${row('칼라', p.color)}${row('규격', s.sizeSpec || (p.length ? p.length + 'm' : ''))}
+        ${row('계획수량', p.planQty != null ? fmt(p.planQty) + ' EA' : '')}${row('용기', containerLabel(p.part || 'CAST', !!p.drumShared))}
+        ${row('비고', p.note)}
       </table>
-      <h4>2. 자재 기준 ${s.id ? `<span class="muted" style="font-weight:400">— 제품표준서: ${esc(s.product)}</span>` : '<span class="badge bad">제품표준서 미등록</span>'}</h4>
+      <h4>2. 업체 정보 ${co.name ? '' : '<span class="badge warn">업체 정보 미등록</span>'}</h4>
       <table class="order-table">
-        ${row('기재 종류', s.baseType)}${row('수지 종류', s.resinType)}${row('촉매', s.catalyst)}${row('코어 종류', s.core)}
+        ${row('업체명', p.customer)}${row('나라', co.country)}
+        ${row('포장 구분', type === 'OEM' ? 'OEM (고객사 전용 포장)' : 'NEAL 포장')}
+        ${row('업체 컨러', co.colors)}${row('업체 특이사항', co.notes)}
       </table>
-      <h4>3. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${custom ? '기본 NEAL + ' + esc(custom.customer || '') + ' 특이사항' : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 업체 정보 › 생산사양에서 등록</span>'}</h4>
+      <h4>3. 자재 기준 ${s.id ? `<span class="muted" style="font-weight:400">— 제품표준서: ${esc(s.product)}</span>` : '<span class="badge bad">제품표준서 미등록</span>'}</h4>
+      <table class="order-table">
+        ${row('품목', s.category)}${row('기재 종류', s.baseType)}${row('수지 종류', s.resinType)}
+        ${row('촉매', s.catalyst)}${row('코어 종류', s.core)}${row('제품표준서 비고', s.note)}
+      </table>
+      <h4>4. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${custom ? '기본 NEAL + ' + esc(custom.customer || '') + ' 특이사항' : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 업체 정보 › 생산사양에서 등록</span>'}</h4>
       <table class="order-table">
         ${row('코팅량 규격', coatingSpec(cs), 'coatingMid')}${row('토너', cs.toner, 'toner')}
       </table>
-      <h4>4. 포장 사양</h4>
+      <h4>5. 포장 사양</h4>
       <table class="order-table">
         ${row('라벨 표기', cs.labelSpec, 'labelSpec')}${row('파우치', cs.pouchType, 'pouchType')}${row('In Box', cs.inBoxSpec, 'inBoxSpec')}${row('Out Box', cs.outBoxSpec, 'outBoxSpec')}
-        ${row('설명서', cs.manualSpec)}${row('동봉품', cs.enclosures)}${row('포장 주의사항', cs.packingNote)}
+        ${row('설명서', cs.manualSpec, 'manualSpec')}${row('동봉품', cs.enclosures, 'enclosures')}${row('포장 주의사항', cs.packingNote, 'packingNote')}
       </table>
-      <div class="order-photos">
-        ${orderPhoto('라벨 · 파우치', img.pouch)}
-        ${orderPhoto('In Box (내박스)', img.inBox)}
-        ${orderPhoto('Out Box (외박스)', img.outBox)}
-      </div>
-      ${p.orderException ? `<h4>5. 수주별 예외사항</h4><div class="order-exception">${esc(p.orderException)}</div>` : ''}
+      ${p.orderException ? `<h4>6. 수주별 예외사항</h4><div class="order-exception">${esc(p.orderException)}</div>` : ''}
       <div class="no-print" style="margin-top:16px;text-align:center">
         <button class="btn primary" id="order-start-record">▶ 이 제품으로 공정기록 · 실적 입력</button>
       </div>
@@ -2694,16 +2692,13 @@ function renderStandards() {
   const q = $('#st-search').value.trim().toLowerCase();
   let items = STANDARDS.filter((s) => (s.part || 'CAST') === PART);
   if (q) items = items.filter((s) =>
-    [s.product, s.productCode, s.customer, s.brand, s.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
+    [s.product, s.productCode, s.customer, s.brand].some((v) => String(v ?? '').toLowerCase().includes(q)));
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
-    const img = s.images || {};
-    // 제품 사진 우선, 옛 데이터(포장 사진 키)도 썸네일로 계속 보여준다
-    const thumb = img.product || img.base || img.core || img.pouch || img.inBox || img.outBox;
     return `<div class="standard-card" data-standard-id="${s.id}">
-      <div class="standard-thumb">${thumb ? `<img src="${esc(thumb)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'📦'}))">` : '<span>📦</span>'}</div>
+      <div class="standard-thumb"><span>📦</span></div>
       <div class="standard-info">
-        <div class="standard-name"><b>${esc(s.product)}</b> ${esc(s.color ?? '')} <span class="muted">${esc(s.productCode ?? '')}</span></div>
+        <div class="standard-name"><b>${esc(s.product)}</b> <span class="muted">${esc(s.productCode ?? '')}</span></div>
         <div class="muted">${esc(s.category || 'CAST')} · ${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}</div>
         <div class="standard-mats">기재 ${esc(s.baseType ?? '-')} · 수지 ${esc(s.resinType ?? '-')} · 촉매 ${esc(s.catalyst ?? '-')}</div>
         <div class="standard-mats">코팅 ${s.coatingMid != null && s.coatingMid !== '' ? `${esc(s.coatingMin)}~${esc(s.coatingMax)} (중심 ${esc(s.coatingMid)})` : '-'} · 코어 ${esc(s.core ?? '-')}</div>
@@ -2746,8 +2741,6 @@ function initPhotoSlot(slot) {
     file.value = '';
   });
 }
-$$('#standard-form .photo-slot').forEach(initPhotoSlot);
-$$('#custspec-form .photo-slot').forEach(initPhotoSlot);
 $$('#equipcheck-form .photo-slot').forEach(initPhotoSlot);
 
 /* 사진은 문서 안에 dataURL로 들어간다(Storage 미사용). Firestore 문서 한도 1MiB를
@@ -2784,7 +2777,6 @@ function openStandardModal(id = null) {
   } else {
     standardForm.elements.part.value = PART;
   }
-  $$('#standard-form .photo-slot').forEach((slot) => slot._setUrl((s && s.images && s.images[slot.dataset.img]) || ''));
   gateModal('#standard-form', id ? can('update', 'standards') : can('create', 'standards'), !!id && can('delete', 'standards'));
   $('#standard-modal').hidden = false;
 }
@@ -2799,11 +2791,7 @@ standardForm.addEventListener('submit', async (e) => {
     if (!el.name) return;
     s[el.name] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
   });
-  // 화면에 슬롯이 없는 옛 키(pouch/inBox/outBox 등)까지 지워지지 않도록 기존 값에서 시작
-  const prevImgs = (editingStandardId ? (STANDARDS.find((x) => x.id === editingStandardId) || {}).images : null) || {};
-  s.images = { ...prevImgs };
-  $$('#standard-form .photo-slot').forEach((slot) => (s.images[slot.dataset.img] = slot.dataset.url || ''));
-  if (!checkImagesSize(s.images)) return;
+  delete s.images;                      // 사진 기능은 쓰지 않는다 — 예전 데이터도 저장 시 정리된다
   try {
     if (editingStandardId) await post('/api/standards/' + editingStandardId, s, 'PUT');
     else await post('/api/standards', s);
@@ -2898,7 +2886,6 @@ function openCustSpecModal(id = null, prefill = null) {
         if (el && v != null) el.value = v;
       });
     }
-    $$('#custspec-form .photo-slot').forEach((slot) => slot._setUrl(''));
     gateModal('#custspec-form', can('create', 'custspecs'), false);
     $('#custspec-modal').hidden = false;
     return;
@@ -2916,7 +2903,6 @@ function openCustSpecModal(id = null, prefill = null) {
     custspecForm.elements.part.value = PART;
     custspecForm.elements.specTarget.value = '__NEAL__';
   }
-  $$('#custspec-form .photo-slot').forEach((slot) => slot._setUrl((s && s.images && s.images[slot.dataset.img]) || ''));
   gateModal('#custspec-form', id ? can('update', 'custspecs') : can('create', 'custspecs'), !!id && can('delete', 'custspecs'));
   $('#custspec-modal').hidden = false;
 }
@@ -2934,10 +2920,7 @@ custspecForm.addEventListener('submit', async (e) => {
   const target = s.specTarget; delete s.specTarget;
   s.specType = (target && target !== '__NEAL__') ? 'OEM' : 'NEAL';
   s.customer = s.specType === 'OEM' ? target : null;
-  const prevCsImgs = (editingCustSpecId ? (CUSTSPECS.find((x) => x.id === editingCustSpecId) || {}).images : null) || {};
-  s.images = { ...prevCsImgs };
-  $$('#custspec-form .photo-slot').forEach((slot) => (s.images[slot.dataset.img] = slot.dataset.url || ''));
-  if (!checkImagesSize(s.images)) return;
+  delete s.images;
   try {
     if (editingCustSpecId) await post('/api/custspecs/' + editingCustSpecId, s, 'PUT');
     else await post('/api/custspecs', s);
@@ -3163,7 +3146,6 @@ function renderCompanySpecs(co) {
     return;
   }
   const rows = specs.map((s) => {
-    const photos = Object.values(s.images || {}).filter(Boolean).length;
     return `<tr class="co-spec-row" data-csid="${s.id}" style="cursor:pointer">
       <td>${esc(s.part || 'CAST')}</td>
       <td><b>${esc(s.product || '')}</b>${s.variant ? ` <span class="muted">(${esc(s.variant)})</span>` : ''}</td>
@@ -3171,13 +3153,12 @@ function renderCompanySpecs(co) {
       <td class="num">${(s.coatingMid != null && s.coatingMid !== '') ? `${esc(s.coatingMin)}~${esc(s.coatingMax)}` : '-'}</td>
       <td>${esc(s.toner || '-')}</td><td>${esc(s.pouchType || '-')}</td>
       <td>${esc(s.inBoxSpec || '-')}</td><td>${esc(s.outBoxSpec || '-')}</td>
-      <td>${photos ? '📷 ' + photos : '<span class="muted">-</span>'}</td>
     </tr>`;
   }).join('');
   $('#co-spec-list').innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>공정</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>인박스</th><th>아웃박스</th><th>사진</th></tr></thead>
+    <thead><tr><th>공정</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>인박스</th><th>아웃박스</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <p class="muted" style="margin-top:8px;font-size:12px">행을 클릭하면 사양 수정 창이 열립니다 (코팅량 · 포장 · 사진 3장).</p>${warn}`;
+    <p class="muted" style="margin-top:8px;font-size:12px">행을 클릭하면 사양 수정 창이 열립니다 (코팅량 · 포장).</p>${warn}`;
   $('#co-spec-count').textContent = specs.length;
 }
 
@@ -3328,7 +3309,7 @@ async function runCoMigrate() {
         const partEl = $(`#comigrate-body select[data-migpart="${i}"]`);
         const product = prodEl ? prodEl.value.trim() : '';
         if (product) {                                   // 제품을 적었으면 사양 생성, 비웠으면 값만 정리
-          const obj = { part: (partEl && partEl.value) || 'CAST', product, specType: 'OEM', customer: p.co.name, images: {} };
+          const obj = { part: (partEl && partEl.value) || 'CAST', product, specType: 'OEM', customer: p.co.name };
           p.movable.forEach((f) => { obj[f.spec] = p.co[f.key]; });
           await post('/api/custspecs', obj);
           created++;
@@ -4834,16 +4815,11 @@ function openStartCheckModal() {
     WS.startChecks = WS.startChecks || {};
     body.innerHTML = infos.map((info) => {
       const cs = findCustSpec({ part: wsPart, product: info.product, color: info.color, customer: info.customer });
-      const ref = (cs && cs.images) || {};
       const type = customerSpecType(info.customer);
       const c = WS.startChecks[info.product] || {};
       return `<div class="sc-row" data-product="${esc(info.product)}">
         <div class="sc-title"><b>${esc(info.product)}</b> ${esc(info.color || '')} · ${esc(info.customer || '내수')} ${specBadge(type)}${cs ? '' : ' <span class="badge bad">사양 미등록</span>'}</div>
         <div class="sc-photos">
-          <div class="sc-ref">
-            <div class="photo-head">기준 라벨(사양)</div>
-            <div class="photo-box">${ref.pouch ? `<img src="${esc(ref.pouch)}">` : '<span class="photo-empty">기준 사진 미등록</span>'}</div>
-          </div>
           <div class="photo-slot" data-img="cap">
             <div class="photo-head">📷 현장 촬영 (라벨/LOT 실링)</div>
             <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
@@ -4851,7 +4827,7 @@ function openStartCheckModal() {
             <input type="file" accept="image/*" capture="environment" hidden>
           </div>
         </div>
-        <label class="sc-ok"><input type="checkbox" data-sc-ok ${c.labelOk ? 'checked' : ''}> 기준 라벨과 일치함을 확인</label>
+        <label class="sc-ok"><input type="checkbox" data-sc-ok ${c.labelOk ? 'checked' : ''}> 라벨 표기가 사양과 일치함을 확인</label>
         <div class="sc-lot">
           <span>LOT(일지 기재): <b>${esc(info.lotNo || '(미기재)')}</b></span>
           <label>라벨 LOT 입력<input type="text" data-sc-lot value="${esc(c.lotRead || '')}" placeholder="라벨에 인쇄된 LOT"></label>
