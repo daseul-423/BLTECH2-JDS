@@ -2578,7 +2578,7 @@ function openOrderDoc(p, docNo) {
       <table class="order-table">
         ${row('업체명', p.customer)}${row('나라', co.country)}
         ${row('포장 구분', type === 'OEM' ? 'OEM (고객사 전용 포장)' : 'NEAL 포장')}
-        ${row('업체 컨러', co.colors)}${row('업체 특이사항', co.notes)}
+        ${row('업체 컬러', co.colors)}${row('업체 특이사항', co.notes)}
       </table>
       <h4>3. 자재 기준 ${s.id ? `<span class="muted" style="font-weight:400">— 제품표준서: ${esc(s.product)}</span>` : '<span class="badge bad">제품표준서 미등록</span>'}</h4>
       <table class="order-table">
@@ -2693,6 +2693,10 @@ function renderStandards() {
   let items = STANDARDS.filter((s) => (s.part || 'CAST') === PART);
   if (q) items = items.filter((s) =>
     [s.product, s.productCode, s.customer, s.brand].some((v) => String(v ?? '').toLowerCase().includes(q)));
+  // 자재 기준이 같은 중복 표준서가 있으면 정리 버튼 노출
+  const dupCount = can('update', 'standards') ? findStdDupeGroups().length : 0;
+  const dupBtn = $('#btn-std-dedupe');
+  if (dupBtn) { dupBtn.hidden = !dupCount; dupBtn.textContent = `🧹 중복 정리 (${dupCount})`; }
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
     return `<div class="standard-card" data-standard-id="${s.id}">
@@ -2780,6 +2784,94 @@ function openStandardModal(id = null) {
   gateModal('#standard-form', id ? can('update', 'standards') : can('create', 'standards'), !!id && can('delete', 'standards'));
   $('#standard-modal').hidden = false;
 }
+/* ── 제품표준서 중복 정리 ──────────────────────────────────────────
+   표준서는 제품 종류별로 한 건이면 된다. 예전에 업체·색상별로 따로 만들어 둔 것
+   (예: NPC-F / NPC-F(SIGMAX))은 자재 기준이 같으면 합친다.
+   업체별 차이(코팅량·포장)는 생산사양에서 관리하므로 표준서를 나눌 이유가 없다. */
+const STD_MAT_KEYS = ['category', 'baseType', 'resinType', 'catalyst', 'core', 'sizeSpec'];
+const stdBaseName = (p) => {
+  const m = /^(.+?)\s*\((.+)\)$/.exec(String(p || '').trim());
+  return (m ? m[1] : String(p || '')).trim();
+};
+const stdMatKey = (s) => STD_MAT_KEYS.map((k) => String(s[k] ?? '').trim().toUpperCase()).join('|');
+function findStdDupeGroups() {
+  const map = new Map();
+  (STANDARDS || []).forEach((s) => {
+    const key = [(s.part || 'CAST'), stdBaseName(s.product).toUpperCase(), stdMatKey(s)].join('::');
+    (map.get(key) || map.set(key, []).get(key)).push(s);
+  });
+  return [...map.values()].filter((g) => g.length > 1);
+}
+
+let STD_DUPE_GROUPS = [];
+function openStdDedupeModal() {
+  STD_DUPE_GROUPS = findStdDupeGroups();
+  const body = $('#stddedupe-body');
+  if (!STD_DUPE_GROUPS.length) {
+    body.innerHTML = '<div class="empty">합칠 만한 중복 표준서가 없습니다.</div>';
+    $('#stddedupe-run').hidden = true; $('#stddedupe-modal').hidden = false; return;
+  }
+  body.innerHTML = STD_DUPE_GROUPS.map((g, gi) => {
+    // 대표는 괄호 없는 이름 > 짧은 이름 순으로 추천
+    const best = g.slice().sort((a, b) =>
+      (/\(/.test(a.product) ? 1 : 0) - (/\(/.test(b.product) ? 1 : 0)
+      || String(a.product || '').length - String(b.product || '').length)[0];
+    const mat = STD_MAT_KEYS.map((k) => best[k]).filter(Boolean).join(' · ');
+    const rows = g.map((s) => `<tr class="no-click">
+      <td style="width:34px"><input type="radio" name="stddup-${gi}" value="${s.id}"${s.id === best.id ? ' checked' : ''}></td>
+      <td><b>${esc(s.product)}</b>${s.id === best.id ? ' <span class="badge neal">대표 추천</span>' : ''}
+        ${s.color ? ` <span class="badge plain">색상 ${esc(s.color)}</span>` : ''}
+        ${s.customer ? ` <span class="muted" style="font-size:12px">업체 ${esc(s.customer)}</span>` : ''}</td>
+      <td class="muted" style="font-size:12px">${esc(s.productCode || '-')}</td>
+      <td class="muted" style="font-size:12px">${(s.images && Object.values(s.images).filter(Boolean).length) ? '사진 잔재 있음' : ''}</td>
+    </tr>`).join('');
+    return `<fieldset style="margin-bottom:14px">
+      <legend><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" data-stddup="${gi}" checked> 이 그룹 합치기</label></legend>
+      <p class="muted" style="margin-bottom:8px;font-size:12.5px">자재 기준: <b>${esc(mat || '(미입력)')}</b> — 아래 ${g.length}건이 모두 같습니다. 남길 이름을 고르세요.</p>
+      <table><tbody>${rows}</tbody></table>
+    </fieldset>`;
+  }).join('');
+  $('#stddedupe-run').hidden = false;
+  $('#stddedupe-modal').hidden = false;
+}
+
+async function runStdDedupe() {
+  const picked = $$('#stddedupe-body input[data-stddup]:checked').map((el) => Number(el.dataset.stddup));
+  if (!picked.length) { alert('합칠 그룹을 선택하세요.'); return; }
+  const btn = $('#stddedupe-run');
+  btn.disabled = true; btn.textContent = '정리 중…';
+  let merged = 0, removed = 0;
+  try {
+    for (const gi of picked) {
+      const g = STD_DUPE_GROUPS[gi];
+      const keepId = Number(($(`#stddedupe-body input[name="stddup-${gi}"]:checked`) || {}).value);
+      const keep = g.find((s) => s.id === keepId) || g[0];
+      const others = g.filter((s) => s.id !== keep.id);
+      // 대표에 비어 있는 항목만 다른 문서 값으로 채우고, 색상·사진 잔재는 정리
+      const next = { ...keep };
+      others.forEach((o) => Object.entries(o).forEach(([k, v]) => {
+        if (k === 'id' || k === 'product' || k === 'color' || k === 'images') return;
+        if ((next[k] == null || String(next[k]).trim() === '') && v != null && String(v).trim() !== '') next[k] = v;
+      }));
+      delete next.color; delete next.images;
+      await post('/api/standards/' + keep.id, next, 'PUT');
+      for (const o of others) { await api('/api/standards/' + o.id, { method: 'DELETE' }); removed++; }
+      merged++;
+    }
+    await loadStandards();
+    $('#stddedupe-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`정리 완료\n\n· 합친 그룹: ${merged}개\n· 삭제한 중복 표준서: ${removed}건`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
+  } finally { btn.disabled = false; btn.textContent = '선택한 그룹 합치기'; }
+}
+$('#btn-std-dedupe').addEventListener('click', openStdDedupeModal);
+$('#stddedupe-close').addEventListener('click', () => ($('#stddedupe-modal').hidden = true));
+$('#stddedupe-cancel').addEventListener('click', () => ($('#stddedupe-modal').hidden = true));
+$('#stddedupe-run').addEventListener('click', runStdDedupe);
+
 $('#btn-new-standard').addEventListener('click', () => openStandardModal());
 $('#standard-modal-close').addEventListener('click', () => ($('#standard-modal').hidden = true));
 $('#standard-cancel').addEventListener('click', () => ($('#standard-modal').hidden = true));
