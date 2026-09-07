@@ -581,20 +581,24 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .pivot-foot td { background: #f7f9fd; border-top: 2px solid var(--line); }
 
 /* ---- 제품표준서 ---- */
-.standard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+/* 제품표준서 카드 — 사진 칸 없이 자재 기준만 (코팅·포장·색상은 생산사양 소관) */
+.standard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .standard-card {
-  display: flex; gap: 12px; border: 1px solid var(--line); border-radius: 10px;
-  padding: 12px; cursor: pointer; background: #fff;
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; cursor: pointer; background: #fff; transition: border-color .12s, box-shadow .12s;
 }
-.standard-card:hover { border-color: var(--brand); background: #f4f7ff; }
-.standard-thumb {
-  width: 72px; height: 72px; border-radius: 8px; background: var(--brand-soft);
-  display: flex; align-items: center; justify-content: center; font-size: 26px; overflow: hidden; flex-shrink: 0;
+.standard-card:hover { border-color: var(--brand); box-shadow: 0 2px 10px rgba(16,24,40,.06); }
+.standard-info { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.standard-name { font-size: 15px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.standard-name b { letter-spacing: -.2px; }
+.std-code { font-size: 11.5px; color: var(--muted); }
+.std-part {
+  margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--brand-deep);
+  background: var(--brand-soft); border-radius: 6px; padding: 2px 7px;
 }
-.standard-thumb img { width: 100%; height: 100%; object-fit: cover; }
-.standard-info { min-width: 0; font-size: 12px; display: flex; flex-direction: column; gap: 3px; }
-.standard-name { font-size: 14px; }
-.standard-mats { color: var(--muted); }
+.std-sub { font-size: 12px; color: var(--muted); }
+.std-mat { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; color: var(--ink2, #3D4351); }
+.std-mat i { font-style: normal; color: var(--muted); margin-right: 3px; }
 
 /* ---- 사진 슬롯 ---- */
 .photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }

@@ -2695,13 +2695,17 @@ function renderStandards() {
   if (dupBtn) { dupBtn.hidden = !dupCount; dupBtn.textContent = `🧹 중복 정리 (${dupCount})`; }
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
+    // 자재 기준만 보여준다. 코팅량·포장·색상은 생산사양 소관이라 여기 싣지 않는다.
+    const mat = (label, v) => v ? `<span><i>${label}</i> ${esc(v)}</span>` : '';
     return `<div class="standard-card" data-standard-id="${s.id}">
-      <div class="standard-thumb"><span>📦</span></div>
       <div class="standard-info">
-        <div class="standard-name"><b>${esc(s.product)}</b> <span class="muted">${esc(s.productCode ?? '')}</span></div>
-        <div class="muted">${esc(s.category || 'CAST')} · ${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}</div>
-        <div class="standard-mats">기재 ${esc(s.baseType ?? '-')} · 수지 ${esc(s.resinType ?? '-')} · 촉매 ${esc(s.catalyst ?? '-')}</div>
-        <div class="standard-mats">코팅 ${s.coatingMid != null && s.coatingMid !== '' ? `${esc(s.coatingMin)}~${esc(s.coatingMax)} (중심 ${esc(s.coatingMid)})` : '-'} · 코어 ${esc(s.core ?? '-')}</div>
+        <div class="standard-name"><b>${esc(s.product)}</b>
+          ${s.productCode ? `<span class="std-code">${esc(s.productCode)}</span>` : ''}
+          <span class="std-part">${esc(s.part || 'CAST')}</span></div>
+        <div class="std-sub">${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}${s.sizeSpec ? ' · ' + esc(s.sizeSpec) : ''}</div>
+        <div class="std-mat">
+          ${mat('기재', s.baseType)}${mat('수지', s.resinType)}${mat('촉매', s.catalyst)}${mat('코어', s.core)}
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -2790,13 +2794,48 @@ const stdBaseName = (p) => {
   return (m ? m[1] : String(p || '')).trim();
 };
 const stdMatKey = (s) => STD_MAT_KEYS.map((k) => String(s[k] ?? '').trim().toUpperCase()).join('|');
+/* 자재 값 비교용 정규화 — 괄호 설명·공백·기호 무시 ("68TEX (Fiberglass)" = "68TEX") */
+const matNorm = (v) => String(v ?? '').replace(/\([^)]*\)/g, '').replace(/[\s.\-_/]/g, '').toUpperCase();
+const MAT_CORE = ['category', 'baseType', 'resinType', 'catalyst', 'core'];
+/* 제품명에서 숫자·괄호·기호를 뺀 키 — NHC-3F 와 NHC-F 를 같은 계열로 본다 */
+const stdNameKey = (p) => String(p ?? '').replace(/\([^)]*\)/g, '').replace(/[0-9]/g, '').replace(/[\s\-_/]/g, '').toUpperCase();
+/* 자재 기준이 같은가 — 한쪽이 비어 있으면 그 항목은 같은 것으로 본다 */
+function sameMaterials(a, b) {
+  let matched = 0;
+  for (const k of MAT_CORE) {
+    const x = matNorm(a[k]), y = matNorm(b[k]);
+    if (!x || !y) continue;
+    if (x !== y) return false;
+    if (k === 'baseType' || k === 'resinType') matched++;
+  }
+  return matched > 0;   // 기재나 수지 중 하나는 실제로 일치해야 함
+}
+/* ① 이름 계열이 같은 중복  ② 이름은 달라도 자재가 같은 것 — 두 종류로 나눠 제시 */
 function findStdDupeGroups() {
-  const map = new Map();
+  const byName = new Map();
   (STANDARDS || []).forEach((s) => {
     const key = [(s.part || 'CAST'), stdBaseName(s.product).toUpperCase(), stdMatKey(s)].join('::');
-    (map.get(key) || map.set(key, []).get(key)).push(s);
+    (byName.get(key) || byName.set(key, []).get(key)).push(s);
   });
-  return [...map.values()].filter((g) => g.length > 1);
+  const sameName = [...byName.values()].filter((g) => g.length > 1);
+  const taken = new Set(sameName.flat().map((s) => s.id));
+  // 남은 것들 중 자재가 같은 묶음 (이름이 달라도)
+  const rest = (STANDARDS || []).filter((s) => !taken.has(s.id));
+  const crossName = [];
+  const used = new Set();
+  rest.forEach((a, i) => {
+    if (used.has(a.id)) return;
+    const g = [a];
+    rest.forEach((b, j) => {
+      if (j <= i || used.has(b.id)) return;
+      if ((a.part || 'CAST') !== (b.part || 'CAST')) return;
+      // 이름에서 숫자·기호를 뺐을 때 같은 것만 (NHC-3F ↔ NHC-F). 자재만 같은 다른 제품까지 묶지 않는다
+      if (stdNameKey(a.product) !== stdNameKey(b.product)) return;
+      if (sameMaterials(a, b)) { g.push(b); used.add(b.id); }
+    });
+    if (g.length > 1) { used.add(a.id); g.crossName = true; crossName.push(g); }
+  });
+  return [...sameName, ...crossName];
 }
 
 let STD_DUPE_GROUPS = [];
@@ -2821,10 +2860,12 @@ function openStdDedupeModal() {
       <td class="muted" style="font-size:12px">${esc(s.productCode || '-')}</td>
       <td class="muted" style="font-size:12px">${(s.images && Object.values(s.images).filter(Boolean).length) ? '사진 잔재 있음' : ''}</td>
     </tr>`).join('');
-    return `<fieldset style="margin-bottom:14px">
+    return `<fieldset style="margin-bottom:14px${g.crossName ? ';border-color:var(--warn);background:#fffdf6' : ''}">
       <legend><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
-        <input type="checkbox" data-stddup="${gi}" checked> 이 그룹 합치기</label></legend>
-      <p class="muted" style="margin-bottom:8px;font-size:12.5px">자재 기준: <b>${esc(mat || '(미입력)')}</b> — 아래 ${g.length}건이 모두 같습니다. 남길 이름을 고르세요.</p>
+        <input type="checkbox" data-stddup="${gi}"${g.crossName ? '' : ' checked'}>
+        ${g.crossName ? '이름이 다른 묶음 — 확인 후 선택' : '이 그룹 합치기'}</label></legend>
+      <p class="muted" style="margin-bottom:8px;font-size:12.5px">자재 기준: <b>${esc(mat || '(미입력)')}</b> — 아래 ${g.length}건이 같습니다.
+        ${g.crossName ? '<b>제품명이 서로 다릅니다.</b> 같은 제품이 맞는지 확인하고 남길 이름을 고르세요.' : '남길 이름을 고르세요.'}</p>
       <table><tbody>${rows}</tbody></table>
     </fieldset>`;
   }).join('');
@@ -2846,8 +2887,10 @@ async function runStdDedupe() {
       const others = g.filter((s) => s.id !== keep.id);
       // 대표에 비어 있는 항목만 다른 문서 값으로 채우고, 색상·사진 잔재는 정리
       const next = { ...keep };
+      // 제품코드·업체명은 색상/업체별 표기라 승계하지 않는다 (NHC-3F-BK 같은 값이 따라오지 않게)
+      const NO_INHERIT = ['id', 'product', 'color', 'images', 'productCode', 'customer'];
       others.forEach((o) => Object.entries(o).forEach(([k, v]) => {
-        if (k === 'id' || k === 'product' || k === 'color' || k === 'images') return;
+        if (NO_INHERIT.includes(k)) return;
         if ((next[k] == null || String(next[k]).trim() === '') && v != null && String(v).trim() !== '') next[k] = v;
       }));
       delete next.color; delete next.images;
