@@ -6157,9 +6157,12 @@ const drumPartner = (part, machine) => {
   return g ? g.find((m) => m !== machine) || null : null;
 };
 /* 파트별 호기 목록 — 기준정보에서 지정, 없으면 전체 호기 */
+/* 파트별 기본 호기 — 지정 전에도 엉뚱한 호기가 끼지 않게 (SPLINT는 3대뿐) */
+const PART_MACHINE_DEFAULT = { SPLINT: ['1호기', '2호기', '3호기'] };
 const partMachines = (part) => {
   const m = (MASTERS.partMachines || {})[part];
-  return (m && m.length) ? m : (MASTERS.machines || []);
+  if (m && m.length) return m;
+  return PART_MACHINE_DEFAULT[part] || (MASTERS.machines || []);
 };
 /* 믹싱 키: 수지 + 토너 (같으면 같은 드럼을 나눠 쓸 수 있다) */
 function mixKeyOf(plan) {
@@ -6338,7 +6341,7 @@ function renderCapacityBox() {
   const cap = capMaster(), r = cap.rules;
   const castSizes = [...new Set([...Object.keys(cap.CAST['3.6'] || {}), ...Object.keys(cap.CAST['4'] || {})]
     .map(Number))].sort((a, b) => a - b);
-  const splintMachines = [...new Set([...Object.keys(cap.SPLINT || {}), ...(MASTERS.machines || [])])];
+  const splintMachines = partMachines('SPLINT');   // SPLINT는 3대뿐 — 전체 호기를 끌어오지 않는다
   const nInput = (key, v, w = 90) => `<input type="number" data-cap="${key}" value="${v == null ? '' : v}" style="width:${w}px">`;
   box.innerHTML = `
     <div class="grid-2">
