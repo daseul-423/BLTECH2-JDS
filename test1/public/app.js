@@ -2081,11 +2081,7 @@ if (soForm) {
   $('#order-modal').addEventListener('click', (e) => { if (e.target === $('#order-modal')) $('#order-modal').hidden = true; });
   $('#order-custcode').addEventListener('change', soApplyCustCodeMap);
   $('#btn-import-orders').addEventListener('click', () => openSoUpload());
-  $('#btn-gen-plans').addEventListener('click', () => {
-    const ids = ORDERS.filter((o) => !o.planId).map((o) => o.id);
-    if (!ids.length) return;
-    if (confirm(`계획이 없는 수주 ${ids.length}건에 생산계획을 생성할까요?\n(생산 마감 = 희망출고일 − ${PLAN_LEAD_DAYS}일)`)) genPlansFor(ids);
-  });
+  $('#btn-gen-plans').addEventListener('click', () => openPlanGenModal());
   soForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const o = {};
@@ -6110,13 +6106,26 @@ function assignCrew(plan, absents, used, opts = {}) {
   const date = plan.date;
   const crew = {}, marks = {}, missing = [];
   const free = (n) => n && !used.has(n) && !isOutOn(absents, n, date);
+  // 그 날 자기 고정 호기에도 생산이 있는 사람은 그 호기에 남겨둔다(다른 호기로 빼가지 않음).
+  // 단 그렇게 하면 아무도 못 세우는 경우에는 어쩔 수 없이 데려온다.
+  const reserved = (n) => {
+    const w = workerInfo(n) || {};
+    return !!(w.machine && w.machine !== plan.machine && opts.dayMachines && opts.dayMachines.has(w.machine));
+  };
   const pick = (cap) => {
-    const all = candidatesFor(part, cap).filter(free);
+    let all = candidatesFor(part, cap).filter(free);
+    const free2 = all.filter((n) => !reserved(n));
+    // 보조·포장 자리에 다른 호기의 고정 담당자를 데려오지 않는다 (그 호기가 비어버리므로).
+    // 호기장은 자리가 비면 생산 자체가 못 돌아가니 마지막 수단으로만 데려온다.
+    if (free2.length) all = free2;
+    else if (cap !== 'lead') return null;
     if (!all.length) return null;
     // 1순위: 이 호기 고정 담당  2순위: 이 파트 소속  3순위: 타 파트 지원 가능자
     const score = (n) => {
       const w = workerInfo(n) || {};
       if (w.machine && plan.machine && w.machine === plan.machine) return 0;
+      // 그 날 자기 고정 호기에도 생산이 있으면 거기 남겨둔다 (다른 호기 보조로 빼가지 않음)
+      if (w.machine && w.machine !== plan.machine && opts.dayMachines && opts.dayMachines.has(w.machine)) return 9;
       if (w.part === part) return 1;
       return w.support ? 2 : 3;
     };
@@ -6124,7 +6133,7 @@ function assignCrew(plan, absents, used, opts = {}) {
     all.sort((a, b) => score(a) - score(b)
       || workHoursOn(absents, b, date) - workHoursOn(absents, a, date)
       || String(a).localeCompare(b, 'ko'));
-    if (opts.sameCrewOnly && score(all[0]) === 3) return null;   // 지원 불가자는 제외
+    if (opts.sameCrewOnly && score(all[0]) >= 3) return null;   // 지원 불가자는 제외
     return all[0];
   };
   for (const slot of crewSlots(part)) {
@@ -6149,15 +6158,220 @@ function assignCrewForPlans(plans, absents, opts = {}) {
   const result = [];
   Object.keys(byDate).sort().forEach((d) => {
     const used = new Set();
+    const dayMachines = new Set(byDate[d].map((p) => p.machine).filter(Boolean));
+    // 고정 담당자가 있는 호기를 먼저 배치해야 그 사람이 자기 호기를 차지한다.
+    // (나중에 처리하면 앞선 호기가 데려가 버려서 정작 자기 호기가 빈다)
+    const hasOwner = (p) => (MASTERS.workers || []).some((n) => {
+      const w = workerInfo(n) || {};
+      return w.machine === p.machine && !isOutOn(absents, n, d) && canDoSlot(n, p.part || 'CAST', 'lead');
+    });
     byDate[d].slice()
-      .sort((a, b) => PRIORITY_LEVELS.indexOf(normPriority(b.priority)) - PRIORITY_LEVELS.indexOf(normPriority(a.priority)))
+      .sort((a, b) => (hasOwner(b) ? 1 : 0) - (hasOwner(a) ? 1 : 0)
+        || PRIORITY_LEVELS.indexOf(normPriority(b.priority)) - PRIORITY_LEVELS.indexOf(normPriority(a.priority)))
       .forEach((p) => {
-        const r = assignCrew(p, absents, used, opts);
+        const r = assignCrew(p, absents, used, { ...opts, dayMachines });
         result.push({ ...p, crew: r.crew, crewMarks: r.marks, crewMissing: r.missing });
       });
   });
   return result;
 }
+/* ── 생산계획 자동 생성 화면 (조건 → 결과 확인 → 저장) ────────────── */
+let PG_TARGETS = [], PG_RESULT = null;
+function pgAbsentRow(a = {}) {
+  const opts = (list, v) => list.map((x) => `<option${String(v) === String(x) ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  return `<div class="dyn-row pg-absent">
+    <label>이름<select data-a="name"><option value=""></option>${opts(MASTERS.workers || [], a.name)}</select></label>
+    <label>구분<select data-a="type">${opts(ABSENT_TYPES.map((t) => t.type), a.type || '연차')}</select></label>
+    <label>시작일<input type="date" data-a="from" value="${esc(a.from || '')}"></label>
+    <label>종료일<input type="date" data-a="to" value="${esc(a.to || '')}"></label>
+    <label>시간<span class="field-wrap"><input type="time" data-a="start" value="${esc(a.start || '')}" style="width:100px">
+      <input type="time" data-a="end" value="${esc(a.end || '')}" style="width:100px"></span></label>
+    <button type="button" class="btn small danger dyn-del pg-absent-del">삭제</button>
+  </div>`;
+}
+function pgReadAbsents() {
+  return $$('#pg-absents .pg-absent').map((row) => {
+    const g = (k) => (row.querySelector(`[data-a="${k}"]`) || {}).value || '';
+    const t = absentType(g('type'));
+    return { name: g('name'), type: g('type'), from: g('from') || null, to: g('to') || g('from') || null,
+      start: g('start') || t.start || null, end: g('end') || t.end || null };
+  }).filter((a) => a.name && a.from);
+}
+function openPlanGenModal() {
+  PG_TARGETS = ORDERS.filter((o) => !o.planId);
+  if (!PG_TARGETS.length) { alert('계획을 만들 수주가 없습니다.'); return; }
+  const dl = PG_TARGETS.map((o) => orderDeadline(o) || o.dueDate).filter(Boolean).sort();
+  $('#pg-from').value = todayStr();
+  $('#pg-to').value = dl.length ? dl[dl.length - 1] : addDays(todayStr(), 14);
+  $('#pg-target').innerHTML = `계획이 없는 수주 <b>${PG_TARGETS.length}건</b>이 대상입니다. `
+    + `가장 이른 생산 마감: <b>${esc(dl[0] || '-')}</b> (희망출고일 − ${PLAN_LEAD_DAYS}일)`;
+  $('#pg-absents').innerHTML = pgAbsentRow();
+  $('#plangen-step1').hidden = false; $('#plangen-step2').hidden = true;
+  $('#plangen-modal').hidden = false;
+}
+$('#pg-absent-add').addEventListener('click', () => $('#pg-absents').insertAdjacentHTML('beforeend', pgAbsentRow()));
+$('#pg-absents').addEventListener('click', (e) => { const b = e.target.closest('.pg-absent-del'); if (b) b.closest('.pg-absent').remove(); });
+$('#plangen-close').addEventListener('click', () => ($('#plangen-modal').hidden = true));
+$('#plangen-cancel').addEventListener('click', () => ($('#plangen-modal').hidden = true));
+$('#plangen-cancel2').addEventListener('click', () => ($('#plangen-modal').hidden = true));
+$('#pg-back').addEventListener('click', () => { $('#plangen-step1').hidden = false; $('#plangen-step2').hidden = true; });
+
+$('#pg-run').addEventListener('click', () => {
+  const from = $('#pg-from').value, to = $('#pg-to').value;
+  if (!from || !to || from > to) { alert('생산 기간을 확인하세요.'); return; }
+  PG_RESULT = buildSchedule(PG_TARGETS, { from, to, absents: pgReadAbsents() });
+  renderPgResult();
+  $('#plangen-step1').hidden = true; $('#plangen-step2').hidden = false;
+});
+
+function renderPgResult() {
+  const { plans, leftovers } = PG_RESULT;
+  const missing = plans.filter((p) => (p.crewMissing || []).length).length;
+  const crewTxt = (p) => crewSlots(p.part).map((s) => {
+    const n = p.crew[s.key];
+    const mark = p.crewMarks[s.key];
+    return n ? `${s.label} <b>${esc(n)}</b>${mark ? ` <span class="badge warn">${esc(mark)}</span>` : ''}`
+      : `${s.label} <span class="badge bad">미배치</span>`;
+  }).join(' · ');
+  const byDate = {};
+  plans.forEach((p) => { (byDate[p.date] = byDate[p.date] || []).push(p); });
+  $('#pg-result').innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <span class="badge ok">계획 ${plans.length}건</span>
+      ${missing ? `<span class="badge bad">인원 미배치 ${missing}건</span>` : ''}
+      ${leftovers.length ? `<span class="badge warn">못 담은 수주 ${leftovers.length}건</span>` : ''}
+      <span class="muted" style="font-size:12.5px">저장하기 전입니다. 조건을 고쳐 다시 짤 수 있습니다.</span>
+    </div>
+    ${leftovers.length ? `<div class="order-exception" style="margin-bottom:12px">
+      <b>기간 안에 다 못 넣은 수주</b><br>
+      ${leftovers.map((l) => `· ${esc(l.order.customer || '')} ${esc(l.order.product || '')} 잔여 <b>${fmt(l.left)}</b> — ${esc(l.reason)}`).join('<br>')}
+    </div>` : ''}
+    ${Object.keys(byDate).sort().map((d) => `
+      <h4 style="margin:14px 0 6px;font-size:14px">${esc(d)} <span class="muted" style="font-weight:400">${byDate[d].length}건</span></h4>
+      <div class="table-wrap"><table>
+        <thead><tr><th>호기</th><th>제품</th><th>업체</th><th class="num">수량</th><th>배합 · 용기</th><th>인원</th></tr></thead>
+        <tbody>${byDate[d].map((p) => `<tr class="no-click">
+          <td><b>${esc(p.machine)}</b> <span class="muted" style="font-size:11.5px">${esc(p.part)}</span></td>
+          <td>${esc(p.product || '')} ${esc(p.color || '')}</td>
+          <td>${esc(p.customer || '')}</td>
+          <td class="num">${fmt(p.planQty)}</td>
+          <td style="font-size:12px">${esc(mixLabel(p._mix) || '-')}<br>
+            <span class="muted">${esc(containerLabel(p.part, p.drumShared))}${p.drumShared ? '' : ''}</span></td>
+          <td style="font-size:12.5px">${crewTxt(p)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>`).join('')}`;
+}
+
+$('#pg-save').addEventListener('click', async () => {
+  if (!PG_RESULT || !PG_RESULT.plans.length) { alert('저장할 계획이 없습니다.'); return; }
+  const btn = $('#pg-save');
+  btn.disabled = true; btn.textContent = '저장 중…';
+  try {
+    const payload = PG_RESULT.plans.map((p) => {
+      const o = { ...p };
+      delete o._mix; delete o._capacity; delete o.crewMarks; delete o.crewMissing;
+      return o;
+    });
+    const created = await dataService.createMany('plans', payload);
+    const reordered = reorderPlansByPriorityForDates(created.map((p) => p.date), created);
+    if (reordered.length) await dataService.updateMany('plans', reordered);
+    // 수주에 계획 연결 (한 수주가 여러 날로 쪼개졌으면 첫 계획을 연결)
+    const firstByOrder = new Map();
+    created.forEach((p) => { if (p.orderId && !firstByOrder.has(p.orderId)) firstByOrder.set(p.orderId, p.id); });
+    const orderUpdates = PG_TARGETS.filter((o) => firstByOrder.has(o.id)).map((o) => ({ ...o, planId: firstByOrder.get(o.id) }));
+    if (orderUpdates.length) await dataService.updateMany('orders', orderUpdates);
+    await Promise.all([loadOrders(), loadPlans()]);
+    $('#plangen-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`생산계획 ${created.length}건을 저장했습니다.`);
+  } catch (err) { alert('저장 실패: ' + err.message); }
+  finally { btn.disabled = false; btn.textContent = '이대로 저장'; }
+});
+
+/* ── 수주 → 생산계획 자동 편성 ────────────────────────────────────
+   ① 마감이 급한 수주부터 ② 그 제품을 만들 수 있는 호기 중에서
+   ③ 같은 드럼 조에 같은 배합(수지+토너)이 이미 있으면 그쪽을 우선 골라 붙이고
+   ④ 하루 생산 가능량을 넘으면 다음 날로 넘겨 쪼갠다.
+   호기가 하루에 여러 제품을 받으면 색상·인치 혼합 차감이 반영돼 가용량이 줄어든다. */
+function buildSchedule(orders, opt) {
+  const { from, to, absents } = opt;
+  const days = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) days.push(d);
+  if (!days.length) return { plans: [], leftovers: orders.map((o) => ({ order: o, left: num(o.qty) })) };
+
+  // machineDay[date][machine] = { part, items:[{size,length,color,qty,product}], used }
+  const md = {};
+  const slotOf = (date, machine) => {
+    md[date] = md[date] || {};
+    md[date][machine] = md[date][machine] || { items: [], used: 0 };
+    return md[date][machine];
+  };
+  const capOf = (part, date, machine, extraItem) => {
+    const cell = slotOf(date, machine);
+    const items = extraItem ? [...cell.items, extraItem] : cell.items;
+    return dailyCapacity(part, machine, items).qty;
+  };
+
+  const plans = [], leftovers = [];
+  const sorted = orders.slice().sort((a, b) =>
+    String(orderDeadline(a) || a.dueDate || '9999').localeCompare(String(orderDeadline(b) || b.dueDate || '9999'))
+    || PRIORITY_LEVELS.indexOf(normPriority(b.priority)) - PRIORITY_LEVELS.indexOf(normPriority(a.priority)));
+
+  for (const o of sorted) {
+    const part = o.part || 'CAST';
+    const item = { size: o.size, length: o.length, color: o.color, product: o.product };
+    const mix = mixKeyOf({ part, product: o.product, customer: o.customer, color: o.color });
+    const cands = machinesForProduct(part, o.product);
+    let left = num(o.qty);
+    if (!cands.length) { leftovers.push({ order: o, left, reason: `${part} ${o.product}: 생산 가능한 호기 없음` }); continue; }
+
+    for (const date of days) {
+      if (left <= 0) break;
+      // 그 날 쓸 호기 고르기 — 드럼 조에 같은 배합이 있으면 우선, 그 다음 여유가 많은 호기
+      const score = (m) => {
+        const cell = slotOf(date, m);
+        const partner = drumPartner(part, m);
+        const partnerMix = partner ? (md[date] && md[date][partner] || {}).mix : null;
+        if (cell.mix && cell.mix === mix) return 0;                    // 같은 호기에서 이어 생산 (색상 변경 없음)
+        if (partnerMix && partnerMix === mix) return 1;                // 드럼 조 짝과 같은 배합 → 드럼 공유
+        if (!cell.items.length) return 2;                             // 빈 호기
+        return 3;                                                     // 다른 배합이 이미 있는 호기 (차감 발생)
+      };
+      const order2 = cands.slice().sort((a, b) => score(a) - score(b)
+        || (capOf(part, date, b, item) - slotOf(date, b).used) - (capOf(part, date, a, item) - slotOf(date, a).used));
+      for (const m of order2) {
+        if (left <= 0) break;
+        const cell = slotOf(date, m);
+        const cap = capOf(part, date, m, item);
+        const room = cap - cell.used;
+        if (room <= 0) continue;
+        const qty = Math.min(left, room);
+        cell.items.push({ ...item, qty });
+        cell.used += qty;
+        cell.part = part;
+        if (!cell.mix) cell.mix = mix;
+        plans.push({
+          part, priority: normPriority(o.priority), date, machine: m,
+          customer: o.customer ?? null, product: o.product ?? null, color: o.color ?? null,
+          size: o.size ?? null, length: o.length ?? null, planQty: qty,
+          status: '계획', dueDate: o.dueDate ?? null, orderId: o.id,
+          orderException: o.orderException ?? null, note: o.note ?? null,
+          _mix: mix, _capacity: cap,
+        });
+        left -= qty;
+      }
+    }
+    if (left > 0) leftovers.push({ order: o, left, reason: '기간 내 생산 가능량 부족' });
+  }
+  // 드럼 공유 표시 — 같은 날 드럼 조 두 호기가 같은 배합이면 공유로 본다
+  plans.forEach((p) => {
+    const partner = drumPartner(p.part, p.machine);
+    const pm = partner && md[p.date] && md[p.date][partner];
+    p.drumShared = !!(pm && pm.mix && pm.mix === p._mix);
+  });
+  return { plans: assignCrewForPlans(plans, absents), leftovers, machineDay: md };
+}
+
 /* 작업자 상세: masters.workerInfo[이름] = { part, machine, caps:{파트:[자격]}, support:타파트지원 } */
 const workerInfo = (name) => (MASTERS.workerInfo || {})[String(name || '').trim()] || null;
 const workerCaps = (name, part) => ((workerInfo(name) || {}).caps || {})[part] || [];
