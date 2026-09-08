@@ -3071,26 +3071,44 @@ function specsOfCompany(co) {
 
 function renderCompanies() {
   const q = $('#co-search').value.trim().toLowerCase();
+  const fType = $('#co-f-type').value;
+  const fCountry = $('#co-f-country').value;
+  const fPouch = $('#co-f-pouch').value;
+  const fNoPack = $('#co-f-nopack').checked;
+  const fExc = $('#co-f-exc').checked;
+  const fReq = $('#co-f-req').checked;
   /* OEM인데 전용 포장이 하나도 안 적혀 있으면 작업지시서에 기본 포장이 나간다 — 짚어준다 */
   const packSet = (c) => ['packLabel', 'packInBox', 'packOutBox']
     .some((k) => filledVal(c[k]) && !isDefaultMark(c[k]));
-  let items = (MASTERS.companies || []).slice().map((c) => ({
+  /* 업체가 실제로 요구한 것이 하나라도 있는지 ('NEAL' 같은 기본 표기는 제외) */
+  const hasReq = (c) => Object.keys(CO_SPEC_MAP).some((k) => filledVal(c[k]) && !isDefaultMark(c[k]));
+  const all = (MASTERS.companies || []).slice().map((c) => ({
     ...c, _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM', _noPack: !packSet(c),
   }));
+  // 드롭다운 선택지는 실제 데이터에서 만든다 (필터를 걸어도 목록은 그대로 유지)
+  fillCoFilterOptions(all);
+  let items = all;
   if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox']
     .some((f) => String(c[f] ?? '').toLowerCase().includes(q))
     || c._exc.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
+  if (fType) items = items.filter((c) => (c._oem ? 'OEM' : 'NEAL') === fType);
+  if (fCountry) items = items.filter((c) => String(c.country ?? '').trim() === fCountry);
+  if (fPouch) items = items.filter((c) => pouchOptionsOf(c.packLabel).includes(fPouch));
+  if (fNoPack) items = items.filter((c) => c._oem && c._noPack);
+  if (fExc) items = items.filter((c) => c._exc.length);
+  if (fReq) items = items.filter((c) => hasReq(c) || c._exc.length);
   items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
-  const noPack = items.filter((c) => c._oem && c._noPack).length;
-  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c._oem).length}`
+  const noPack = all.filter((c) => c._oem && c._noPack).length;   // 전체 기준 (필터와 무관한 할 일 수)
+  const filtered = items.length !== all.length;
+  $('#co-count').textContent = `${filtered ? `${items.length} / ` : '총 '}${all.length}개 · OEM ${items.filter((c) => c._oem).length}`
     + (noPack ? ` · 전용 포장 미입력 ${noPack}` : '');
   // 이름이 비슷해 같은 업체로 보이는 묶음
   const dupeGroups = can('update', 'companies') ? findCoDupeGroups().length : 0;
   const dupBtn = $('#btn-co-dedupe');
   dupBtn.hidden = !dupeGroups;
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
-  /* 값은 항상 그대로 보여준다. 'NEAL'처럼 기본과 같다는 표기는 흐리게, 전용 값만 진하게. */
-  /* 값이 긴 칸(인박스 지시문 등)은 한 줄로 줄여 보여준다 — 전체 내용은 마우스를 올리거나 행을 열면 보인다 */
+  /* 값은 항상 그대로 보여준다 — 'NEAL'처럼 기본과 같다는 표기는 흐리게, 전용 값만 진하게.
+     긴 값(인박스 지시문 등)은 한 줄로 줄이고 전체 내용은 마우스를 올리면 보인다. */
   const cell = (v, cls = '') => {
     if (!filledVal(v)) return `<div class="co-cell ${cls} muted">기본</div>`;
     const t = esc(String(v));
@@ -3342,6 +3360,27 @@ $('#btn-new-company').addEventListener('click', () => openCompanyModal());
 $('#company-modal-close').addEventListener('click', () => ($('#company-modal').hidden = true));
 $('#company-cancel').addEventListener('click', () => ($('#company-modal').hidden = true));
 document.addEventListener('click', (e) => { const r = e.target.closest('.co-row'); if (r) openCompanyModal(Number(r.dataset.id)); });
+/* 업체별 사양 필터 — 드롭다운 선택지는 등록된 업체에서 뽑는다 */
+function fillCoFilterOptions(list) {
+  const fill = (sel, values) => {
+    const el = $(sel);
+    const cur = el.value;
+    const opts = [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+    el.innerHTML = '<option value="">전체</option>'
+      + opts.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+    if (opts.includes(cur)) el.value = cur;
+  };
+  fill('#co-f-country', list.map((c) => String(c.country ?? '').trim()));
+  fill('#co-f-pouch', list.flatMap((c) => pouchOptionsOf(c.packLabel)));
+}
+['#co-f-type', '#co-f-country', '#co-f-pouch', '#co-f-nopack', '#co-f-exc', '#co-f-req']
+  .forEach((sel) => $(sel).addEventListener('change', renderCompanies));
+$('#co-f-reset').addEventListener('click', () => {
+  $('#co-search').value = '';
+  ['#co-f-type', '#co-f-country', '#co-f-pouch'].forEach((sel) => ($(sel).value = ''));
+  ['#co-f-nopack', '#co-f-exc', '#co-f-req'].forEach((sel) => ($(sel).checked = false));
+  renderCompanies();
+});
 $('#co-search').addEventListener('input', renderCompanies);
 
 companyForm.addEventListener('submit', async (e) => {

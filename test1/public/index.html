@@ -339,6 +339,17 @@
         <button class="btn primary" id="btn-new-company">＋ 업체 등록</button>
       </div>
     </div>
+    <div class="card filter-bar">
+      <label>포장 구분 <select id="co-f-type">
+        <option value="">전체</option><option value="OEM">OEM 포장</option><option value="NEAL">NEAL 포장</option>
+      </select></label>
+      <label>나라 <select id="co-f-country"><option value="">전체</option></select></label>
+      <label>파우치 <select id="co-f-pouch"><option value="">전체</option></select></label>
+      <label><input type="checkbox" id="co-f-nopack"> ⚠ 전용 포장 미입력만</label>
+      <label><input type="checkbox" id="co-f-exc"> 제품별 예외 있는 곳만</label>
+      <label><input type="checkbox" id="co-f-req"> 요구사항 있는 곳만</label>
+      <button class="btn" id="co-f-reset">초기화</button>
+    </div>
     <div class="card">
       <p class="muted" style="margin-bottom:10px">업체가 요구하는 <b>기본과 다른 사양</b>만 적는 곳입니다. <b>포장 구분(OEM/NEAL)</b>은 파우치·인박스·아웃박스를 전용 원부자재로 쓰는지 여부이고, 토너·코팅량·라벨이 다른 것은 <b>업체 요구사항</b>일 뿐 OEM이 아닙니다. 제품 자체의 기준(자재·코팅량·기본 포장)은 <b>제품표준서</b>에 있습니다.</p>
       <div class="table-wrap" id="companies-list"></div>
