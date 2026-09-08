@@ -2693,6 +2693,10 @@ function renderStandards() {
   const dupCount = can('update', 'standards') ? findStdDupeGroups().length : 0;
   const dupBtn = $('#btn-std-dedupe');
   if (dupBtn) { dupBtn.hidden = !dupCount; dupBtn.textContent = `🧹 중복 정리 (${dupCount})`; }
+  // 제품코드가 비어 있으면 제품명으로 한 번에 채울 수 있게 한다 (파트 구분 없이 전체 기준)
+  const noCode = can('update', 'standards') ? STANDARDS.filter(stdNeedsCode).length : 0;
+  const fillBtn = $('#btn-std-fillcode');
+  if (fillBtn) { fillBtn.hidden = !noCode; fillBtn.textContent = `🏷 제품코드 채우기 (${noCode})`; }
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
     // 자재 기준만 보여준다. 코팅량·포장·색상은 생산사양 소관이라 여기 싣지 않는다.
@@ -2906,6 +2910,30 @@ async function runStdDedupe() {
     alert('처리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
   } finally { btn.disabled = false; btn.textContent = '선택한 그룹 합치기'; }
 }
+/* 제품코드 일괄 채우기 — 비어 있는 것만 제품명과 같은 값으로 */
+function stdNeedsCode(s) {
+  return String(s.productCode ?? '').trim() === '' && String(s.product ?? '').trim() !== '';
+}
+$('#btn-std-fillcode').addEventListener('click', async () => {
+  const targets = STANDARDS.filter(stdNeedsCode);
+  if (!targets.length) { alert('제품코드가 빈 표준서가 없습니다.'); return; }
+  const sample = targets.slice(0, 3).map((s) => `· ${s.product} → ${String(s.product).trim()}`).join('\n');
+  const more = targets.length > 3 ? '\n· …' : '';
+  if (!confirm(`제품코드가 비어 있는 표준서 ${targets.length}건을 제품명과 같은 값으로 채웁니다.\n\n${sample}${more}\n\n이미 코드가 있는 표준서는 건드리지 않습니다. 진행할까요?`)) return;
+  const btn = $('#btn-std-fillcode');
+  btn.disabled = true; btn.textContent = '채우는 중…';
+  try {
+    await dataService.updateMany('standards',
+      targets.map((s) => ({ ...s, productCode: String(s.product).trim() })),
+      (d, t) => { btn.textContent = `채우는 중… ${d}/${t}`; });
+    await loadStandards();
+    refreshCurrentPage();
+    alert(`제품코드 ${targets.length}건을 제품명과 같은 값으로 채웠습니다.`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
+  } finally { btn.disabled = false; renderStandards(); }
+});
+
 $('#btn-std-dedupe').addEventListener('click', openStdDedupeModal);
 $('#stddedupe-close').addEventListener('click', () => ($('#stddedupe-modal').hidden = true));
 $('#stddedupe-cancel').addEventListener('click', () => ($('#stddedupe-modal').hidden = true));
