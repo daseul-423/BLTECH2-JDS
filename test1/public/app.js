@@ -238,9 +238,9 @@ $$('.nav-btn, .hub-card[data-goto]').forEach((b) => b.addEventListener('click', 
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
 const ROLE_PAGES = {
-  admin:   ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'productmap', 'custspecs', 'equipment', 'overview', 'masters', 'import', 'policies', 'users'],
-  manager: ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'productmap', 'custspecs', 'equipment', 'overview', 'masters', 'import'],
-  worker:  ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'custspecs', 'overview'],
+  admin:   ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'productmap', 'equipment', 'masters', 'import', 'policies', 'users'],
+  manager: ['home', 'dashboard', 'orders', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards', 'productmap', 'equipment', 'masters', 'import'],
+  worker:  ['home', 'dashboard', 'plans', 'sheets', 'equipchecks', 'logs', 'analysis', 'companies', 'standards'],
 };
 // 등록/수정 가능 역할 (컬렉션별). 삭제는 admin 전용. companies=masters.companies 문서 쓰기.
 const WRITE_ROLES = {
@@ -278,7 +278,7 @@ function showPage(page) {
   if (!canAccessPage(page)) page = 'home';
   $$('.nav-btn').forEach((b) => b.classList.toggle('active', b.dataset.page === page));
   $$('.page').forEach((p) => (p.hidden = p.id !== 'page-' + page));
-  const render = { dashboard: renderDashboard, orders: renderOrders, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, overview: renderOverview, standards: renderStandards, productmap: renderProductMap, custspecs: renderCustSpecs, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, import: renderImport, policies: renderPolicies, users: renderUsers }[page];
+  const render = { dashboard: renderDashboard, orders: renderOrders, plans: renderPlans, sheets: renderSheets, logs: renderLogs, analysis: renderAnalysis, standards: renderStandards, productmap: renderProductMap, companies: renderCompanies, equipchecks: renderEquipChecks, equipment: renderEquipment, masters: renderMasters, import: renderImport, policies: renderPolicies, users: renderUsers }[page];
   if (render) render();
   applyCreateButtons();
 }
@@ -289,7 +289,7 @@ function refreshCurrentPage() {
 
 /* 생성 버튼 노출(역할별) */
 const CREATE_BTNS = {
-  plans: '#btn-new-plan', orders: '#btn-new-order', standards: '#btn-new-standard', productmap: '#btn-new-productmap', custspecs: '#btn-new-custspec',
+  plans: '#btn-new-plan', orders: '#btn-new-order', standards: '#btn-new-standard', productmap: '#btn-new-productmap',
   companies: '#btn-new-company', equipchecks: '#btn-new-equipcheck', equipment: '#btn-new-equipment',
   sheets: '#btn-new-sheet', users: '#btn-new-user',
 };
@@ -751,7 +751,7 @@ const IMPORT_DEFS = {
   },
   standards: {
     label: '제품표준서', coll: 'standards', hasPart: true,
-    desc: '제품당 1행 — 기재·수지·촉매 등 자재 기준',
+    desc: '제품당 1행 — 자재 기준(기재·수지·촉매) + 기본 사양(코팅량·기본 포장)',
     dupKey: (r) => [r.part, r.product, r.color ?? '', r.customer ?? ''].join('|'),
     dupLabel: '공정+제품+색상+업체',
     fields: [
@@ -760,7 +760,15 @@ const IMPORT_DEFS = {
       F('brand', '브랜드', ['브랜드']), F('sizeSpec', '규격', ['규격', '사이즈']),
       F('category', '분류', ['분류', '카테고리']), F('baseType', '기재타입', ['기재타입', '기재']),
       F('resinType', '수지 종류', ['수지종류', '수지']), F('catalyst', '촉매', ['촉매']),
-      F('core', '코어', ['코어']), F('note', '비고', ['비고', '특이사항']),
+      F('core', '코어', ['코어']),
+      F('coatingMin', '코팅량 하한', ['코팅량하한', '코팅하한'], 'num'),
+      F('coatingMid', '코팅량 중심', ['코팅량중심', '코팅량'], 'num'),
+      F('coatingMax', '코팅량 상한', ['코팅량상한', '코팅상한'], 'num'),
+      F('toner', '기본 토너', ['토너']), F('pouchType', '파우치', ['파우치종류', '파우치']),
+      F('labelSpec', '라벨 표기', ['라벨표기', '라벨']),
+      F('inBoxSpec', 'In Box', ['inbox기준', 'inbox', '인박스']),
+      F('outBoxSpec', 'Out Box', ['outbox기준', 'outbox', '아웃박스']),
+      F('note', '비고', ['비고', '특이사항']),
     ],
     calcCols: [],
   },
@@ -782,11 +790,12 @@ const IMPORT_DEFS = {
     calcCols: [],
   },
   custspecs: {
-    label: '고객사별 사양', coll: 'custspecs', hasPart: true,
-    desc: '제품당 1행 — 코팅량 하한/중심/상한·라벨·박스 포장 기준. 작업지시서에 자동 적용됩니다',
-    dupKey: (r) => [r.part, r.product, r.color ?? '', r.variant ?? ''].join('|'),
-    dupLabel: '공정+제품+색상+구분',
+    label: '업체 제품별 예외', coll: 'custspecs', hasPart: true,
+    desc: '업체+제품당 1행 — 그 업체의 그 제품만 기본과 다를 때. 비운 칸은 제품표준서 값을 씁니다',
+    dupKey: (r) => [r.part, r.customer ?? '', r.product, r.color ?? '', r.variant ?? ''].join('|'),
+    dupLabel: '공정+업체+제품+색상+구분',
     fields: [
+      F('customer', '업체명', ['업체명', '고객사', '거래처']),
       F('product', '제품명', ['제품명', '품명']), F('color', '칼라', ['칼라', '색상']),
       F('variant', '구분', ['구분']), F('coatingMin', '코팅량 하한', ['코팅량하한', '코팅하한'], 'num'),
       F('coatingMid', '코팅량 중심', ['코팅량중심', '코팅량'], 'num'), F('coatingMax', '코팅량 상한', ['코팅량상한', '코팅상한'], 'num'),
@@ -799,13 +808,19 @@ const IMPORT_DEFS = {
     calcCols: [],
   },
   companies: {
-    label: '업체 정보(업체명·나라·컬러)', coll: 'companies', hasPart: false,
-    desc: '회사당 1행 — 업체 자체 정보만. 토너·포장은 [생산사양], 기재·수지는 [제품표준서]에서 관리하므로 여기서 올리지 않습니다',
+    label: '업체별 사양', coll: 'companies', hasPart: false,
+    desc: '업체당 1행 — 포장 구분(OEM/NEAL)과 그 업체가 요구하는 포장·토너. 제품 자체 기준은 [제품표준서]에서 올립니다',
     dupKey: (r) => String(r.name || '').trim().toLowerCase(),
     dupLabel: '업체명',
     fields: [
       F('name', '업체명', ['업체명', '고객사', '회사명']),
       F('country', '나라', ['나라', '국가']),
+      F('specType', '포장 구분', ['포장구분', '구분', 'oem유무', 'oem']),
+      F('packLabel', '파우치', ['파우치', '파우치종류']),
+      F('packInBox', 'In Box', ['inbox', '인박스', 'inbox기준']),
+      F('packOutBox', 'Out Box', ['outbox', '아웃박스', 'outbox기준']),
+      F('labelSpec', '라벨', ['라벨', '라벨표기']),
+      F('toner', '토너', ['토너']),
       F('colors', '컬러', ['컬러', '칼라', '색상']),
       F('regDate', '등록일', ['등록일']),
       F('notes', '특이사항', ['특이사항', '특이상항', '비고']),
@@ -2476,62 +2491,87 @@ function customerSpecType(customer) {
   return 'NEAL';
 }
 
-/* 고객사별 생산사양 조회: 고객사 타입(NEAL/OEM)에 맞는 사양을 제품명·색상으로 매칭.
-   OEM인데 해당 사양이 없으면 기본 NEAL 사양으로 폴백(fellBack=true). */
-function findCustSpec(p) {
+/* ── 사양 해석 ────────────────────────────────────────────────────
+   기준은 두 곳뿐이다.
+     ① 제품표준서(standards)  = 그 제품의 기본 사양 (코팅량·기본 토너·기본 포장·라벨)
+     ② 업체별 사양            = 그 업체가 요구하는 값만
+          · 업체 공통  : masters.companies (파우치·인박스·아웃박스·라벨·토너)
+          · 제품별 예외 : custspecs (그 업체의 특정 제품만 다를 때)
+   업체 쪽에 값이 채워져 있으면 그 항목만 덮어쓴다. 비워두면 제품표준서 값을 그대로 쓴다.
+   구분(OEM/NEAL)은 포장 원부자재 기준이며, 토너·코팅량이 다르다고 OEM이 되지는 않는다. */
+const SPEC_KEYS = ['coatingMin', 'coatingMid', 'coatingMax', 'toner',
+  'pouchType', 'inBoxSpec', 'outBoxSpec', 'labelSpec', 'manualSpec', 'enclosures', 'packingNote'];
+/* 업체 문서의 필드명 → 사양 키 (예전 데이터의 packLabel이 파우치 값이다) */
+const CO_SPEC_MAP = { packLabel: 'pouchType', packInBox: 'inBoxSpec', packOutBox: 'outBoxSpec', labelSpec: 'labelSpec', toner: 'toner' };
+const CO_SPEC_LABEL = { pouchType: '파우치', inBoxSpec: 'In Box', outBoxSpec: 'Out Box', labelSpec: '라벨', toner: '토너', coatingMid: '코팅량' };
+const filledVal = (v) => v != null && String(v).trim() !== '';
+/* 업체 칸에 'NEAL'·'기본'처럼 적어둔 것은 요구사항이 아니라 '기본 그대로'라는 표시다.
+   값은 남기되 업체 요구로는 세지 않는다 (AMS의 'NEAL/전용라벨'처럼 덧붙은 것은 진짜 요구). */
+const DEFAULT_MARK = /^(neal|neal\s*포장|기본|기본사양|동일|같음|공용|무|없음|-)$/i;
+const isDefaultMark = (v) => DEFAULT_MARK.test(String(v ?? '').trim());
+/* 파우치를 쉼표로 여러 개 적으면 수주 항목에 따라 고르는 선택 옵션으로 본다 */
+const pouchOptionsOf = (v) => String(v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+
+function findCompanyOf(customer) {
+  const b = String(customer ?? '').trim().toLowerCase();
+  if (!b) return null;
+  const cos = MASTERS.companies || [];
+  return cos.find((x) => String(x.name || '').trim().toLowerCase() === b)
+    || cos.find((x) => { const a = String(x.name || '').trim().toLowerCase(); return !!a && (a.includes(b) || b.includes(a)); })
+    || null;
+}
+
+/* 그 업체의 '제품별 예외' 중 이 제품에 맞는 것 */
+function productExceptionOf(customer, p) {
   const part = p.part || 'CAST';
   const prod = String(p.product || '').trim();
   const fam = familyOf(prod);
-  const type = customerSpecType(p.customer);
-  const custMatch = (sc) => {
-    const a = String(sc || '').trim(), b = String(p.customer || '').trim();
-    return a === b || (!!a && !!b && (a.includes(b) || b.includes(a)));
-  };
-  const pick = (specType) => {
-    let best = null, bestScore = -1;
-    for (const s of CUSTSPECS) {
-      if ((s.part || 'CAST') !== part) continue;
-      if ((s.specType || 'NEAL') !== specType) continue;
-      if (specType === 'OEM' && !custMatch(s.customer)) continue;
-      const sp = String(s.product || '').trim();
-      let score;
-      if (sp === prod) score = 10;
-      else if (sp === fam || familyOf(sp) === fam) score = 5;
-      else continue;
-      if (s.color && p.color && String(s.color).toUpperCase() === String(p.color).toUpperCase()) score += 2;
-      else if (s.color && p.color) score -= 1;
-      if (score > bestScore) { bestScore = score; best = s; }
-    }
-    return best;
-  };
-  /* 기본 NEAL 사양(NEAL 파우치·인박스·아웃박스 등 제품 공통) 위에
-     그 고객사 사양에서 '값이 채워진 항목만' 덮어쓴다.
-     - NEAL 업체라도 코팅량·토너 등이 조금 다르면 고객사 사양에 그 항목만 적어두면 된다(특이사항)
-     - OEM 업체는 보통 포장까지 전용이라 대부분의 항목이 채워져 있다
-     즉 '고객사 사양이 있다 = OEM'이 아니다. 구분(OEM/NEAL)은 업체 정보에서만 정한다. */
-  const base = pick('NEAL');
-  const custom = pick('OEM');                       // 저장 구조상 고객사 지정 사양은 specType='OEM'
-  const overrides = [];
-  let spec = null;
-  if (base || custom) {
-    spec = { ...(base || {}) };
-    if (custom) {
-      Object.entries(custom).forEach(([k, v]) => {
-        if (k === 'id' || k === 'specType' || k === 'customer') return;
-        const filled = v != null && v !== '' && !(typeof v === 'object' && !Object.values(v || {}).filter(Boolean).length);
-        if (!filled) return;
-        const bv = base ? String(base[k] ?? '').trim() : '';
-        if (bv && bv !== String(v ?? '').trim() && typeof v !== 'object') overrides.push(k);
-        spec[k] = v;
-      });
-      spec.id = custom.id;                          // 행 클릭 시 고객사 사양을 열도록
-      spec.specType = 'OEM';
-      spec.customer = custom.customer;
-    }
+  const b = String(customer ?? '').trim().toLowerCase();
+  if (!b) return null;
+  let best = null, bestScore = -1;
+  for (const s of (CUSTSPECS || [])) {
+    if ((s.part || 'CAST') !== part) continue;
+    const c = String(s.customer || '').trim().toLowerCase();
+    if (!c || !(c === b || c.includes(b) || b.includes(c))) continue;
+    const sp = String(s.product || '').trim();
+    let score;
+    if (sp === prod) score = 10;
+    else if (sp === fam || familyOf(sp) === fam) score = 5;
+    else continue;
+    if (s.color && p.color && String(s.color).toUpperCase() === String(p.color).toUpperCase()) score += 2;
+    else if (s.color && p.color) score -= 1;
+    if (score > bestScore) { bestScore = score; best = s; }
   }
-  // OEM으로 지정됐는데 그 업체 사양이 아예 없으면 기본 NEAL로 대체된 상태
-  const fellBack = type === 'OEM' && !custom && !!base;
-  return { spec: spec || null, type, fellBack, base: base || null, custom: custom || null, overrides };
+  return best;
+}
+
+function findCustSpec(p) {
+  const std = findStandard(p);
+  const type = customerSpecType(p.customer);
+  const co = findCompanyOf(p.customer);
+  const exc = productExceptionOf(p.customer, p);
+  const base = {};
+  SPEC_KEYS.forEach((k) => { if (std && filledVal(std[k])) base[k] = std[k]; });
+  const spec = { ...base };
+  const overrides = [];                 // 기본값이 있는데 업체 값이 실제로 다른 항목만
+  const reqs = [];                      // 업체가 요구한 항목 (기본값이 없어도 포함)
+  const put = (k, v, src) => {
+    if (!filledVal(v)) return;
+    const bv = filledVal(base[k]) ? String(base[k]).trim() : '';
+    const nv = String(v).trim();
+    if (isDefaultMark(v)) { if (!bv) spec[k] = v; return; }   // '기본 그대로' 표시 — 요구사항 아님
+    if (bv && bv !== nv) overrides.push(k);
+    if (!bv || bv !== nv) reqs.push({ key: k, value: v, base: base[k], src });
+    spec[k] = v;
+  };
+  if (co) Object.entries(CO_SPEC_MAP).forEach(([ck, sk]) => put(sk, co[ck], 'co'));
+  if (exc) SPEC_KEYS.forEach((k) => put(k, exc[k], 'exc'));   // 제품별 예외가 더 구체적이므로 나중에
+  const hasSpec = !!std || !!reqs.length;
+  return {
+    spec: hasSpec ? spec : null, type, std: std || null, co, exc,
+    base, overrides, reqs, hasSpec,
+    pouchOptions: pouchOptionsOf(spec.pouchType),
+  };
 }
 
 function openOrderModal(planId) {
@@ -2539,22 +2579,28 @@ function openOrderModal(planId) {
   if (p) openOrderDoc(p, `WO-${esc(p.date ?? '').replace(/-/g, '')}-${p.id}`);
 }
 /* 작업지시서 문서 렌더 — p는 계획 또는 제품정보 기반 plan-like 객체.
-   자재기준=제품표준서(standards), 생산/포장 사양=고객사별 생산사양(custspecs), 예외=p.orderException */
+   제품표준서(자재 기준 + 기본 사양) 위에 업체별 사양(그 업체 요구)을 얹어 만든다. */
 function openOrderDoc(p, docNo) {
   const s = findStandard(p) || {};
-  const { spec, type, fellBack, custom, overrides } = findCustSpec(p);
+  const { spec, type, co, exc, base, overrides, reqs, pouchOptions } = findCustSpec(p);
   const cs = spec || {};
-  // 업체 정보(masters.companies)도 문서에 싣는다 — 나라·컬러·특이사항
-  const co = (MASTERS.companies || []).find((x) => {
-    const a = String(x.name || '').trim().toLowerCase(), b = String(p.customer || '').trim().toLowerCase();
-    return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
-  }) || {};
+  const company = co || {};
   const ovSet = new Set(overrides || []);
-  // 고객사 특이사항으로 덮어쓴 항목은 표시해 준다 (현장에서 "이 업체만 다른 값"을 알 수 있게)
-  const row = (label, v, key) => `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}${key && ovSet.has(key) ? ' <span class="badge warn">고객사 특이사항</span>' : ''}</td></tr>`;
+  const reqSet = new Set((reqs || []).map((r) => r.key));
+  /* 기본값과 다른 항목은 [업체 요구]로 표시한다 — 기본이 비어 있어 채워 넣기만 한 것은 제외 */
+  const row = (label, v, key) => {
+    const tag = key && ovSet.has(key) ? ' <span class="badge warn">업체 요구</span>'
+      : (key && reqSet.has(key) ? ' <span class="badge plain">업체 지정</span>' : '');
+    return `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}${tag}</td></tr>`;
+  };
+  /* 파우치가 두 가지 이상이면 수주 항목에 따라 고르는 옵션이다 */
+  const pouchCell = pouchOptions.length > 1
+    ? `<tr><th>파우치</th><td>${pouchOptions.map((o, i) => `<b>${i + 1}. ${esc(o)}</b>`).join(' &nbsp;/&nbsp; ')}
+        <span class="badge warn">수주 항목에 따라 선택</span></td></tr>`
+    : row('파우치', cs.pouchType, 'pouchType');
   const badge = type === 'OEM'
-    ? `<span class="order-badge oem">고객사 OEM 사양</span>${fellBack ? ' <span class="badge warn">OEM 전용 사양 미등록 → 기본 NEAL 적용</span>' : ''}`
-    : `<span class="order-badge neal">기본 NEAL 사양</span>${overrides.length ? ' <span class="badge warn">＋ 고객사 특이사항</span>' : ''}`;
+    ? '<span class="order-badge oem">OEM 포장 — 전용 원부자재</span>'
+    : `<span class="order-badge neal">NEAL 포장</span>${overrides.length ? ' <span class="badge warn">＋ 업체 요구사항</span>' : ''}`;
 
   $('#order-body').innerHTML = `
     <div class="order-doc">
@@ -2571,26 +2617,28 @@ function openOrderDoc(p, docNo) {
         ${row('계획수량', p.planQty != null ? fmt(p.planQty) + ' EA' : '')}${row('용기', containerLabel(p.part || 'CAST', !!p.drumShared))}
         ${row('비고', p.note)}
       </table>
-      <h4>2. 업체 정보 ${co.name ? '' : '<span class="badge warn">업체 정보 미등록</span>'}</h4>
+      <h4>2. 업체 ${company.name ? '' : '<span class="badge warn">업체 미등록</span>'}</h4>
       <table class="order-table">
-        ${row('업체명', p.customer)}${row('나라', co.country)}
-        ${row('포장 구분', type === 'OEM' ? 'OEM (고객사 전용 포장)' : 'NEAL 포장')}
-        ${row('업체 컬러', co.colors)}${row('업체 특이사항', co.notes)}
+        ${row('업체명', p.customer)}${row('나라', company.country)}
+        ${row('포장 구분', type === 'OEM' ? 'OEM — 전용 원부자재 사용' : 'NEAL 포장')}
+        ${row('업체 컬러', company.colors)}${row('업체 특이사항', company.notes)}
       </table>
       <h4>3. 자재 기준 ${s.id ? `<span class="muted" style="font-weight:400">— 제품표준서: ${esc(s.product)}</span>` : '<span class="badge bad">제품표준서 미등록</span>'}</h4>
       <table class="order-table">
         ${row('품목', s.category)}${row('기재 종류', s.baseType)}${row('수지 종류', s.resinType)}
         ${row('촉매', s.catalyst)}${row('코어 종류', s.core)}${row('제품표준서 비고', s.note)}
       </table>
-      <h4>4. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${overrides.length ? '기본 NEAL + ' + esc(custom.customer || '') + ' 특이사항' : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 업체 정보 › 생산사양에서 등록</span>'}</h4>
+      <h4>4. 생산 조건 ${filledVal(base.coatingMid) || reqSet.has('coatingMid') ? '' : '<span class="badge bad">코팅량 미등록 — 제품표준서에 입력</span>'}</h4>
       <table class="order-table">
         ${row('코팅량 규격', coatingSpec(cs), 'coatingMid')}${row('토너', cs.toner, 'toner')}
       </table>
       <h4>5. 포장 사양</h4>
       <table class="order-table">
-        ${row('라벨 표기', cs.labelSpec, 'labelSpec')}${row('파우치', cs.pouchType, 'pouchType')}${row('In Box', cs.inBoxSpec, 'inBoxSpec')}${row('Out Box', cs.outBoxSpec, 'outBoxSpec')}
+        ${pouchCell}${row('In Box', cs.inBoxSpec, 'inBoxSpec')}${row('Out Box', cs.outBoxSpec, 'outBoxSpec')}
+        ${row('라벨 표기', cs.labelSpec, 'labelSpec')}
         ${row('설명서', cs.manualSpec, 'manualSpec')}${row('동봉품', cs.enclosures, 'enclosures')}${row('포장 주의사항', cs.packingNote, 'packingNote')}
       </table>
+      ${exc ? `<p class="muted" style="font-size:12px">※ 이 업체의 <b>${esc(exc.product || '')} 제품별 예외</b>가 적용됐습니다.</p>` : ''}
       ${p.orderException ? `<h4>6. 수주별 예외사항</h4><div class="order-exception">${esc(p.orderException)}</div>` : ''}
       <div class="no-print" style="margin-top:16px;text-align:center">
         <button class="btn primary" id="order-start-record">▶ 이 제품으로 공정기록 · 실적 입력</button>
@@ -2600,6 +2648,7 @@ function openOrderDoc(p, docNo) {
   if (startBtn) startBtn.addEventListener('click', () => startRecordingFrom(p));
   $('#workorder-modal').hidden = false;
 }
+
 
 /* 작업지시 → 공정기록·실적 입력: 같은 날짜/호기 일지가 있으면 열고, 없으면 새로 만들어 제품 프리필 */
 async function startRecordingFrom(p) {
@@ -2689,11 +2738,17 @@ function renderStandards() {
   const q = $('#st-search').value.trim().toLowerCase();
   let items = STANDARDS.filter((s) => (s.part || 'CAST') === PART);
   if (q) items = items.filter((s) =>
-    [s.product, s.productCode, s.customer, s.brand].some((v) => String(v ?? '').toLowerCase().includes(q)));
+    [s.product, s.productCode, s.customer, s.brand, s.baseType, s.resinType, s.toner, s.pouchType].some((v) => String(v ?? '').toLowerCase().includes(q)));
+  // 예전 '고객사별 생산사양'의 기본 값이 남아 있으면 가져오기 버튼 노출
+  const legacyBase = can('update', 'standards')
+    ? (CUSTSPECS || []).filter((c) => (c.specType || 'NEAL') !== 'OEM' || !filledVal(c.customer)).length : 0;
+  const bfBtn = $('#btn-std-basefill');
+  if (bfBtn) { bfBtn.hidden = !legacyBase; bfBtn.textContent = `📥 기본 사양 가져오기 (${legacyBase})`; }
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
   $('#standards-list').innerHTML = items.map((s) => {
     // 자재 기준만 보여준다. 코팅량·포장·색상은 생산사양 소관이라 여기 싣지 않는다.
     const mat = (label, v) => v ? `<span><i>${label}</i> ${esc(v)}</span>` : '';
+    const coat = coatingSpec(s);
     return `<div class="standard-card" data-standard-id="${s.id}">
       <div class="standard-info">
         <div class="standard-name"><b>${esc(s.product)}</b>
@@ -2702,6 +2757,9 @@ function renderStandards() {
         <div class="std-sub">${esc(s.customer || '공용')}${s.brand ? ' · ' + esc(s.brand) : ''}${s.sizeSpec ? ' · ' + esc(s.sizeSpec) : ''}</div>
         <div class="std-mat">
           ${mat('기재', s.baseType)}${mat('수지', s.resinType)}${mat('촉매', s.catalyst)}${mat('코어', s.core)}
+        </div>
+        <div class="std-mat">
+          ${mat('코팅량', coat)}${mat('토너', s.toner)}${mat('파우치', s.pouchType)}
         </div>
       </div>
     </div>`;
@@ -2782,6 +2840,93 @@ function openStandardModal(id = null) {
   gateModal('#standard-form', id ? can('update', 'standards') : can('create', 'standards'), !!id && can('delete', 'standards'));
   $('#standard-modal').hidden = false;
 }
+/* ── 기본 사양 가져오기 (1회성) ──────────────────────────────────
+   예전 '고객사별 생산사양'에는 업체 지정 없는 기본 값(코팅량·기본 포장)이 제품마다 들어 있었다.
+   그 값은 제품 자체의 기준이므로 제품표준서로 옮긴다. 표준서에 이미 값이 있으면 건드리지 않는다. */
+const BASE_FILL_KEYS = ['coatingMin', 'coatingMid', 'coatingMax', 'toner',
+  'pouchType', 'inBoxSpec', 'outBoxSpec', 'labelSpec', 'manualSpec', 'enclosures', 'packingNote'];
+
+function baseFillPlans() {
+  const legacy = (CUSTSPECS || []).filter((c) => (c.specType || 'NEAL') !== 'OEM' || !filledVal(c.customer));
+  return legacy.map((c) => {
+    const part = c.part || 'CAST';
+    const prod = String(c.product || '').trim();
+    const cands = (STANDARDS || []).filter((x) => (x.part || 'CAST') === part);
+    const std = cands.find((x) => String(x.product || '').trim() === prod)
+      || cands.find((x) => familyOf(String(x.product || '').trim()) === familyOf(prod));
+    const fill = [], keep = [];
+    BASE_FILL_KEYS.forEach((k) => {
+      if (!filledVal(c[k])) return;
+      if (std && filledVal(std[k])) { if (String(std[k]).trim() !== String(c[k]).trim()) keep.push(k); return; }
+      fill.push(k);
+    });
+    return { spec: c, std: std || null, fill, keep };
+  });
+}
+
+let BASE_FILL_PLANS = [];
+function openBaseFillModal() {
+  BASE_FILL_PLANS = baseFillPlans();
+  const matched = BASE_FILL_PLANS.filter((p) => p.std);
+  const orphan = BASE_FILL_PLANS.filter((p) => !p.std);
+  const label = (k) => ({ coatingMin: '코팅 하한', coatingMid: '코팅 중심', coatingMax: '코팅 상한', toner: '토너',
+    pouchType: '파우치', inBoxSpec: 'In Box', outBoxSpec: 'Out Box', labelSpec: '라벨',
+    manualSpec: '설명서', enclosures: '동봉품', packingNote: '포장 주의' }[k] || k);
+  const rows = matched.map((p) => {
+    const i = BASE_FILL_PLANS.indexOf(p);
+    const on = p.fill.length ? ' checked' : '';
+    return `<tr class="no-click">
+      <td><input type="checkbox" data-basefill="${i}"${on}></td>
+      <td><b>${esc(p.spec.product || '')}</b> <span class="muted">${esc(p.spec.part || 'CAST')}</span></td>
+      <td>→ <b>${esc(p.std.product || '')}</b></td>
+      <td>${p.fill.length ? p.fill.map((k) => `<span class="co-req"><i>${label(k)}</i> ${esc(p.spec[k])}</span>`).join('') : '<span class="muted">옮길 값 없음</span>'}</td>
+      <td>${p.keep.length ? `<span class="badge plain" title="표준서 값을 그대로 둡니다">유지 ${p.keep.map(label).join(', ')}</span>` : ''}</td>
+    </tr>`;
+  }).join('');
+  const orphanRows = orphan.map((p) => `<tr class="no-click"><td></td>
+    <td><b>${esc(p.spec.product || '')}</b> <span class="muted">${esc(p.spec.part || 'CAST')}</span></td>
+    <td colspan="3" class="muted">같은 이름의 제품표준서를 찾지 못했습니다 — 그대로 둡니다</td></tr>`).join('');
+  $('#basefill-body').innerHTML = BASE_FILL_PLANS.length
+    ? `<div class="table-wrap"><table>
+        <thead><tr><th style="width:34px"></th><th>예전 사양</th><th>제품표준서</th><th>옮길 값</th><th>충돌</th></tr></thead>
+        <tbody>${rows}${orphanRows}</tbody></table></div>
+       <p class="muted" style="margin-top:10px;font-size:12.5px">체크한 항목만 옮기고, <b>옮긴 원본은 삭제</b>합니다. 옮길 값이 없는 건 체크를 풀어두었습니다(그래도 체크하면 원본만 삭제됩니다).</p>`
+    : '<div class="empty">옮길 예전 기본 사양이 없습니다.</div>';
+  $('#basefill-run').hidden = !BASE_FILL_PLANS.length;
+  $('#basefill-modal').hidden = false;
+}
+
+async function runBaseFill() {
+  const picked = $$('#basefill-body input[data-basefill]:checked').map((el) => BASE_FILL_PLANS[Number(el.dataset.basefill)]).filter(Boolean);
+  if (!picked.length) { alert('옮길 항목을 선택하세요.'); return; }
+  const btn = $('#basefill-run');
+  btn.disabled = true; btn.textContent = '옮기는 중…';
+  let moved = 0, removed = 0;
+  try {
+    for (const p of picked) {
+      if (p.fill.length && p.std) {
+        const next = { ...p.std };
+        p.fill.forEach((k) => { next[k] = p.spec[k]; });
+        delete next.images;
+        await post('/api/standards/' + p.std.id, next, 'PUT');
+        moved++;
+      }
+      await api('/api/custspecs/' + p.spec.id, { method: 'DELETE' });
+      removed++;
+    }
+    await Promise.all([loadStandards(), loadCustSpecs()]);
+    $('#basefill-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`옮기기 완료\n\n· 제품표준서에 채운 건: ${moved}건\n· 정리한 예전 사양: ${removed}건`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
+  } finally { btn.disabled = false; btn.textContent = '선택한 항목 옮기기'; }
+}
+$('#btn-std-basefill').addEventListener('click', openBaseFillModal);
+$('#basefill-close').addEventListener('click', () => ($('#basefill-modal').hidden = true));
+$('#basefill-cancel').addEventListener('click', () => ($('#basefill-modal').hidden = true));
+$('#basefill-run').addEventListener('click', runBaseFill);
+
 $('#btn-new-standard').addEventListener('click', () => openStandardModal());
 $('#standard-modal-close').addEventListener('click', () => ($('#standard-modal').hidden = true));
 $('#standard-cancel').addEventListener('click', () => ($('#standard-modal').hidden = true));
@@ -2816,54 +2961,23 @@ const custspecForm = $('#custspec-form');
 
 function specBadge(type) {
   return type === 'OEM'
-    ? '<span class="badge oem">고객사 OEM</span>'
-    : '<span class="badge neal">기본 NEAL</span>';
+    ? '<span class="badge oem">OEM 포장</span>'
+    : '<span class="badge neal">NEAL 포장</span>';
 }
-
-function renderCustSpecs() {
-  const q = $('#cs-search').value.trim().toLowerCase();
-  let items = CUSTSPECS.filter((s) => (s.part || 'CAST') === PART);
-  if (q) items = items.filter((s) => [s.product, s.customer, s.color].some((v) => String(v ?? '').toLowerCase().includes(q)));
-  items = items.slice().sort((a, b) =>
-    (a.product || '').localeCompare(b.product || '')
-    || (a.specType === b.specType ? String(a.customer || '').localeCompare(String(b.customer || '')) : (a.specType === 'NEAL' ? -1 : 1)));
-  if (!items.length) { $('#custspecs-list').innerHTML = '<div class="empty">등록된 생산사양이 없습니다. [＋ 사양 등록]으로 추가하세요.</div>'; return; }
-  $('#custspecs-list').innerHTML = items.map((s) => {
-    // 사진은 쓰지 않는다. 코팅·토너·포장 등 사양 값만 보여준다.
-    const coat = (s.coatingMid != null && s.coatingMid !== '')
-      ? `${esc(s.coatingMin)}~${esc(s.coatingMax)} (중심 ${esc(s.coatingMid)})` : '';
-    const f = (label, v) => v ? `<span><i>${label}</i> ${esc(v)}</span>` : '';
-    const has = (label, v) => v ? `<span><i>${label}</i> 있음</span>` : '';
-    return `<div class="standard-card" data-custspec-id="${s.id}">
-      <div class="standard-info">
-        <div class="standard-name"><b>${esc(s.product)}</b>
-          ${s.variant ? `<span class="std-code">${esc(s.variant)}</span>` : ''}
-          ${specBadge(s.specType)}</div>
-        <div class="std-sub">${s.specType === 'OEM' ? esc(s.customer || '(고객사 미지정)') : '제품 공통'}${s.color ? ' · ' + esc(s.color) : ''}</div>
-        <div class="std-mat">${f('코팅', coat)}${f('토너', s.toner)}${f('파우치', s.pouchType)}${has('라벨', s.labelSpec)}${has('설명서', s.manualSpec)}${has('동봉품', s.enclosures)}</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-$('#cs-search').addEventListener('input', renderCustSpecs);
-document.addEventListener('click', (e) => {
-  const card = e.target.closest('.standard-card[data-custspec-id]');
-  if (card) openCustSpecModal(Number(card.dataset.custspecId));
-});
 
 /* 적용 대상 드롭다운: [기본 NEAL] + 업체 정보에 등록된 업체 (+ 기존 데이터에 쓰인 이름) */
 function fillSpecTarget() {
-  custspecForm.elements.specTarget.innerHTML = '<option value="__NEAL__">기본 NEAL (제품 공통)</option>'
+  // 제품별 예외는 항상 특정 업체 것이다 (제품 공통 기본값은 제품표준서에 있다)
+  custspecForm.elements.specTarget.innerHTML = '<option value="">업체를 고르세요</option>'
     + allCustomerNames().map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
 }
 
 /* prefill: { customer } 업체 상세에서 등록 시 대상 업체 고정,
-            { copyNeal:true } 같은 제품의 기본 NEAL 사양 값을 복사해 시작,
-            { values:{필드:값} } 업체 정보의 예전 요약값을 옮겨올 때 */
+            { values:{필드:값} } 값을 미리 채워 열 때 */
 function openCustSpecModal(id = null, prefill = null) {
   editingCustSpecId = id;
   custspecForm.reset();
-  $('#custspec-modal-title').textContent = id ? '생산사양 수정' : '생산사양 등록';
+  $('#custspec-modal-title').textContent = id ? '제품별 예외 수정' : '제품별 예외 등록';
   $('#custspec-delete').hidden = !id;
   const s = id ? CUSTSPECS.find((x) => x.id === id) : null;
   fillSpecTarget();
@@ -2874,16 +2988,6 @@ function openCustSpecModal(id = null, prefill = null) {
     }
     custspecForm.elements.part.value = PART;
     sel.value = prefill.customer;
-    if (prefill.copyNeal) {
-      // 같은 공정의 기본 NEAL 사양 중 첫 건을 값만 복사 (사진·업체는 복사하지 않음)
-      const base = (CUSTSPECS || []).find((x) => (x.specType || 'NEAL') === 'NEAL' && (x.part || 'CAST') === PART);
-      if (base) {
-        [...custspecForm.elements].forEach((el) => {
-          if (!el.name || el.name === 'specTarget' || el.name === 'part' || el.name === 'regDate') return;
-          if (base[el.name] != null && typeof base[el.name] !== 'object') el.value = base[el.name];
-        });
-      }
-    }
     if (prefill.values) {
       Object.entries(prefill.values).forEach(([k, v]) => {
         const el = custspecForm.elements[k];
@@ -2897,20 +3001,18 @@ function openCustSpecModal(id = null, prefill = null) {
   if (s) {
     [...custspecForm.elements].forEach((el) => { if (el.name && s[el.name] != null && typeof s[el.name] !== 'object') el.value = s[el.name]; });
     custspecForm.elements.part.value = s.part || 'CAST';
-    const target = (s.specType === 'OEM' && s.customer) ? s.customer : '__NEAL__';
+    const target = String(s.customer || '');
     const sel = custspecForm.elements.specTarget;
-    if (target !== '__NEAL__' && ![...sel.options].some((o) => o.value === target)) {
+    if (target && ![...sel.options].some((o) => o.value === target)) {
       sel.insertAdjacentHTML('beforeend', `<option value="${esc(target)}">${esc(target)}</option>`);
     }
     sel.value = target;
   } else {
     custspecForm.elements.part.value = PART;
-    custspecForm.elements.specTarget.value = '__NEAL__';
   }
   gateModal('#custspec-form', id ? can('update', 'custspecs') : can('create', 'custspecs'), !!id && can('delete', 'custspecs'));
   $('#custspec-modal').hidden = false;
 }
-$('#btn-new-custspec').addEventListener('click', () => openCustSpecModal());
 $('#custspec-modal-close').addEventListener('click', () => ($('#custspec-modal').hidden = true));
 $('#custspec-cancel').addEventListener('click', () => ($('#custspec-modal').hidden = true));
 
@@ -2921,9 +3023,10 @@ custspecForm.addEventListener('submit', async (e) => {
     if (!el.name) return;
     s[el.name] = el.type === 'number' ? (el.value === '' ? null : Number(el.value)) : (el.value || null);
   });
-  const target = s.specTarget; delete s.specTarget;
-  s.specType = (target && target !== '__NEAL__') ? 'OEM' : 'NEAL';
-  s.customer = s.specType === 'OEM' ? target : null;
+  const target = String(s.specTarget || '').trim(); delete s.specTarget;
+  if (!target) { alert('어느 업체의 예외인지 골라주세요.'); return; }
+  s.specType = 'OEM';                     // 저장 구조상 업체 지정 사양은 specType='OEM'
+  s.customer = target;
   delete s.images;
   try {
     if (editingCustSpecId) await post('/api/custspecs/' + editingCustSpecId, s, 'PUT');
@@ -2939,7 +3042,7 @@ custspecForm.addEventListener('submit', async (e) => {
   } catch (err) { alert('저장 실패: ' + err.message); }
 });
 $('#custspec-delete').addEventListener('click', async () => {
-  if (!editingCustSpecId || !confirm('이 생산사양을 삭제하시겠습니까?')) return;
+  if (!editingCustSpecId || !confirm('이 제품별 예외를 삭제하시겠습니까?')) return;
   await api('/api/custspecs/' + editingCustSpecId, { method: 'DELETE' });
   await loadCustSpecs();
   $('#custspec-modal').hidden = true;
@@ -2951,126 +3054,9 @@ $('#custspec-delete').addEventListener('click', async () => {
 });
 
 /* ===================== 전체 사양 보기 (제품표준서 + 모든 고객사별 생산사양) ===================== */
-function renderOverview() {
-  const q = $('#ov-search').value.trim().toLowerCase();
-  const hit = (x, fields) => !q || fields.some((f) => String(x[f] ?? '').toLowerCase().includes(q));
-
-  // 고객사별 생산사양 — 고객사별로 묶어서 표시 (OEM 고객사 먼저, 기본 NEAL 마지막)
-  const specsAll = CUSTSPECS.filter((s) => hit(s, ['product', 'customer', 'color', 'toner', 'pouchType', 'labelSpec']));
-  const groups = new Map();
-  for (const s of specsAll) {
-    const isOem = (s.specType || 'NEAL') === 'OEM';
-    const key = isOem ? 'OEM::' + (s.customer || '(고객사 미지정)') : 'NEAL';
-    if (!groups.has(key)) groups.set(key, { type: isOem ? 'OEM' : 'NEAL', label: isOem ? (s.customer || '(고객사 미지정)') : '기본 NEAL 사양 (제품 공통)', items: [] });
-    groups.get(key).items.push(s);
-  }
-  const ordered = [...groups.values()].sort((a, b) =>
-    (a.type === b.type ? 0 : (a.type === 'OEM' ? -1 : 1)) || a.label.localeCompare(b.label));
-  const csRow = (s) => `<tr class="ov-cs-row" data-id="${s.id}" style="cursor:pointer">
-    <td>${esc(s.part || 'CAST')}</td><td><b>${esc(s.product)}</b>${s.variant ? ` <span class="muted">(${esc(s.variant)})</span>` : ''}</td><td>${esc(s.color || '-')}</td>
-    <td class="num">${(s.coatingMid != null && s.coatingMid !== '') ? `${esc(s.coatingMin)}~${esc(s.coatingMax)}` : '-'}</td>
-    <td>${esc(s.toner || '-')}</td><td>${esc(s.pouchType || '-')}</td>
-    <td>${s.labelSpec ? '✓' : '-'}</td><td>${s.manualSpec ? '✓' : '-'}</td><td>${s.enclosures ? '✓' : '-'}</td>
-  </tr>`;
-  const specHead = '<thead><tr><th>공정</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>라벨</th><th>설명서</th><th>동봉품</th></tr></thead>';
-
-  /* 업체 정보(masters.companies) 기준으로 블록을 만든다 — 사양이 없는 업체도 빠지지 않게.
-     업체 정보에 없는데 사양에만 있는 업체명은 뒤에 따로 붙인다. */
-  const usedGroups = new Set();
-  const infoBits = (co) => [['나라', co.country], ['컬러', co.colors], ['특이사항', co.notes]]
-    .filter(([, v]) => v).map(([k, v]) => `<div><span>${k}</span>${esc(v)}</div>`).join('');
-  const companies = (MASTERS.companies || []).slice()
-    .filter((co) => !q || String(co.name || '').toLowerCase().includes(q) || specsOfCompany(co).some((s) => hit(s, ['product', 'color', 'toner'])))
-    .map((co) => ({ co, specs: specsOfCompany(co), eff: customerSpecType(co.name) }))
-    .sort((a, b) => (a.eff === b.eff ? 0 : (a.eff === 'OEM' ? -1 : 1)) || String(a.co.name || '').localeCompare(String(b.co.name || '')));
-  const coBlocks = companies.map(({ co, specs, eff }) => {
-    specs.forEach((s) => usedGroups.add('OEM::' + (s.customer || '')));
-    const info = infoBits(co);
-    let body;
-    if (specs.length) {
-      const items = specs.slice().sort((a, b) => (a.part || '').localeCompare(b.part || '') || (a.product || '').localeCompare(b.product || ''));
-      body = `<div class="ovc-specs"><table>${specHead}<tbody>${items.map(csRow).join('')}</tbody></table></div>`;
-    } else if (eff === 'OEM') {
-      body = '<div class="ovc-none">⚠️ 전용 사양이 없어 작업지시서에 <b>기본 NEAL 사양</b>이 적용됩니다. 업체 정보 화면에서 사양을 등록하세요.</div>';
-    } else {
-      body = '<div class="ovc-none">기본 NEAL 사양을 그대로 사용하는 업체입니다.</div>';
-    }
-    const right = specs.length
-      ? `<span class="badge ok">사양 ${specs.length}건</span>`
-      : (eff === 'OEM' ? '<span class="badge bad">사양 미등록</span>' : '<span class="badge plain">기본 사양 사용</span>');
-    return `<div class="ovc-block">
-      <div class="ovc-head">${specBadge(eff)} <b>${esc(co.name || '')}</b> <span class="muted">${esc(co.country || '')}</span>
-        <span class="ovc-right">${right}</span></div>
-      ${info ? `<div class="ovc-info">${info}</div>` : ''}
-      ${body}
-    </div>`;
-  }).join('');
-
-  // 업체 정보에 없는 이름으로 등록된 OEM 사양 (이름 오타·미등록 업체)
-  const orphan = ordered.filter((g) => g.type === 'OEM' && !usedGroups.has('OEM::' + g.label));
-  const orphanBlocks = orphan.map((g) => {
-    const items = g.items.slice().sort((a, b) => (a.part || '').localeCompare(b.part || '') || (a.product || '').localeCompare(b.product || ''));
-    return `<div class="ovc-block">
-      <div class="ovc-head">${specBadge('OEM')} <b>${esc(g.label)}</b>
-        <span class="ovc-right"><span class="badge warn">🏭 업체 정보에 없는 이름</span></span></div>
-      <div class="ovc-specs"><table>${specHead}<tbody>${items.map(csRow).join('')}</tbody></table></div>
-    </div>`;
-  }).join('');
-
-  const nealGroup = ordered.find((g) => g.type === 'NEAL');
-  const nealBlock = nealGroup
-    ? `<div class="ovc-block">
-        <div class="ovc-head">${specBadge('NEAL')} <b>기본 NEAL 사양 (제품 공통)</b>
-          <span class="ovc-right"><span class="badge plain">${nealGroup.items.length}건</span></span></div>
-        <div class="ovc-specs"><table>${specHead}<tbody>${nealGroup.items.slice()
-          .sort((a, b) => (a.part || '').localeCompare(b.part || '') || (a.product || '').localeCompare(b.product || ''))
-          .map(csRow).join('')}</tbody></table></div>
-      </div>`
-    : '';
-
-  $('#ov-custspecs').innerHTML = (coBlocks || orphanBlocks || nealBlock)
-    ? nealBlock + coBlocks + orphanBlocks
-    : '<div class="empty">등록된 업체·생산사양이 없습니다.</div>';
-
-  // 제품표준서
-  const stds = STANDARDS.filter((s) => hit(s, ['product', 'productCode', 'color', 'brand', 'baseType', 'resinType']))
-    .sort((a, b) => (a.part || '').localeCompare(b.part || '') || (a.product || '').localeCompare(b.product || ''));
-  const stRows = stds.map((s) => `<tr class="ov-std-row" data-id="${s.id}" style="cursor:pointer">
-    <td>${esc(s.part || 'CAST')}</td><td><b>${esc(s.product)}</b></td><td>${esc(s.color || '-')}</td>
-    <td>${esc(s.productCode || '-')}</td><td>${esc(s.brand || '-')}</td>
-    <td>${esc(s.baseType || '-')}</td><td>${esc(s.resinType || '-')}</td><td>${esc(s.catalyst || '-')}</td>
-    <td>${esc(s.core || '-')}</td><td>${esc(s.sizeSpec || '-')}</td>
-  </tr>`).join('');
-  $('#ov-standards').innerHTML = stds.length
-    ? `<table><thead><tr><th>공정</th><th>제품</th><th>색상</th><th>제품코드</th><th>브랜드</th><th>기재</th><th>수지</th><th>촉매</th><th>코어</th><th>규격</th></tr></thead><tbody>${stRows}</tbody></table>`
-    : '<div class="empty">등록된 제품표준서가 없습니다.</div>';
-}
-$('#ov-search').addEventListener('input', renderOverview);
-document.addEventListener('click', (e) => {
-  const cs = e.target.closest('.ov-cs-row');
-  if (cs) { openCustSpecModal(Number(cs.dataset.id)); return; }
-  const st = e.target.closest('.ov-std-row');
-  if (st) openStandardModal(Number(st.dataset.id));
-});
-
 /* ===================== 업체 정보 (masters.companies) ===================== */
 let editingCompanyId = null;
 const companyForm = $('#company-form');
-
-/* 해당 고객사(업체)와 매칭되는 OEM 생산사양(코팅) — 이름 느슨 매칭 */
-function coatingsForCompany(co) {
-  const nm = String(co.name || '').toLowerCase();
-  const base = nm.split('(')[0].trim();
-  return (CUSTSPECS || []).filter((cs) => {
-    if (cs.specType !== 'OEM' || !cs.customer) return false;
-    const c = String(cs.customer).toLowerCase();
-    return c && (nm.includes(c) || (base && (base.includes(c) || c.includes(base))));
-  });
-}
-function coatingText(cs) {
-  const coat = (cs.coatingMid != null && cs.coatingMid !== '') ? `${cs.coatingMin ?? ''}~${cs.coatingMax ?? ''}` : '';
-  return `${cs.product}${cs.variant ? `(${cs.variant})` : ''}${coat ? ' ' + coat : ''}`;
-}
 
 /* 그 업체 이름으로 등록된 OEM 생산사양 (업체명 느슨 매칭) */
 function specsOfCompany(co) {
@@ -3085,117 +3071,85 @@ function specsOfCompany(co) {
 
 function renderCompanies() {
   const q = $('#co-search').value.trim().toLowerCase();
-  let items = (MASTERS.companies || []).slice().map((c) => {
-    const specs = specsOfCompany(c);
-    // 구분(OEM/NEAL)은 포장 기준이고, 고객사 사양은 NEAL 업체도 가질 수 있다(특이사항)
-    const eff = customerSpecType(c.name);
-    return { ...c, _specs: specs, _oem: eff === 'OEM' };
-  });
-  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'resin', 'toner', 'notes'].some((f) => String(c[f] ?? '').toLowerCase().includes(q))
-    || c._specs.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
+  /* 업체가 요구한 항목만 뽑는다 — 비어 있으면 제품표준서 기본값을 그대로 쓰는 업체다 */
+  const reqOf = (c) => Object.entries(CO_SPEC_MAP)
+    .filter(([ck]) => filledVal(c[ck]) && !isDefaultMark(c[ck]))
+    .map(([ck, sk]) => ({ key: sk, label: CO_SPEC_LABEL[sk] || sk, value: c[ck] }));
+  let items = (MASTERS.companies || []).slice().map((c) => ({
+    ...c, _reqs: reqOf(c), _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM',
+  }));
+  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox']
+    .some((f) => String(c[f] ?? '').toLowerCase().includes(q))
+    || c._exc.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
   items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
-  const oemNoSpec = items.filter((c) => c._oem && !c._specs.length).length;
-  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c._oem).length}`
-    + (oemNoSpec ? ` · 사양 미등록 ${oemNoSpec}` : '');
-  // 예전 값이 남아 있으면 일괄 정리 버튼 노출 (admin/manager)
-  const legacyCount = (MASTERS.companies || []).filter((c) => coLegacyValues(c).length).length;
-  const migBtn = $('#btn-co-migrate');
-  migBtn.hidden = !legacyCount || !can('update', 'companies') || !can('create', 'custspecs');
-  migBtn.textContent = `🧹 예전 값 일괄 정리 (${legacyCount})`;
+  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c._oem).length}`;
   // 이름이 비슷해 같은 업체로 보이는 묶음
   const dupeGroups = can('update', 'companies') ? findCoDupeGroups().length : 0;
   const dupBtn = $('#btn-co-dedupe');
   dupBtn.hidden = !dupeGroups;
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
-  const specCell = (c) => {
-    if (c._specs.length) {
-      const names = [...new Set(c._specs.map((s) => s.product).filter(Boolean))].join(', ');
-      const label = c._oem ? '전용사양' : '특이사항';
-      return `<span class="badge ok">${label} ${c._specs.length}건</span> <span class="muted">${esc(names)}</span>`;
-    }
-    return c._oem
-      ? '<span class="badge bad" title="OEM(전용 포장) 업체인데 전용 사양이 없어 작업지시서에 기본 NEAL 사양이 적용됩니다">미등록</span>'
-      : '<span class="badge plain">기본 사양 그대로</span>';
+  const reqCell = (c) => {
+    const bits = c._reqs.map((r) => {
+      const opts = r.key === 'pouchType' ? pouchOptionsOf(r.value) : [];
+      const val = opts.length > 1 ? `${esc(opts.join(' / '))} <span class="badge warn">선택</span>` : esc(r.value);
+      return `<span class="co-req"><i>${r.label}</i> ${val}</span>`;
+    });
+    c._exc.forEach((s) => bits.push(`<span class="co-req"><i>${esc(s.product || '제품')}</i> 예외</span>`));
+    return bits.length ? bits.join(' ') : '<span class="badge plain">기본 사양 그대로</span>';
   };
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
-    <td><b>${esc(c.name || '')}</b>${coLegacyValues(c).length ? ' <span class="badge warn" title="업체 정보에서 뺀 예전 값이 남아 있습니다. 열어서 생산사양으로 옮기거나 지워주세요">예전 값</span>' : ''}</td>
+    <td><b>${esc(c.name || '')}</b></td>
     <td>${esc(c.country || '-')}</td><td>${specBadge(c._oem ? 'OEM' : 'NEAL')}</td>
-    <td>${specCell(c)}</td>
+    <td>${reqCell(c)}</td>
     <td>${esc(c.colors || '-')}</td><td>${esc(c.notes || '')}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table><thead><tr><th>고객사</th><th>나라</th><th>포장 구분</th><th>생산사양</th><th>컬러</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
-    : '<div class="empty">등록된 고객사가 없습니다.</div>';
+    ? `<table><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>업체 요구사항</th><th>컬러</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    : '<div class="empty">등록된 업체가 없습니다.</div>';
 }
 
-/* 업체 상세의 [생산사양] 탭 — 그 업체 OEM 사양 목록 */
+
+/* 업체 상세의 [제품별 예외] — 그 업체의 특정 제품만 기본과 다를 때 */
 function renderCompanySpecs(co) {
   const specs = co ? specsOfCompany(co) : [];
   $('#co-spec-count').textContent = specs.length;
   $('#co-add-spec').hidden = !can('create', 'custspecs');
-  const eff = co ? customerSpecType(co.name) : 'NEAL';
-  const warn = `<div class="co-warn">기본 NEAL 사양(NEAL 파우치·인박스·아웃박스 등) 위에 <b>여기 적은 항목만 덮어씁니다.</b> 비워둔 항목은 기본 NEAL 값을 그대로 씁니다. 코팅량·토너만 다르면 그 칸만 채우면 됩니다.</div>`;
   if (!specs.length) {
     $('#co-spec-list').innerHTML = `<div class="co-spec-empty">
       <div style="font-size:28px;margin-bottom:6px">📋</div>
-      <b>이 업체만의 사양이 없습니다.</b><br>
-      ${eff === 'OEM'
-        ? '이 업체는 <b>OEM(전용 포장)</b>으로 지정돼 있는데 전용 사양이 없어, 지금은 <b>기본 NEAL 사양</b>이 그대로 나갑니다.'
-        : '기본 NEAL 사양이 그대로 적용됩니다. <b>코팅량·토너 등이 조금 다르면</b> 그 항목만 적어두세요 (나머지는 기본값 사용).'}
+      <b>제품별 예외가 없습니다.</b><br>
+      이 업체의 모든 제품이 <b>제품표준서의 기본 사양 + 아래 업체 요구사항</b>으로 생산됩니다.
+      특정 제품 하나만 코팅량 등이 다르다면 그 제품만 등록하세요.
       ${can('create', 'custspecs') ? `<div class="co-empty-btns">
-        <button type="button" class="btn primary small" id="co-spec-new">＋ 사양 등록</button>
-        <button type="button" class="btn small" id="co-spec-copy">기본 NEAL 사양 복사해서 시작</button>
+        <button type="button" class="btn primary small" id="co-spec-new">＋ 제품별 예외</button>
       </div>` : ''}
     </div>`;
     return;
   }
+  /* 기본값(제품표준서)과 나란히 보여줘야 무엇이 예외인지 바로 보인다 */
   const rows = specs.map((s) => {
+    const std = findStandard({ part: s.part, product: s.product, customer: co.name }) || {};
+    const cell = (v, bv) => {
+      if (!filledVal(v)) return '<span class="muted">-</span>';
+      const diff = filledVal(bv) && String(bv).trim() !== String(v).trim();
+      return `${esc(v)}${diff ? ` <span class="muted" style="font-size:11px">(기본 ${esc(bv)})</span>` : ''}`;
+    };
+    const coat = (x) => (x.coatingMid != null && x.coatingMid !== '') ? `${x.coatingMin ?? ''}~${x.coatingMax ?? ''}` : '';
     return `<tr class="co-spec-row" data-csid="${s.id}" style="cursor:pointer">
       <td>${esc(s.part || 'CAST')}</td>
       <td><b>${esc(s.product || '')}</b>${s.variant ? ` <span class="muted">(${esc(s.variant)})</span>` : ''}</td>
       <td>${esc(s.color || '-')}</td>
-      <td class="num">${(s.coatingMid != null && s.coatingMid !== '') ? `${esc(s.coatingMin)}~${esc(s.coatingMax)}` : '-'}</td>
-      <td>${esc(s.toner || '-')}</td><td>${esc(s.pouchType || '-')}</td>
-      <td>${esc(s.inBoxSpec || '-')}</td><td>${esc(s.outBoxSpec || '-')}</td>
+      <td class="num">${cell(coat(s), coat(std))}</td>
+      <td>${cell(s.toner, std.toner)}</td><td>${cell(s.pouchType, std.pouchType)}</td>
+      <td>${cell(s.inBoxSpec, std.inBoxSpec)}</td><td>${cell(s.outBoxSpec, std.outBoxSpec)}</td>
     </tr>`;
   }).join('');
   $('#co-spec-list').innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>공정</th><th>제품</th><th>색상</th><th class="num">코팅</th><th>토너</th><th>파우치</th><th>인박스</th><th>아웃박스</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <p class="muted" style="margin-top:8px;font-size:12px">행을 클릭하면 사양 수정 창이 열립니다 (코팅량 · 포장).</p>${warn}`;
-  $('#co-spec-count').textContent = specs.length;
+    <p class="muted" style="margin-top:8px;font-size:12px">행을 클릭하면 수정 창이 열립니다. 비워둔 칸은 제품표준서의 기본 사양을 그대로 씁니다.</p>`;
 }
 
-/* 업체 정보에서 뺀 중복 필드(제품마다 달라지는 값) — 문서에는 남겨두고 화면에서만 이전 안내로 보여준다.
-   토너·포장은 생산사양, 수지·기재는 제품표준서가 정본이다. */
-const CO_LEGACY_FIELDS = [
-  { key: 'toner', label: '토너 종류', to: '생산사양의 토너', spec: 'toner' },
-  { key: 'packLabel', label: '파우치 / 라벨', to: '생산사양의 파우치·라벨', spec: 'pouchType' },
-  { key: 'packInBox', label: '인박스', to: '생산사양의 In Box 기준', spec: 'inBoxSpec' },
-  { key: 'packOutBox', label: '아웃박스', to: '생산사양의 Out Box 기준', spec: 'outBoxSpec' },
-  { key: 'resin', label: '수지 종류', to: '제품표준서의 수지 종류', spec: null },
-  { key: 'baseLength', label: '기재 / 길이', to: '제품표준서의 기재·규격', spec: null },
-];
-const coLegacyValues = (co) => CO_LEGACY_FIELDS.filter((f) => co && co[f.key] != null && String(co[f.key]).trim() !== '');
-
-function renderCompanyLegacy(co) {
-  const box = $('#co-legacy');
-  const vals = coLegacyValues(co);
-  box.hidden = !vals.length;
-  if (!vals.length) { box.innerHTML = ''; return; }
-  const canEdit = can('update', 'companies');
-  box.innerHTML = `<fieldset style="border-color:var(--warn);background:#fffdf6">
-    <legend style="color:#a9700a">예전에 입력해둔 값</legend>
-    <p class="muted" style="margin-bottom:10px">아래 값들은 <b>제품마다 달라지는 항목</b>이라 업체 정보에서 뺐습니다. 지금은 <b>작업지시서에 쓰이지 않습니다.</b> 옮기거나 지워주세요.</p>
-    <table><thead><tr><th>항목</th><th>값</th><th>옮길 곳</th></tr></thead><tbody>
-      ${vals.map((f) => `<tr class="no-click"><td>${f.label}</td><td><b>${esc(co[f.key])}</b></td><td class="muted">${f.to}</td></tr>`).join('')}
-    </tbody></table>
-    ${canEdit ? `<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
-      ${vals.some((f) => f.spec) ? '<button type="button" class="btn primary small" id="co-legacy-move">이 값으로 생산사양 만들기</button>' : ''}
-      <button type="button" class="btn small danger" id="co-legacy-clear">이 값 지우기</button>
-    </div>` : ''}
-  </fieldset>`;
-}
 
 function setCompanyTab(tab) {
   $$('#co-tabs button').forEach((b) => b.classList.toggle('active', b.dataset.cotab === tab));
@@ -3203,143 +3157,6 @@ function setCompanyTab(tab) {
   companyForm.hidden = tab !== 'info';
 }
 
-/* ── 예전 값 일괄 정리 ─────────────────────────────────────────────
-   업체 정보에서 뺀 값을 생산사양으로 자동 이관한다.
-   - 사양이 이미 있는 업체: 그 사양들의 '빈 칸'만 채운다 (기존 값 절대 덮어쓰지 않음)
-   - 사양이 없는 업체: 수주·실적·표준서·품목매핑에서 그 업체 제품을 찾아 사양을 새로 만든다
-   - 제품을 못 찾으면 사람이 골라야 하므로 건너뛴다 */
-
-/* 그 업체 이름으로 데이터에 등장한 제품 목록 (공정 정보까지) */
-function productsOfCustomer(name) {
-  const target = String(name || '').trim().toLowerCase();
-  if (!target) return [];
-  const match = (v) => { const c = String(v ?? '').trim().toLowerCase(); return !!c && (c === target || c.includes(target) || target.includes(c)); };
-  const found = new Map();
-  const add = (product, part) => {
-    const p = String(product ?? '').trim();
-    if (!p) return;
-    if (!found.has(p)) found.set(p, part || null);
-    else if (!found.get(p) && part) found.set(p, part);
-  };
-  (STANDARDS || []).forEach((s) => { if (match(s.customer)) add(s.product, s.part); });
-  (ORDERS || []).forEach((o) => { if (match(o.customer)) add(o.product, o.part); });
-  (PRODUCTMAP || []).forEach((m) => { if (match(m.customer)) add(m.product, m.part); });
-  (RECORDS || []).forEach((r) => { if (match(r.customer)) add(r.product, partOf(r)); });
-  return [...found.entries()].map(([product, part]) => ({ product, part: part || 'CAST' }));
-}
-
-/* 업체별 이관 계획 세우기 */
-function buildCoMigratePlan() {
-  return (MASTERS.companies || []).map((co) => {
-    const legacy = coLegacyValues(co);
-    if (!legacy.length) return null;
-    const movable = legacy.filter((f) => f.spec);
-    const specs = specsOfCompany(co);
-    const plan = { co, legacy, movable, specs, kind: 'clear', fills: [], creates: [] };
-    if (!movable.length) return plan;                       // 수지·기재만 있음 → 값 정리만
-    if (specs.length) {
-      specs.forEach((s) => {
-        const blanks = movable.filter((f) => s[f.spec] == null || String(s[f.spec]).trim() === '');
-        if (blanks.length) plan.fills.push({ spec: s, fields: blanks });
-      });
-      plan.kind = plan.fills.length ? 'fill' : 'clear';     // 이미 다 채워져 있으면 값만 정리
-    } else {
-      plan.candidates = productsOfCustomer(co.name);
-      plan.kind = plan.candidates.length ? 'create' : 'manual';
-    }
-    return plan;
-  }).filter(Boolean);
-}
-
-let CO_MIGRATE_PLANS = [];
-function openCoMigrateModal() {
-  CO_MIGRATE_PLANS = buildCoMigratePlan();
-  const valTxt = (co, fields) => fields.map((f) => `${f.label} <b>${esc(co[f.key])}</b>`).join(' · ');
-  const rowsOf = (kind, title, desc, render) => {
-    const list = CO_MIGRATE_PLANS.map((p, i) => ({ p, i })).filter(({ p }) => p.kind === kind);
-    if (!list.length) return '';
-    return `<h3 style="margin:18px 0 6px;font-size:14px">${title} <span class="muted" style="font-weight:400">${list.length}곳</span></h3>
-      <p class="muted" style="margin-bottom:8px;font-size:12.5px">${desc}</p>
-      <table><tbody>${list.map(({ p, i }) => render(p, i)).join('')}</tbody></table>`;
-  };
-  const chk = (i, on) => `<td style="width:34px"><input type="checkbox" data-mig="${i}"${on ? ' checked' : ''}></td>`;
-  const PARTS = ['CAST', 'SPLINT', 'PRE-CUT', 'HYBRID'];
-  // 제품은 자유 입력(자동완성) — 찾아둔 후보가 있으면 미리 채워둔다
-  const prodPicker = (i, cand) => `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-    <select data-migpart="${i}">${PARTS.map((p) => `<option${(cand && cand.part === p) || (!cand && p === PART) ? ' selected' : ''}>${p}</option>`).join('')}</select>
-    <input type="text" data-migprod="${i}" list="dl-products" style="width:180px"
-      value="${esc(cand ? cand.product : '')}" placeholder="제품명 (비우면 값만 지움)">
-  </div>`;
-  $('#comigrate-body').innerHTML =
-    rowsOf('fill', '✅ 기존 사양의 빈 칸 채우기', '이미 있는 사양에서 비어 있는 항목만 채웁니다. 값이 있는 칸은 그대로 둡니다.',
-      (p, i) => `<tr class="no-click">${chk(i, true)}
-        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
-        <td class="muted">${p.fills.map((f) => `${esc(f.spec.product || '')} → ${f.fields.map((x) => x.label).join(', ')}`).join('<br>')}</td></tr>`) +
-    rowsOf('create', '🆕 사양 새로 만들기', '이 업체 사양이 아직 없습니다. 수주·실적·표준서에서 찾은 제품을 미리 넣어뒀습니다. 바꾸려면 제품명을 고치세요.',
-      (p, i) => `<tr class="no-click">${chk(i, true)}
-        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
-        <td>${prodPicker(i, p.candidates[0])}</td></tr>`) +
-    rowsOf('manual', '✍️ 제품명을 입력해 주세요', '이 업체 이름으로 등록된 제품을 찾지 못했습니다. 제품명을 넣으면 그 제품으로 사양을 만들고, <b>비워두면 값만 지웁니다.</b>',
-      (p, i) => `<tr class="no-click">${chk(i, false)}
-        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.movable)}</div></td>
-        <td>${prodPicker(i, null)}</td></tr>`) +
-    rowsOf('clear', '🧹 값만 정리', '옮길 곳이 없거나(수지·기재는 제품표준서 소관) 이미 사양에 값이 있는 업체입니다.',
-      (p, i) => `<tr class="no-click">${chk(i, true)}
-        <td><b>${esc(p.co.name)}</b><div class="muted" style="font-size:12px">${valTxt(p.co, p.legacy)}</div></td>
-        <td class="muted">값만 지움</td></tr>`);
-  if (!CO_MIGRATE_PLANS.length) $('#comigrate-body').innerHTML = '<div class="empty">정리할 예전 값이 없습니다.</div>';
-  $('#comigrate-run').hidden = !CO_MIGRATE_PLANS.length;
-  $('#comigrate-modal').hidden = false;
-}
-
-async function runCoMigrate() {
-  const picked = $$('#comigrate-body input[data-mig]:checked').map((el) => CO_MIGRATE_PLANS[Number(el.dataset.mig)]).filter(Boolean);
-  if (!picked.length) { alert('실행할 항목을 선택하세요.'); return; }
-  const btn = $('#comigrate-run');
-  btn.disabled = true; btn.textContent = '처리 중…';
-  let filled = 0, created = 0, cleared = 0;
-  try {
-    for (const p of picked) {
-      if (p.kind === 'fill') {
-        for (const f of p.fills) {
-          const patch = {};
-          f.fields.forEach((x) => { patch[x.spec] = p.co[x.key]; });
-          await post('/api/custspecs/' + f.spec.id, { ...f.spec, ...patch }, 'PUT');
-          filled++;
-        }
-      } else if (p.kind === 'create' || p.kind === 'manual') {
-        const i = CO_MIGRATE_PLANS.indexOf(p);
-        const prodEl = $(`#comigrate-body input[data-migprod="${i}"]`);
-        const partEl = $(`#comigrate-body select[data-migpart="${i}"]`);
-        const product = prodEl ? prodEl.value.trim() : '';
-        if (product) {                                   // 제품을 적었으면 사양 생성, 비웠으면 값만 정리
-          const obj = { part: (partEl && partEl.value) || 'CAST', product, specType: 'OEM', customer: p.co.name };
-          p.movable.forEach((f) => { obj[f.spec] = p.co[f.key]; });
-          await post('/api/custspecs', obj);
-          created++;
-        }
-      }
-      cleared++;
-    }
-    // 옮긴 업체의 예전 값 제거 (한 번에 저장)
-    const ids = new Set(picked.map((p) => p.co.id));
-    const list = (MASTERS.companies || []).map((x) => {
-      if (!ids.has(x.id)) return x;
-      const next = { ...x };
-      CO_LEGACY_FIELDS.forEach((f) => { delete next[f.key]; });
-      return next;
-    });
-    MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
-    await loadCustSpecs();
-    $('#comigrate-modal').hidden = true;
-    refreshCurrentPage();
-    alert(`정리 완료\n\n· 기존 사양 빈 칸 채움: ${filled}건\n· 사양 새로 만듦: ${created}건\n· 업체 예전 값 정리: ${cleared}곳`);
-  } catch (err) {
-    alert('처리 중 오류가 발생했습니다: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 화면을 새로고침한 뒤 다시 실행하세요.');
-  } finally {
-    btn.disabled = false; btn.textContent = '선택한 항목 실행';
-  }
-}
 /* ── 중복 업체 합치기 ──────────────────────────────────────────────
    같은 회사가 이름만 다르게 두 번 등록된 경우(시그맥스/시그멕스, 아스터/아스터호주 등)를 찾아
    대표 이름으로 합친다. 업체명은 여러 컬렉션에 문자열로 저장돼 있으므로 참조도 같이 바꾼다. */
@@ -3482,33 +3299,6 @@ $('#codedupe-close').addEventListener('click', () => ($('#codedupe-modal').hidde
 $('#codedupe-cancel').addEventListener('click', () => ($('#codedupe-modal').hidden = true));
 $('#codedupe-run').addEventListener('click', runCoDedupe);
 
-$('#btn-co-migrate').addEventListener('click', openCoMigrateModal);
-$('#comigrate-close').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
-$('#comigrate-cancel').addEventListener('click', () => ($('#comigrate-modal').hidden = true));
-$('#comigrate-run').addEventListener('click', runCoMigrate);
-
-/* 예전 요약값 → 생산사양으로 옮기기 / 지우기 */
-$('#co-legacy').addEventListener('click', async (e) => {
-  const co = (MASTERS.companies || []).find((x) => x.id === editingCompanyId);
-  if (!co) return;
-  if (e.target.closest('#co-legacy-move')) {
-    const prefill = { customer: co.name, values: {} };
-    coLegacyValues(co).forEach((f) => { if (f.spec) prefill.values[f.spec] = co[f.key]; });
-    openCustSpecModal(null, prefill);
-    return;
-  }
-  if (e.target.closest('#co-legacy-clear')) {
-    if (!confirm('이 업체의 예전 요약값을 지웁니다.\n(생산사양·제품표준서 데이터는 그대로입니다.)')) return;
-    const next = { ...co };
-    CO_LEGACY_FIELDS.forEach((f) => { delete next[f.key]; });
-    const list = (MASTERS.companies || []).map((x) => (x.id === co.id ? next : x));
-    try {
-      MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
-      renderCompanyLegacy((MASTERS.companies || []).find((x) => x.id === co.id));
-      refreshCurrentPage();
-    } catch (err) { alert('저장 실패: ' + err.message); }
-  }
-});
 
 function openCompanyModal(id = null) {
   editingCompanyId = id;
@@ -3521,7 +3311,6 @@ function openCompanyModal(id = null) {
   // 신규 등록 중에는 붙일 사양이 없으므로 탭을 감춘다
   $('#co-tabs').hidden = !c;
   if (c) renderCompanySpecs(c);
-  renderCompanyLegacy(c);
   setCompanyTab('info');
   gateModal('#company-form', id ? can('update', 'companies') : can('create', 'companies'), !!id && can('delete', 'companies'));
   $('#company-modal').hidden = false;
@@ -3530,18 +3319,15 @@ $('#co-tabs').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-cotab]');
   if (b) setCompanyTab(b.dataset.cotab);
 });
-/* 사양 등록·수정: 업체명을 미리 채워 생산사양 창을 연다 (업체 창은 열어둔 채) */
+/* 제품별 예외 등록·수정: 업체명을 미리 채워 연다 (업체 창은 열어둔 채) */
 $('#co-pane-spec').addEventListener('click', (e) => {
   const co = (MASTERS.companies || []).find((x) => x.id === editingCompanyId);
   if (!co) return;
   const row = e.target.closest('.co-spec-row');
   if (row) { openCustSpecModal(Number(row.dataset.csid)); return; }
   if (e.target.closest('#co-add-spec') || e.target.closest('#co-spec-new')) { openCustSpecModal(null, { customer: co.name }); return; }
-  if (e.target.closest('#co-spec-copy')) openCustSpecModal(null, { customer: co.name, copyNeal: true });
 });
 $('#btn-new-company').addEventListener('click', () => openCompanyModal());
-/* 업체 지정 없이 제품 공통으로 적용되는 기본 NEAL 사양 목록으로 이동 */
-$('#btn-neal-specs').addEventListener('click', () => goArea('custspecs'));
 $('#company-modal-close').addEventListener('click', () => ($('#company-modal').hidden = true));
 $('#company-cancel').addEventListener('click', () => ($('#company-modal').hidden = true));
 document.addEventListener('click', (e) => { const r = e.target.closest('.co-row'); if (r) openCompanyModal(Number(r.dataset.id)); });
@@ -4819,10 +4605,10 @@ function openStartCheckModal() {
     WS.startChecks = WS.startChecks || {};
     body.innerHTML = infos.map((info) => {
       const cs = findCustSpec({ part: wsPart, product: info.product, color: info.color, customer: info.customer });
-      const type = customerSpecType(info.customer);
+      const type = cs.type;
       const c = WS.startChecks[info.product] || {};
       return `<div class="sc-row" data-product="${esc(info.product)}">
-        <div class="sc-title"><b>${esc(info.product)}</b> ${esc(info.color || '')} · ${esc(info.customer || '내수')} ${specBadge(type)}${cs ? '' : ' <span class="badge bad">사양 미등록</span>'}</div>
+        <div class="sc-title"><b>${esc(info.product)}</b> ${esc(info.color || '')} · ${esc(info.customer || '내수')} ${specBadge(type)}${cs.hasSpec ? '' : ' <span class="badge bad">사양 미등록</span>'}</div>
         <div class="sc-photos">
           <div class="photo-slot" data-img="cap">
             <div class="photo-head">📷 현장 촬영 (라벨/LOT 실링)</div>

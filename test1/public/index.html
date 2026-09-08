@@ -52,10 +52,9 @@
       <button class="nav-btn" data-page="logs">📋 실적관리</button>
       <button class="nav-btn" data-page="analysis">📈 실적·불량 분석</button>
       <div class="nav-sublabel">제품 · 설비 자료</div>
-      <button class="nav-btn" data-page="companies">🏭 업체 정보</button>
+      <button class="nav-btn" data-page="companies">🏭 업체별 사양</button>
       <button class="nav-btn" data-page="standards">📦 제품표준서</button>
       <button class="nav-btn" data-page="productmap">🔗 품목 매핑</button>
-      <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
       <button class="nav-btn" data-page="equipment">📒 설비 대장</button>
       <div class="nav-sublabel">시스템 관리</div>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
@@ -302,6 +301,7 @@
       <div class="head-actions">
         <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="text" id="st-search" placeholder="제품명, 제품코드, 업체 검색">
+        <button class="btn" id="btn-std-basefill" hidden>📥 기본 사양 가져오기</button>
         <button class="btn primary" id="btn-new-standard">＋ 표준서 등록</button>
       </div>
     </div>
@@ -328,55 +328,19 @@
     </div>
   </section>
 
-  <!-- 고객사별 생산사양 -->
-  <section id="page-custspecs" class="page" hidden>
-    <div class="page-head">
-      <h1>고객사별 생산사양</h1>
-      <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
-        <input type="text" id="cs-search" placeholder="제품명, 고객사 검색">
-        <button class="btn primary" id="btn-new-custspec">＋ 사양 등록</button>
-      </div>
-    </div>
-    <div class="card">
-      <p class="muted" style="margin-bottom:10px">기본 <b>NEAL 사양</b>과 <b>고객사 OEM 사양</b>으로 구분합니다. 코팅·토너·라벨·파우치·박스·설명서·동봉품·포장주의사항을 관리하며, 작업지시에서 고객사 지정(기준정보)에 따라 자동 선택됩니다.</p>
-      <div id="custspecs-list" class="standard-grid"></div>
-    </div>
-  </section>
-
-  <!-- 전체 사양 보기 -->
-  <section id="page-overview" class="page" hidden>
-    <div class="page-head">
-      <h1>전체 사양 보기</h1>
-      <div class="head-actions">
-        <input type="text" id="ov-search" placeholder="제품명 · 고객사 · 코드 검색">
-      </div>
-    </div>
-    <div class="card">
-      <h3 style="margin:0 0 10px">업체별 생산사양 <span class="muted" style="font-size:13px;font-weight:400">업체 정보 + 그 업체 사양 · 사양 행 클릭 시 수정</span></h3>
-      <div id="ov-custspecs"></div>
-    </div>
-    <div class="card" style="margin-top:16px">
-      <h3 style="margin:0 0 10px">제품표준서 <span class="muted" style="font-size:13px;font-weight:400">제품 자체 기준 · 행 클릭 시 수정</span></h3>
-      <div class="table-wrap" id="ov-standards"></div>
-    </div>
-  </section>
-
   <!-- OEM (고객사별 사양) -->
   <section id="page-companies" class="page" hidden>
     <div class="page-head">
-      <h1>업체 정보</h1>
+      <h1>업체별 사양</h1>
       <div class="head-actions">
-        <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 · 제품 검색">
+        <input type="text" id="co-search" placeholder="업체 · 나라 · 컬러 · 토너 · 포장 검색">
         <span class="muted" id="co-count"></span>
         <button class="btn" id="btn-co-dedupe" hidden>🔗 중복 업체 합치기</button>
-        <button class="btn" id="btn-co-migrate" hidden>🧹 예전 값 일괄 정리</button>
-        <button class="btn" id="btn-neal-specs">📋 생산사양 전체 보기</button>
-        <button class="btn primary" id="btn-new-company">＋ 고객사 등록</button>
+        <button class="btn primary" id="btn-new-company">＋ 업체 등록</button>
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·크로실 등) 요약 정보와 <b>그 업체의 생산사양</b>을 함께 관리합니다. 행을 클릭하면 [업체 정보]·[생산사양] 탭이 열립니다. <b>구분(NEAL/OEM)은 여기가 기준</b>이며 작업지시서가 이 값을 따릅니다. 업체와 무관한 제품 기준은 <b>제품표준서</b>에 있고, 등록된 사양을 업체 구분 없이 한눈에 보려면 <b>생산사양 전체 보기</b>를 누르세요.</p>
+      <p class="muted" style="margin-bottom:10px">업체가 요구하는 <b>기본과 다른 사양</b>만 적는 곳입니다. <b>포장 구분(OEM/NEAL)</b>은 파우치·인박스·아웃박스를 전용 원부자재로 쓰는지 여부이고, 토너·코팅량·라벨이 다른 것은 <b>업체 요구사항</b>일 뿐 OEM이 아닙니다. 제품 자체의 기준(자재·코팅량·기본 포장)은 <b>제품표준서</b>에 있습니다.</p>
       <div class="table-wrap" id="companies-list"></div>
     </div>
   </section>
@@ -888,7 +852,23 @@
           <label>코어 종류<input type="text" name="core" list="dl-cores"></label>
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
-        <p class="muted" style="margin-top:8px">※ 코팅량·토너·라벨·파우치·박스 등은 <b>업체 정보 › 생산사양</b>에서 관리합니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>기본 사양 <span class="auto-tag">업체 요구가 없으면 이 값으로 생산</span></legend>
+        <div class="form-grid">
+          <label>코팅량(하)<input type="number" step="0.1" name="coatingMin"></label>
+          <label>코팅량(중심)<input type="number" step="0.1" name="coatingMid"></label>
+          <label>코팅량(상)<input type="number" step="0.1" name="coatingMax"></label>
+          <label>기본 토너<input type="text" name="toner" list="dl-toners"></label>
+          <label>파우치<input type="text" name="pouchType" list="dl-pouches" placeholder="예: NEAL CAST PLUS 파우치"></label>
+          <label class="wide">라벨 표기<input type="text" name="labelSpec" placeholder="LOT·EXP·Model 표기 규칙 등"></label>
+          <label class="wide">In Box<input type="text" name="inBoxSpec" placeholder="예: NEAL CAST PLUS 내박스 — 10 ROLL"></label>
+          <label class="wide">Out Box<input type="text" name="outBoxSpec" placeholder="예: NEAL CAST 외박스 — 10ROLLS/BOX"></label>
+          <label class="wide">설명서<input type="text" name="manualSpec"></label>
+          <label class="wide">동봉품<input type="text" name="enclosures"></label>
+          <label class="wide">포장 주의사항<input type="text" name="packingNote"></label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ 업체가 요구하는 다른 값은 <b>업체별 사양</b>에 적습니다. 여기 값은 그 업체를 위한 값이 아니라 <b>이 제품의 기준</b>입니다.</p>
       </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="standard-delete" hidden>삭제</button>
@@ -1002,41 +982,25 @@
   </div>
 </div>
 
-<!-- 업체 정보 예전 값 → 생산사양 일괄 정리 -->
-<div class="modal-back" id="comigrate-modal" hidden>
-  <div class="modal" style="max-width:960px">
-    <div class="modal-head">
-      <h2>예전 값 일괄 정리</h2>
-      <button class="btn icon" id="comigrate-close">✕</button>
-    </div>
-    <p class="muted" style="margin-bottom:12px">업체 정보에서 뺀 값(토너·파우치·인박스·아웃박스)을 <b>생산사양으로 옮깁니다.</b> 아래 내용을 확인하고 실행하세요. <b>기존 사양 값은 덮어쓰지 않고 비어 있는 칸만 채웁니다.</b> 수지·기재는 제품표준서 소관이라 옮기지 않고 값만 정리합니다.</p>
-    <div id="comigrate-body"></div>
-    <div class="modal-foot">
-      <span class="spacer"></span>
-      <button type="button" class="btn" id="comigrate-cancel">취소</button>
-      <button type="button" class="btn primary" id="comigrate-run">선택한 항목 실행</button>
-    </div>
-  </div>
-</div>
 
 <!-- 고객사별 생산사양 등록/수정 모달 -->
 <div class="modal-back" id="custspec-modal" hidden>
   <div class="modal" style="max-width:900px">
     <div class="modal-head">
-      <h2 id="custspec-modal-title">생산사양 등록</h2>
+      <h2 id="custspec-modal-title">제품별 예외 등록</h2>
       <button class="btn icon" id="custspec-modal-close">✕</button>
     </div>
     <form id="custspec-form">
       <fieldset>
         <legend>적용 대상</legend>
         <div class="form-grid">
-          <label>적용 대상 *<select name="specTarget"></select></label>
+          <label>업체 *<select name="specTarget" required></select></label>
           <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
           <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
           <label>칼라<input type="text" name="color" list="dl-colors"></label>
           <label>변형/구분<input type="text" name="variant" placeholder="예: 백 / 전용 (같은 고객사·제품 구분)"></label>
         </div>
-        <p class="muted" style="margin-top:8px">‘기본 NEAL’은 제품 공통 사양, 그 외는 각 고객사 전용 사양입니다. 고객사는 <b>기준정보</b>에서 추가합니다.</p>
+        <p class="muted" style="margin-top:8px">이 업체의 <b>이 제품만</b> 기본과 다를 때 적습니다. <b>비워둔 칸은 제품표준서의 기본 사양</b>을 그대로 씁니다.</p>
       </fieldset>
       <fieldset>
         <legend>생산사양</legend>
@@ -1079,13 +1043,13 @@
       <button class="btn icon" id="company-modal-close">✕</button>
     </div>
     <div class="co-tabs" id="co-tabs" hidden>
-      <button type="button" class="active" data-cotab="info">업체 정보</button>
-      <button type="button" data-cotab="spec">생산사양 <span id="co-spec-count" class="co-tab-cnt">0</span></button>
+      <button type="button" class="active" data-cotab="info">업체 요구사항</button>
+      <button type="button" data-cotab="spec">제품별 예외 <span id="co-spec-count" class="co-tab-cnt">0</span></button>
     </div>
     <div class="co-pane" id="co-pane-spec" hidden>
       <div class="card-head-row" style="margin-bottom:10px">
-        <p class="muted" style="margin:0">이 업체만 <b>기본 NEAL 사양과 다른 항목</b>을 적습니다. 적은 항목만 작업지시서에서 바뀌고, 비운 항목은 기본 NEAL 값을 씁니다.</p>
-        <button type="button" class="btn primary small" id="co-add-spec">＋ 사양 등록</button>
+        <p class="muted" style="margin:0">이 업체의 <b>특정 제품만</b> 기본과 다를 때 그 제품을 등록합니다. 업체 전체에 해당하는 포장·토너는 [업체 요구사항] 탭에 적으세요.</p>
+        <button type="button" class="btn primary small" id="co-add-spec">＋ 제품별 예외</button>
       </div>
       <div id="co-spec-list"></div>
     </div>
@@ -1095,13 +1059,32 @@
         <div class="form-grid">
           <label>업체명 *<input type="text" name="name" required></label>
           <label>나라<input type="text" name="country"></label>
-          <label>포장 구분<select name="specType"><option value="NEAL">NEAL 포장</option><option value="OEM">OEM (고객사 전용 포장)</option></select></label>
+          <label>등록일<input type="text" name="regDate" placeholder="예: 2024-01-05"></label>
           <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN — 이 업체에 납품하는 컬러 목록"></label>
-          <label class="wide">특이사항<input type="text" name="notes" placeholder="예: 일본향 표기 필수"></label>
         </div>
-        <p class="muted" style="margin-top:8px">※ <b>포장 구분</b>은 파우치·인박스·아웃박스를 <b>NEAL 것</b>으로 쓰는지, <b>고객사 전용(OEM)</b>으로 쓰는지입니다. NEAL 포장이어도 코팅량·토너가 조금 다르면 [생산사양] 탭에 그 항목만 적어두면 됩니다. 기재·수지·촉매·코어는 <b>제품표준서</b>에 있습니다.</p>
       </fieldset>
-      <div id="co-legacy" hidden></div>
+      <fieldset>
+        <legend>포장 구분</legend>
+        <div class="form-grid">
+          <label class="wide">구분 *<select name="specType">
+            <option value="NEAL">NEAL 포장 — 기본 원부자재 그대로</option>
+            <option value="OEM">OEM — 파우치·박스 등 전용 원부자재 사용</option>
+          </select></label>
+          <label class="wide">파우치<input type="text" name="packLabel" placeholder="비우면 제품표준서의 기본 파우치. 두 종류면 쉼표로: 전용(OEM) 파우치, 백색 무지 파우치"></label>
+          <label class="wide">In Box<input type="text" name="packInBox" placeholder="비우면 기본. 예: 무지박스"></label>
+          <label class="wide">Out Box<input type="text" name="packOutBox" placeholder="비우면 기본. 예: 무지박스"></label>
+          <label class="wide">라벨<input type="text" name="labelSpec" placeholder="비우면 제품표준서의 기본 라벨"></label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ 파우치를 <b>쉼표로 두 개 이상</b> 적으면 수주 항목에 따라 골라 쓰는 <b>선택 옵션</b>으로 봅니다. 작업지시서에 함께 표시됩니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>그 밖의 요구사항 <span class="auto-tag">기본과 다른 것만</span></legend>
+        <div class="form-grid">
+          <label class="wide">토너<input type="text" name="toner" list="dl-toners" placeholder="예: 내수 / 오셔: HP, DB"></label>
+          <label class="wide">특이사항<input type="text" name="notes" placeholder="예: RD만 오셔토너 사용"></label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ 특정 제품만 코팅량 등이 다르면 위쪽 <b>제품별 예외</b>에 그 제품만 등록하세요.</p>
+      </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="company-delete" hidden>삭제</button>
         <span class="spacer"></span>
@@ -1109,6 +1092,24 @@
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- 예전 '고객사별 생산사양'의 기본 NEAL 값 → 제품표준서로 옮기기 (1회성) -->
+<div class="modal-back" id="basefill-modal" hidden>
+  <div class="modal" style="max-width:960px">
+    <div class="modal-head">
+      <h2>기본 사양 가져오기</h2>
+      <button class="btn icon" id="basefill-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px">예전 <b>고객사별 생산사양</b>에 업체 지정 없이 등록돼 있던 <b>기본 값</b>(코팅량·기본 포장·라벨)을 같은 제품의 <b>제품표준서</b>로 옮깁니다.
+      <b>제품표준서에 이미 값이 있는 칸은 건드리지 않습니다.</b> 옮긴 원본은 삭제됩니다.</p>
+    <div id="basefill-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="basefill-cancel">취소</button>
+      <button type="button" class="btn primary" id="basefill-run">선택한 항목 옮기기</button>
+    </div>
   </div>
 </div>
 
