@@ -2503,7 +2503,6 @@ const SPEC_KEYS = ['coatingMin', 'coatingMid', 'coatingMax', 'toner',
   'pouchType', 'inBoxSpec', 'outBoxSpec', 'labelSpec', 'manualSpec', 'enclosures', 'packingNote'];
 /* 업체 문서의 필드명 → 사양 키 (예전 데이터의 packLabel이 파우치 값이다) */
 const CO_SPEC_MAP = { packLabel: 'pouchType', packInBox: 'inBoxSpec', packOutBox: 'outBoxSpec', labelSpec: 'labelSpec', toner: 'toner' };
-const CO_SPEC_LABEL = { pouchType: '파우치', inBoxSpec: 'In Box', outBoxSpec: 'Out Box', labelSpec: '라벨', toner: '토너', coatingMid: '코팅량' };
 const filledVal = (v) => v != null && String(v).trim() !== '';
 /* 업체 칸에 'NEAL'·'기본'처럼 적어둔 것은 요구사항이 아니라 '기본 그대로'라는 표시다.
    값은 남기되 업체 요구로는 세지 않는다 (AMS의 'NEAL/전용라벨'처럼 덧붙은 것은 진짜 요구). */
@@ -2874,12 +2873,12 @@ function openBaseFillModal() {
     manualSpec: '설명서', enclosures: '동봉품', packingNote: '포장 주의' }[k] || k);
   const rows = matched.map((p) => {
     const i = BASE_FILL_PLANS.indexOf(p);
-    const on = p.fill.length ? ' checked' : '';
+    const on = p.std ? ' checked' : '';
     return `<tr class="no-click">
       <td><input type="checkbox" data-basefill="${i}"${on}></td>
       <td><b>${esc(p.spec.product || '')}</b> <span class="muted">${esc(p.spec.part || 'CAST')}</span></td>
       <td>→ <b>${esc(p.std.product || '')}</b></td>
-      <td>${p.fill.length ? p.fill.map((k) => `<span class="co-req"><i>${label(k)}</i> ${esc(p.spec[k])}</span>`).join('') : '<span class="muted">옮길 값 없음</span>'}</td>
+      <td>${p.fill.length ? p.fill.map((k) => `<span class="co-req"><i>${label(k)}</i> ${esc(p.spec[k])}</span>`).join('') : '<span class="muted">제품표준서에 이미 같은 값이 있음 — 원본만 정리</span>'}</td>
       <td>${p.keep.length ? `<span class="badge plain" title="표준서 값을 그대로 둡니다">유지 ${p.keep.map(label).join(', ')}</span>` : ''}</td>
     </tr>`;
   }).join('');
@@ -2890,7 +2889,9 @@ function openBaseFillModal() {
     ? `<div class="table-wrap"><table>
         <thead><tr><th style="width:34px"></th><th>예전 사양</th><th>제품표준서</th><th>옮길 값</th><th>충돌</th></tr></thead>
         <tbody>${rows}${orphanRows}</tbody></table></div>
-       <p class="muted" style="margin-top:10px;font-size:12.5px">체크한 항목만 옮기고, <b>옮긴 원본은 삭제</b>합니다. 옮길 값이 없는 건 체크를 풀어두었습니다(그래도 체크하면 원본만 삭제됩니다).</p>`
+       <p class="muted" style="margin-top:10px;font-size:12.5px">체크한 항목을 제품표준서로 옮기고 <b>원본은 삭제</b>합니다.
+         제품표준서에 이미 같은 값이 있으면 옮길 것이 없으므로 <b>중복된 원본만 정리</b>됩니다.
+         값이 서로 다르면 <b>제품표준서 값을 그대로 두고</b> [충돌] 칸에 표시합니다.</p>`
     : '<div class="empty">옮길 예전 기본 사양이 없습니다.</div>';
   $('#basefill-run').hidden = !BASE_FILL_PLANS.length;
   $('#basefill-modal').hidden = false;
@@ -3071,14 +3072,10 @@ function specsOfCompany(co) {
 
 function renderCompanies() {
   const q = $('#co-search').value.trim().toLowerCase();
-  /* 업체가 요구한 항목만 뽑는다 — 비어 있으면 제품표준서 기본값을 그대로 쓰는 업체다 */
-  const reqOf = (c) => Object.entries(CO_SPEC_MAP)
-    .filter(([ck]) => filledVal(c[ck]) && !isDefaultMark(c[ck]))
-    .map(([ck, sk]) => ({ key: sk, label: CO_SPEC_LABEL[sk] || sk, value: c[ck] }));
   let items = (MASTERS.companies || []).slice().map((c) => ({
-    ...c, _reqs: reqOf(c), _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM',
+    ...c, _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM',
   }));
-  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox']
+  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox', 'labelSpec']
     .some((f) => String(c[f] ?? '').toLowerCase().includes(q))
     || c._exc.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
   items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
@@ -3088,23 +3085,28 @@ function renderCompanies() {
   const dupBtn = $('#btn-co-dedupe');
   dupBtn.hidden = !dupeGroups;
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
-  const reqCell = (c) => {
-    const bits = c._reqs.map((r) => {
-      const opts = r.key === 'pouchType' ? pouchOptionsOf(r.value) : [];
-      const val = opts.length > 1 ? `${esc(opts.join(' / '))} <span class="badge warn">선택</span>` : esc(r.value);
-      return `<span class="co-req"><i>${r.label}</i> ${val}</span>`;
-    });
-    c._exc.forEach((s) => bits.push(`<span class="co-req"><i>${esc(s.product || '제품')}</i> 예외</span>`));
-    return bits.length ? bits.join(' ') : '<span class="badge plain">기본 사양 그대로</span>';
+  /* 값은 항상 그대로 보여준다. 'NEAL'처럼 기본과 같다는 표기는 흐리게, 전용 값만 진하게. */
+  const cell = (v) => {
+    if (!filledVal(v)) return '<span class="muted">기본</span>';
+    const opts = pouchOptionsOf(v);
+    if (opts.length > 1) return `${opts.map((o) => `<b>${esc(o)}</b>`).join('<br>')} <span class="badge warn">선택</span>`;
+    return isDefaultMark(v) ? `<span class="muted">${esc(v)}</span>` : `<b>${esc(v)}</b>`;
   };
+  const excCell = (c) => c._exc.length
+    ? c._exc.map((s) => `<span class="co-req">${esc(s.product || '')}${s.variant ? '(' + esc(s.variant) + ')' : ''}</span>`).join('')
+    : '<span class="muted">-</span>';
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b></td>
-    <td>${esc(c.country || '-')}</td><td>${specBadge(c._oem ? 'OEM' : 'NEAL')}</td>
-    <td>${reqCell(c)}</td>
-    <td>${esc(c.colors || '-')}</td><td>${esc(c.notes || '')}</td>
+    <td>${esc(c.country || '-')}</td>
+    <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}</td>
+    <td>${cell(c.packLabel)}</td><td>${cell(c.packInBox)}</td><td>${cell(c.packOutBox)}</td>
+    <td>${cell(c.labelSpec)}</td><td>${cell(c.toner)}</td>
+    <td>${esc(c.colors || '-')}</td>
+    <td>${excCell(c)}</td>
+    <td>${esc(c.notes || '')}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>업체 요구사항</th><th>컬러</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>라벨</th><th>토너</th><th>컬러</th><th>제품별 예외</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 업체가 없습니다.</div>';
 }
 
