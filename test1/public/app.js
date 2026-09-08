@@ -3072,14 +3072,19 @@ function specsOfCompany(co) {
 
 function renderCompanies() {
   const q = $('#co-search').value.trim().toLowerCase();
+  /* OEM인데 전용 포장이 하나도 안 적혀 있으면 작업지시서에 기본 포장이 나간다 — 짚어준다 */
+  const packSet = (c) => ['packLabel', 'packInBox', 'packOutBox']
+    .some((k) => filledVal(c[k]) && !isDefaultMark(c[k]));
   let items = (MASTERS.companies || []).slice().map((c) => ({
-    ...c, _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM',
+    ...c, _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM', _noPack: !packSet(c),
   }));
   if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox', 'labelSpec']
     .some((f) => String(c[f] ?? '').toLowerCase().includes(q))
     || c._exc.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
   items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
-  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c._oem).length}`;
+  const noPack = items.filter((c) => c._oem && c._noPack).length;
+  $('#co-count').textContent = `총 ${items.length}개 · OEM ${items.filter((c) => c._oem).length}`
+    + (noPack ? ` · 전용 포장 미입력 ${noPack}` : '');
   // 이름이 비슷해 같은 업체로 보이는 묶음
   const dupeGroups = can('update', 'companies') ? findCoDupeGroups().length : 0;
   const dupBtn = $('#btn-co-dedupe');
@@ -3098,7 +3103,7 @@ function renderCompanies() {
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b></td>
     <td>${esc(c.country || '-')}</td>
-    <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}</td>
+    <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}${c._oem && c._noPack ? ' <span class="badge bad" title="OEM인데 전용 파우치·박스가 비어 있습니다. 이대로면 작업지시서에 기본 포장이 나갑니다">전용 포장 미입력</span>' : ''}</td>
     <td>${cell(c.packLabel)}</td><td>${cell(c.packInBox)}</td><td>${cell(c.packOutBox)}</td>
     <td>${cell(c.labelSpec)}</td><td>${cell(c.toner)}</td>
     <td>${esc(c.colors || '-')}</td>
