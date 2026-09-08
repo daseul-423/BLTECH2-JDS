@@ -2520,7 +2520,8 @@ function findCustSpec(p) {
         if (k === 'id' || k === 'specType' || k === 'customer') return;
         const filled = v != null && v !== '' && !(typeof v === 'object' && !Object.values(v || {}).filter(Boolean).length);
         if (!filled) return;
-        if (base && String(base[k] ?? '') !== String(v ?? '') && typeof v !== 'object') overrides.push(k);
+        const bv = base ? String(base[k] ?? '').trim() : '';
+        if (bv && bv !== String(v ?? '').trim() && typeof v !== 'object') overrides.push(k);
         spec[k] = v;
       });
       spec.id = custom.id;                          // 행 클릭 시 고객사 사양을 열도록
@@ -2543,7 +2544,7 @@ function openOrderDoc(p, docNo) {
   const s = findStandard(p) || {};
   const { spec, type, fellBack, custom, overrides } = findCustSpec(p);
   const cs = spec || {};
-  // 업체 정보(masters.companies)도 문서에 싣는다 — 나라·컴러·특이사항
+  // 업체 정보(masters.companies)도 문서에 싣는다 — 나라·컬러·특이사항
   const co = (MASTERS.companies || []).find((x) => {
     const a = String(x.name || '').trim().toLowerCase(), b = String(p.customer || '').trim().toLowerCase();
     return !!a && !!b && (a === b || a.includes(b) || b.includes(a));
@@ -2553,7 +2554,7 @@ function openOrderDoc(p, docNo) {
   const row = (label, v, key) => `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}${key && ovSet.has(key) ? ' <span class="badge warn">고객사 특이사항</span>' : ''}</td></tr>`;
   const badge = type === 'OEM'
     ? `<span class="order-badge oem">고객사 OEM 사양</span>${fellBack ? ' <span class="badge warn">OEM 전용 사양 미등록 → 기본 NEAL 적용</span>' : ''}`
-    : `<span class="order-badge neal">기본 NEAL 사양</span>${custom ? ' <span class="badge warn">＋ 고객사 특이사항</span>' : ''}`;
+    : `<span class="order-badge neal">기본 NEAL 사양</span>${overrides.length ? ' <span class="badge warn">＋ 고객사 특이사항</span>' : ''}`;
 
   $('#order-body').innerHTML = `
     <div class="order-doc">
@@ -2581,7 +2582,7 @@ function openOrderDoc(p, docNo) {
         ${row('품목', s.category)}${row('기재 종류', s.baseType)}${row('수지 종류', s.resinType)}
         ${row('촉매', s.catalyst)}${row('코어 종류', s.core)}${row('제품표준서 비고', s.note)}
       </table>
-      <h4>4. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${custom ? '기본 NEAL + ' + esc(custom.customer || '') + ' 특이사항' : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 업체 정보 › 생산사양에서 등록</span>'}</h4>
+      <h4>4. 생산사양 ${cs.id ? `<span class="muted" style="font-weight:400">— ${overrides.length ? '기본 NEAL + ' + esc(custom.customer || '') + ' 특이사항' : '기본 NEAL'}</span>` : '<span class="badge bad">생산사양 미등록 — 업체 정보 › 생산사양에서 등록</span>'}</h4>
       <table class="order-table">
         ${row('코팅량 규격', coatingSpec(cs), 'coatingMid')}${row('토너', cs.toner, 'toner')}
       </table>
