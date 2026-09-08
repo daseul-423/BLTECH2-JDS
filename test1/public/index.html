@@ -302,8 +302,6 @@
       <div class="head-actions">
         <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="text" id="st-search" placeholder="제품명, 제품코드, 업체 검색">
-        <button class="btn" id="btn-std-fillcode" hidden>🏷 제품코드 채우기</button>
-        <button class="btn" id="btn-std-dedupe" hidden>🧹 중복 정리</button>
         <button class="btn primary" id="btn-new-standard">＋ 표준서 등록</button>
       </div>
     </div>
@@ -373,12 +371,12 @@
         <span class="muted" id="co-count"></span>
         <button class="btn" id="btn-co-dedupe" hidden>🔗 중복 업체 합치기</button>
         <button class="btn" id="btn-co-migrate" hidden>🧹 예전 값 일괄 정리</button>
-        <button class="btn" id="btn-neal-specs">기본 NEAL 사양 관리</button>
+        <button class="btn" id="btn-neal-specs">📋 생산사양 전체 보기</button>
         <button class="btn primary" id="btn-new-company">＋ 고객사 등록</button>
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·크로실 등) 요약 정보와 <b>그 업체의 생산사양</b>을 함께 관리합니다. 행을 클릭하면 [업체 정보]·[생산사양] 탭이 열립니다. <b>구분(NEAL/OEM)은 여기가 기준</b>이며 작업지시서가 이 값을 따릅니다. 업체와 무관한 제품 기준은 <b>제품표준서</b>, 업체 지정이 없는 공통 사양은 <b>기본 NEAL 사양 관리</b>에 있습니다.</p>
+      <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·크로실 등) 요약 정보와 <b>그 업체의 생산사양</b>을 함께 관리합니다. 행을 클릭하면 [업체 정보]·[생산사양] 탭이 열립니다. <b>구분(NEAL/OEM)은 여기가 기준</b>이며 작업지시서가 이 값을 따릅니다. 업체와 무관한 제품 기준은 <b>제품표준서</b>에 있고, 등록된 사양을 업체 구분 없이 한눈에 보려면 <b>생산사양 전체 보기</b>를 누르세요.</p>
       <div class="table-wrap" id="companies-list"></div>
     </div>
   </section>
@@ -945,21 +943,6 @@
   </div>
 </div>
 
-<!-- 제품표준서 중복 정리 -->
-<div class="modal-back" id="stddedupe-modal" hidden>
-  <div class="modal" style="max-width:1000px">
-    <div class="modal-head">
-      <h2>제품표준서 중복 정리</h2>
-      <button class="btn icon" id="stddedupe-close">✕</button>
-    </div>
-    <p class="muted" style="margin-bottom:12px">제품표준서는 <b>제품 종류별로 한 건</b>이면 됩니다. 이름만 다르고 <b>자재 기준(품목·기재·수지·촉매·코어·규격)이 완전히 같은</b> 표준서를 찾았습니다. 업체별 차이(코팅량·포장)는 <b>생산사양</b>에서 따로 관리하므로 표준서를 나눌 필요가 없습니다.</p>
-    <div id="stddedupe-body"></div>
-    <div class="modal-foot">
-      <span class="spacer"></span>
-      <button type="button" class="btn" id="stddedupe-cancel">취소</button>
-      <button type="button" class="btn primary" id="stddedupe-run">선택한 그룹 합치기</button>
-    </div>
-  </div>
 </div>
 
 <!-- 작업자 배치 자격 -->

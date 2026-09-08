@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>작업자 배치 — 구현 화면 미리보기</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  body { display: block; }
+  .pv-bar { position: sticky; top: 0; z-index: 300; background: #11141c; color: #fff;
+    padding: 9px 16px; font-size: 13px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pv-tab { border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.07); color: #d6dbe4;
+    border-radius: 999px; padding: 6px 13px; font-size: 12.5px; cursor: pointer; }
+  .pv-tab.on { background: #fff; color: #11141c; font-weight: 700; border-color: #fff; }
+  .pv-note { margin-left: auto; color: #98a2b3; font-size: 12px; }
+  .wrap { max-width: 1300px; margin: 0 auto; padding: 22px 20px 60px; }
+  .screen[hidden] { display: none; }
+  .done { background: #E6F6EF; border: 1px solid #BCE8D6; color: #0F7A56; border-radius: 12px;
+    padding: 12px 16px; margin-bottom: 16px; font-size: 13.5px; line-height: 1.65; }
+  .todo { background: #FFF8E6; border: 1px solid #FBE7C2; color: #7A5F00; border-radius: 12px;
+    padding: 12px 16px; margin-bottom: 16px; font-size: 13.5px; line-height: 1.65; }
+  .modal-demo { background: #EAEDF0; border-radius: 16px; padding: 20px; }
+  .modal-demo .modal { max-width: 560px; margin: 0 auto; box-shadow: 0 10px 40px rgba(20,30,60,.18); }
+  .absent-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px;
+    border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; background: #FBFCFD; }
+  .absent-row select, .absent-row input { padding: 7px 9px; font-size: 13px; }
+  .crew-cell { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; }
+  .crew-cell .role { color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .chip { display: inline-flex; padding: 2px 8px; border-radius: 8px; font-size: 11px; font-weight: 700; background: #F0F1F4; color: #8A93A4; }
+  .chip.ok { background: #E6F6EF; color: #0F7A56; }
+  .chip.sub { background: #FFF6E5; color: #8F5E06; }
+  .chip.help { background: #F1EEFF; color: #6B46E5; }
+  .chip.no { background: #FFECEC; color: #C13A3E; }
+  td.slot-empty { background: #FFF6F6; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<div class="pv-bar">
+  <b>👥 작업자 배치</b>
+  <button class="pv-tab on" data-s="master">① 작업자 명단 <span style="color:#16A374">●</span></button>
+  <button class="pv-tab" data-s="edit">② 자격 편집 <span style="color:#16A374">●</span></button>
+  <button class="pv-tab" data-s="cond">③ 자동생성 조건</button>
+  <button class="pv-tab" data-s="result">④ 생성 결과</button>
+  <span class="pv-note">● = 이미 구현 완료 · 나머지는 시안</span>
+</div>
+
+<!-- ═══════════ ① 작업자 명단 (실제 구현 화면) ═══════════ -->
+<div class="screen" id="s-master">
+  <div class="wrap">
+    <div class="page-head"><h1>기준정보 관리</h1>
+      <p class="muted">입력 화면의 선택 목록으로 사용됩니다. 항목은 쉼표(,)로 구분해 수정하세요.</p></div>
+    <div class="done">
+      <b>✅ 구현 완료 — 실제 화면을 그대로 떠온 것입니다.</b><br>
+      ⚙️ 기준정보 화면 <b>아래쪽에 붙습니다.</b> 새 메뉴는 생기지 않습니다.
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 6px">작업자 · 배치 자격</h3>
+      <p class="muted" style="margin-bottom:10px">생산계획을 만들 때 이 자격을 보고 사람을 배치합니다. <b>호기장 자격은 파트별로 따로</b>입니다(CAST 호기장과 SPLINT 호기장은 별개). PRE-CUT·HYBRID는 호기장 구분이 없습니다.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>이름</th><th>소속 파트</th><th>고정 호기</th>
+        <th>CAST</th><th>SPLINT</th><th>PRE-CUT</th><th>HYBRID</th><th>타 파트 지원</th><th>비고</th></tr></thead>
+        <tbody>
+          <tr style="cursor:pointer"><td><b>정도현</b></td><td>CAST</td><td><b>3호기</b></td>
+            <td><span class="badge neal">호기장</span> <span class="badge plain">보조</span></td><td><span class="muted">-</span></td>
+            <td><span class="muted">-</span></td><td><span class="muted">-</span></td><td><span class="muted">-</span></td><td></td></tr>
+          <tr style="cursor:pointer"><td><b>양나경</b></td><td>CAST</td><td><b>5호기</b></td>
+            <td><span class="badge neal">호기장</span> <span class="badge plain">보조</span></td><td><span class="muted">-</span></td>
+            <td><span class="muted">-</span></td><td><span class="muted">-</span></td><td><span class="muted">-</span></td><td></td></tr>
+          <tr style="cursor:pointer"><td><b>봉은진</b></td><td>CAST</td><td><span class="muted">-</span></td>
+            <td><span class="badge neal">호기장</span> <span class="badge plain">보조</span></td><td><span class="muted">-</span></td>
+            <td><span class="muted">-</span></td><td><span class="muted">-</span></td><td><span class="muted">-</span></td><td>CAST 전 호기 대체 가능</td></tr>
+          <tr style="cursor:pointer"><td><b>김선희</b></td><td>SPLINT</td><td><b>1호기</b></td>
+            <td><span class="muted">-</span></td>
+            <td><span class="badge neal">호기장</span> <span class="badge plain">보조</span> <span class="badge plain">포장1</span> <span class="badge plain">포장2(검수)</span></td>
+            <td><span class="muted">-</span></td><td><span class="muted">-</span></td><td><span class="muted">-</span></td><td></td></tr>
+          <tr style="cursor:pointer"><td><b>박종숙</b></td><td>SPLINT</td><td><span class="muted">-</span></td>
+            <td><span class="muted">-</span></td>
+            <td><span class="badge neal">호기장</span> <span class="badge plain">보조</span> <span class="badge plain">포장1</span></td>
+            <td><span class="muted">-</span></td><td><span class="muted">-</span></td><td><span class="muted">-</span></td><td>1호기 대체 가능</td></tr>
+          <tr style="cursor:pointer"><td><b>주추향</b></td><td>SPLINT</td><td><span class="muted">-</span></td>
+            <td><span class="muted">-</span></td>
+            <td><span class="badge plain">보조</span> <span class="badge plain">포장1</span> <span class="badge plain">포장2(검수)</span></td>
+            <td><span class="muted">-</span></td><td><span class="muted">-</span></td><td><span class="muted">-</span></td><td>호기장 불가 · 검수 가능</td></tr>
+          <tr style="cursor:pointer"><td><b>위시기</b></td><td>SPLINT</td><td><span class="muted">-</span></td>
+            <td><span class="muted">-</span></td><td><span class="badge plain">포장1</span></td>
+            <td><span class="muted">-</span></td><td><span class="badge plain">파우치</span></td><td>✅</td><td>지원 시 포장1</td></tr>
+          <tr style="cursor:pointer"><td><b>이정란</b></td><td>PRE-CUT</td><td><b>2호기</b></td>
+            <td><span class="muted">-</span></td><td><span class="muted">-</span></td>
+            <td><span class="badge plain">작업</span></td><td><span class="badge plain">지지대</span> <span class="badge plain">커버</span></td>
+            <td>✅</td><td></td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted" style="margin-top:8px;font-size:12.5px">행을 클릭해 자격을 지정하세요. 이름 추가·삭제는 위 <b>작업자</b> 칸에서 합니다.</p>
+    </div>
+    <div class="todo">
+      읽는 법 — <b>주추향</b>은 SPLINT 보조·포장1·포장2(검수)는 되지만 <b>호기장은 안 됨</b>.
+      <b>위시기</b>는 포장1만 되고 <b>타 파트 지원 가능</b>이라 CAST 쪽으로 갈 수 있음.
+      <b>이정란</b>은 PRE-CUT 2호기 고정이면서 HYBRID 지지대·커버도 가능.
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ② 자격 편집 (실제 구현 화면) ═══════════ -->
+<div class="screen" id="s-edit" hidden>
+  <div class="wrap">
+    <div class="done">
+      <b>✅ 구현 완료</b> — 명단에서 사람을 클릭하면 뜨는 창입니다. <b>역량이 바뀌면 체크만 고치면 되고, 변경 내용은 자동으로 이력에 쌓입니다.</b>
+    </div>
+    <div class="modal-demo">
+      <div class="modal" style="max-width:560px">
+        <div class="modal-head"><h2>작업자 — 봉은진</h2><button class="btn icon">✕</button></div>
+        <fieldset>
+          <legend>기본</legend>
+          <div class="form-grid">
+            <label>소속 파트<select><option>미지정</option><option selected>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
+            <label>고정 담당 호기<select><option selected>없음</option><option>1호기</option><option>2호기</option><option>3호기</option><option>5호기</option></select></label>
+            <label>입사일<input type="date" value="2024-03-02"></label>
+            <label class="wide">비고<input type="text" value="CAST 전 호기 대체 가능"></label>
+          </div>
+          <p class="muted" style="margin-top:8px">※ <b>고정 담당 호기</b>를 정하면 그 호기 계획에 이 사람이 먼저 배치됩니다.</p>
+        </fieldset>
+        <fieldset>
+          <legend>가능한 자리</legend>
+          <div class="chk-row">
+            <span class="chk-title" style="width:74px">CAST</span>
+            <label><input type="checkbox" checked> 호기장</label><label><input type="checkbox" checked> 보조</label>
+          </div>
+          <div class="chk-row">
+            <span class="chk-title" style="width:74px">SPLINT</span>
+            <label><input type="checkbox"> 호기장</label><label><input type="checkbox"> 보조</label>
+            <label><input type="checkbox"> 포장1</label><label><input type="checkbox"> 포장2(검수)</label>
+          </div>
+          <div class="chk-row">
+            <span class="chk-title" style="width:74px">PRE-CUT</span>
+            <label><input type="checkbox"> 작업</label>
+          </div>
+          <div class="chk-row">
+            <span class="chk-title" style="width:74px">HYBRID</span>
+            <label><input type="checkbox"> 지지대</label><label><input type="checkbox"> 커버</label><label><input type="checkbox"> 파우치</label>
+          </div>
+          <div class="chk-row" style="margin-top:10px">
+            <span class="chk-title" style="width:74px">지원</span>
+            <label><input type="checkbox"> 다른 파트에도 지원 갈 수 있음</label>
+          </div>
+          <p class="muted" style="margin-top:8px">※ 역량이 늘면 여기서 체크만 추가하면 됩니다. 예전 계획은 그대로 남고, <b>다음 배치부터</b> 반영됩니다.</p>
+        </fieldset>
+        <fieldset>
+          <legend>역량 변경 이력 <span class="auto-tag">저장하면 자동 기록</span></legend>
+          <div class="table-wrap"><table>
+            <thead><tr><th>변경일</th><th>내용</th><th>변경자</th></tr></thead>
+            <tbody>
+              <tr class="no-click"><td>2026-09-01</td><td>＋ CAST 호기장</td><td class="muted">장다슬</td></tr>
+              <tr class="no-click"><td>2025-01-05</td><td>＋ CAST 보조</td><td class="muted">장다슬</td></tr>
+            </tbody>
+          </table></div>
+        </fieldset>
+        <div class="modal-foot">
+          <span class="spacer"></span>
+          <button class="btn">취소</button><button class="btn primary">저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ③ 자동생성 조건 (시안) ═══════════ -->
+<div class="screen" id="s-cond" hidden>
+  <div class="wrap">
+    <div class="page-head"><h1>생산계획 자동 생성</h1></div>
+    <div class="todo">
+      <b>⏳ 아직 시안입니다 (다음 작업)</b> — 수주 화면의 <b>[생산계획 생성]</b>을 누르면 이 창이 먼저 뜹니다.
+      배치 알고리즘은 이미 만들어져 있고, 이 입력 화면만 남았습니다.
+    </div>
+    <div class="card">
+      <h3>1. 대상 · 기간</h3>
+      <div class="filter-bar" style="padding:0">
+        <label>생산 기간 <input type="date" value="2026-08-19"> ~ <input type="date" value="2026-08-21"></label>
+        <label>대상 수주 <select><option>계획 미생성 12건 전체</option></select></label>
+      </div>
+    </div>
+    <div class="card">
+      <h3>2. 결원 · 근태 <span class="muted" style="font-size:13px;font-weight:400">이 사람들을 피해서 배치합니다</span></h3>
+      <div class="absent-row">
+        <select style="width:110px"><option>정도현</option></select>
+        <select style="width:100px"><option>연차</option><option>반차</option><option>조퇴</option><option>결근</option></select>
+        <input type="date" value="2026-08-20"> ~ <input type="date" value="2026-08-20">
+        <input type="text" placeholder="비고" style="flex:1;min-width:120px">
+        <button class="btn small danger">삭제</button>
+      </div>
+      <div class="absent-row">
+        <select style="width:110px"><option>양나경</option></select>
+        <select style="width:100px"><option>연차</option></select>
+        <input type="date" value="2026-08-19"> ~ <input type="date" value="2026-08-21">
+        <input type="text" value="3일 연차" style="flex:1;min-width:120px">
+        <button class="btn small danger">삭제</button>
+      </div>
+      <div class="absent-row">
+        <select style="width:110px"><option>김선희</option></select>
+        <select style="width:100px"><option>반차</option></select>
+        <input type="date" value="2026-08-19"> ~ <input type="date" value="2026-08-19">
+        <input type="text" value="오후 부재" style="flex:1;min-width:120px">
+        <button class="btn small danger">삭제</button>
+      </div>
+      <button class="btn">＋ 결원 추가</button>
+      <p class="muted" style="margin-top:8px;font-size:12.5px">※ <b>반차·조퇴</b>는 배치하되 표시만 하고, <b>연차·결근</b>은 그날 배치에서 제외합니다.</p>
+    </div>
+    <div class="card">
+      <h3>3. 배치 규칙</h3>
+      <div class="chk-row"><label><input type="checkbox" checked> 고정 담당자를 우선 배치</label></div>
+      <div class="chk-row"><label><input type="checkbox" checked> 대체는 <b>그 자리 자격이 있는 사람</b>만 (호기장·보조·검수 각각 따로)</label></div>
+      <div class="chk-row"><label><input type="checkbox" checked> 타 파트 지원 허용 (지원자는 자격 있는 자리에만)</label></div>
+      <div class="chk-row"><label><input type="checkbox" checked> 한 사람이 같은 날 두 자리에 겹치지 않게</label></div>
+      <div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn">취소</button><button class="btn primary">계획 만들기 →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ ④ 생성 결과 (시안 + 실제 알고리즘 결과) ═══════════ -->
+<div class="screen" id="s-result" hidden>
+  <div class="wrap">
+    <div class="page-head"><h1>생성 결과 확인</h1>
+      <div class="head-actions"><span class="badge warn">미배치 3</span><button class="btn">다시 짜기</button><button class="btn primary">이대로 저장</button></div></div>
+    <div class="done">
+      <b>아래 배치는 실제로 만든 알고리즘을 돌린 결과입니다.</b> 조건: 정도현 8/20 연차 · 양나경 8/19~21 연차 · 김선희 8/19 반차
+    </div>
+    <div class="card">
+      <h3>호기별 배치표</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th>날짜</th><th>호기</th><th>파트</th><th>배치</th><th>미배치</th></tr></thead>
+        <tbody>
+          <tr class="no-click"><td>08-19</td><td><b>3호기</b></td><td>CAST</td>
+            <td><div class="crew-cell"><span>호기장 <b>정도현</b> <span class="chip ok">고정</span> · 보조 <b>봉은진</b></span></div></td><td>-</td></tr>
+          <tr class="no-click"><td>08-19</td><td><b>1호기</b></td><td>SPLINT</td>
+            <td><div class="crew-cell"><span>호기장 <b>김선희</b> <span class="chip sub">반차</span> · 보조 <b>박종숙</b> · 포장1 <b>위시기</b> · 포장2 <b>주추향</b></span></div></td><td>-</td></tr>
+          <tr class="no-click"><td>08-19</td><td><b>5호기</b></td><td>CAST</td>
+            <td class="slot-empty"><span class="chip no">호기장 · 보조 배치 필요</span>
+              <div class="muted" style="font-size:11.5px;margin-top:3px">양나경 연차 · 봉은진은 3호기에 배치됨</div></td>
+            <td><span class="badge bad">2</span></td></tr>
+          <tr class="no-click"><td>08-20</td><td><b>3호기</b></td><td>CAST</td>
+            <td><div class="crew-cell"><span>호기장 <b>봉은진</b> <span class="chip sub">대체</span> · 보조 <span class="chip no">배치 필요</span></span></div></td>
+            <td><span class="badge bad">1</span></td></tr>
+        </tbody>
+      </table></div>
+      <div class="legend">
+        <span><span class="chip ok">고정</span> 평소 담당</span>
+        <span><span class="chip sub">대체 / 반차</span> 근태 반영</span>
+        <span><span class="chip help">타 파트 지원</span></span>
+        <span><span class="chip no">배치 필요</span> 자격자 없음 — 억지로 채우지 않음</span>
+      </div>
+    </div>
+    <div class="todo">
+      <b>확인된 동작</b> — 연차는 배치에서 빼고, 반차는 배치하되 표시하고, 같은 날 한 사람이 두 자리에 안 겹치고,
+      우선순위 높은 계획이 사람을 먼저 가져가고, <b>자격자가 없으면 비워서 알려줍니다.</b>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.pv-tab').forEach(function (b) {
+  b.addEventListener('click', function () {
+    document.querySelectorAll('.pv-tab').forEach(function (x) { x.classList.remove('on'); });
+    b.classList.add('on');
+    document.querySelectorAll('.screen').forEach(function (s) { s.hidden = true; });
+    document.getElementById('s-' + b.dataset.s).hidden = false;
+    window.scrollTo(0, 0);
+  });
+});
+</script>
+</body>
+</html>
