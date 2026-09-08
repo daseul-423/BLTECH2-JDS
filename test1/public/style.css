@@ -995,6 +995,20 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .so-draft input[type="date"] { min-width: 128px; }
 .so-draft td { padding: 5px 4px; }
 
-/* 업체별 사양 표의 요구사항 칩 */
-.co-req { display: inline-block; margin: 0 8px 3px 0; font-size: 12.5px; color: var(--ink2, #3D4351); }
+/* 업체별 사양 표 — 값이 길어도 가로 스크롤이 생기지 않게 한 줄로 줄인다 (전체 내용은 title로) */
+.co-req { display: inline-block; margin: 0 6px 2px 0; font-size: 12.5px; color: var(--ink2, #3D4351); }
 .co-req i { font-style: normal; color: var(--muted); margin-right: 3px; }
+.co-table { table-layout: fixed; width: 100%; min-width: 880px; }
+.co-table th, .co-table td { padding: 8px 10px; }
+.co-table th:nth-child(1), .co-table td:nth-child(1) { width: 15%; }
+.co-table th:nth-child(2), .co-table td:nth-child(2) { width: 7.5%; }
+.co-table th:nth-child(3), .co-table td:nth-child(3) { width: 10%; }
+.co-table th:nth-child(4), .co-table td:nth-child(4),
+.co-table th:nth-child(5), .co-table td:nth-child(5),
+.co-table th:nth-child(6), .co-table td:nth-child(6) { width: 11%; }
+.co-table th:nth-child(7), .co-table td:nth-child(7) { width: 10%; }
+.co-table th:nth-child(8), .co-table td:nth-child(8) { width: 7%; }
+.co-table th:nth-child(9), .co-table td:nth-child(9) { width: 8.5%; }
+.co-table th:nth-child(10), .co-table td:nth-child(10) { width: 9%; }
+.co-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.co-cell.narrow { font-size: 12.5px; }

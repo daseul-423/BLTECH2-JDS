@@ -819,7 +819,6 @@ const IMPORT_DEFS = {
       F('packLabel', '파우치', ['파우치', '파우치종류']),
       F('packInBox', 'In Box', ['inbox', '인박스', 'inbox기준']),
       F('packOutBox', 'Out Box', ['outbox', '아웃박스', 'outbox기준']),
-      F('labelSpec', '라벨', ['라벨', '라벨표기']),
       F('toner', '토너', ['토너']),
       F('colors', '컬러', ['컬러', '칼라', '색상']),
       F('regDate', '등록일', ['등록일']),
@@ -2502,7 +2501,7 @@ function customerSpecType(customer) {
 const SPEC_KEYS = ['coatingMin', 'coatingMid', 'coatingMax', 'toner',
   'pouchType', 'inBoxSpec', 'outBoxSpec', 'labelSpec', 'manualSpec', 'enclosures', 'packingNote'];
 /* 업체 문서의 필드명 → 사양 키 (예전 데이터의 packLabel이 파우치 값이다) */
-const CO_SPEC_MAP = { packLabel: 'pouchType', packInBox: 'inBoxSpec', packOutBox: 'outBoxSpec', labelSpec: 'labelSpec', toner: 'toner' };
+const CO_SPEC_MAP = { packLabel: 'pouchType', packInBox: 'inBoxSpec', packOutBox: 'outBoxSpec', toner: 'toner' };
 const filledVal = (v) => v != null && String(v).trim() !== '';
 /* 업체 칸에 'NEAL'·'기본'처럼 적어둔 것은 요구사항이 아니라 '기본 그대로'라는 표시다.
    값은 남기되 업체 요구로는 세지 않는다 (AMS의 'NEAL/전용라벨'처럼 덧붙은 것은 진짜 요구). */
@@ -3078,7 +3077,7 @@ function renderCompanies() {
   let items = (MASTERS.companies || []).slice().map((c) => ({
     ...c, _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM', _noPack: !packSet(c),
   }));
-  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox', 'labelSpec']
+  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox']
     .some((f) => String(c[f] ?? '').toLowerCase().includes(q))
     || c._exc.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
   items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
@@ -3091,27 +3090,32 @@ function renderCompanies() {
   dupBtn.hidden = !dupeGroups;
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
   /* 값은 항상 그대로 보여준다. 'NEAL'처럼 기본과 같다는 표기는 흐리게, 전용 값만 진하게. */
-  const cell = (v) => {
-    if (!filledVal(v)) return '<span class="muted">기본</span>';
+  /* 값이 긴 칸(인박스 지시문 등)은 한 줄로 줄여 보여준다 — 전체 내용은 마우스를 올리거나 행을 열면 보인다 */
+  const cell = (v, cls = '') => {
+    if (!filledVal(v)) return `<div class="co-cell ${cls} muted">기본</div>`;
+    const t = esc(String(v));
     const opts = pouchOptionsOf(v);
-    if (opts.length > 1) return `${opts.map((o) => `<b>${esc(o)}</b>`).join('<br>')} <span class="badge warn">선택</span>`;
-    return isDefaultMark(v) ? `<span class="muted">${esc(v)}</span>` : `<b>${esc(v)}</b>`;
+    if (opts.length > 1) {
+      return `<div class="co-cell ${cls}" title="${t}">${opts.map((o) => `<b>${esc(o)}</b>`).join(' / ')}
+        <span class="badge warn">선택</span></div>`;
+    }
+    return `<div class="co-cell ${cls}" title="${t}">${isDefaultMark(v) ? `<span class="muted">${t}</span>` : `<b>${t}</b>`}</div>`;
   };
   const excCell = (c) => c._exc.length
-    ? c._exc.map((s) => `<span class="co-req">${esc(s.product || '')}${s.variant ? '(' + esc(s.variant) + ')' : ''}</span>`).join('')
-    : '<span class="muted">-</span>';
+    ? `<div class="co-cell">${c._exc.map((s) => `<span class="co-req">${esc(s.product || '')}${s.variant ? '(' + esc(s.variant) + ')' : ''}</span>`).join('')}</div>`
+    : '<div class="co-cell muted">-</div>';
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b></td>
     <td>${esc(c.country || '-')}</td>
     <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}${c._oem && c._noPack ? ' <span class="badge bad" title="OEM인데 전용 파우치·박스가 비어 있습니다. 이대로면 작업지시서에 기본 포장이 나갑니다">전용 포장 미입력</span>' : ''}</td>
     <td>${cell(c.packLabel)}</td><td>${cell(c.packInBox)}</td><td>${cell(c.packOutBox)}</td>
-    <td>${cell(c.labelSpec)}</td><td>${cell(c.toner)}</td>
-    <td>${esc(c.colors || '-')}</td>
+    <td>${cell(c.toner)}</td>
+    <td>${cell(c.colors, 'narrow')}</td>
     <td>${excCell(c)}</td>
-    <td>${esc(c.notes || '')}</td>
+    <td>${cell(c.notes, 'wide')}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>라벨</th><th>토너</th><th>컬러</th><th>제품별 예외</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table class="co-table"><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>토너</th><th>컬러</th><th>제품별 예외</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 업체가 없습니다.</div>';
 }
 
