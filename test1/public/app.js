@@ -6508,6 +6508,51 @@ const MASTER_LABELS = {
   productCodes: '제품코드', baseTypes: '기재 타입', resins: '수지 종류',
   pouches: '파우치 종류', workers: '작업자', qcItems: '자체품질체크 품목', toners: '토너 종류', cores: '코어 종류', lossTypes: 'SPLINT 로스 항목',
 };
+/* ── 전체 데이터 백업 ─────────────────────────────────────────────
+   구조 변경·일괄 정리 전에 눌러두는 안전장치. 모든 컬렉션 + 기준정보를 JSON 한 파일로.
+   사진(base64)은 용량이 커서 기본은 빼고, 필요하면 체크해서 포함한다. */
+async function exportAllData() {
+  const btn = $('#btn-backup'), st = $('#bk-state');
+  const withPhotos = $('#bk-photos') && $('#bk-photos').checked;
+  btn.disabled = true;
+  const out = {
+    exportedAt: new Date().toISOString(),
+    exportedBy: (ME && ME.email) || '',
+    app: 'BL-TECH 생산관리', schemaVersion: 1,
+    photosIncluded: !!withPhotos,
+    data: {},
+  };
+  const stripPhotos = (arr) => arr.map((x) => {
+    const c = { ...x };
+    delete c.images;
+    if (Array.isArray(c.photos)) c.photos = c.photos.map((p) => ({ ...p, url: '' }));
+    return c;
+  });
+  try {
+    for (const col of COLLECTIONS) {
+      st.textContent = `${col} 가져오는 중…`;
+      const rows = await api('/api/' + col);
+      out.data[col] = withPhotos ? rows : stripPhotos(rows);
+    }
+    st.textContent = '기준정보 가져오는 중…';
+    out.data.masters = await api('/api/masters');
+    const text = JSON.stringify(out, null, 1);
+    const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `BL-TECH_백업_${todayStr()}${withPhotos ? '_사진포함' : ''}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    const mb = (blob.size / 1024 / 1024).toFixed(2);
+    const counts = COLLECTIONS.map((c) => `${c} ${out.data[c].length}`).join(' · ');
+    st.textContent = `완료 — ${mb} MB`;
+    alert(`백업 파일을 내려받았습니다 (${mb} MB)\n\n${counts}\n\n다운로드 폴더에 저장됩니다.`);
+  } catch (err) {
+    st.textContent = '';
+    alert('백업 실패: ' + err.message);
+  } finally { btn.disabled = false; }
+}
+
 function renderMasters() {
   const custTypes = MASTERS.customerTypes || {};
   const cos = MASTERS.companies || [];
@@ -6543,9 +6588,15 @@ function renderMasters() {
     + '<div id="workers-box"></div>'
     + '<h3 style="margin:26px 0 6px">하루 생산 가능량</h3>'
     + '<p class="muted" style="margin-bottom:10px">계획을 하루치씩 나눠 짤 때 쓰는 기준량입니다. <b>호기 1대가 하루에 만드는 양</b>이며, 그 날 그 호기에 섞이는 제품에 따라 아래 규칙만큼 줄여서 계산합니다.</p>'
-    + '<div id="capacity-box"></div>';
+    + '<div id="capacity-box"></div>'
+    + (ME && ME.role === 'admin' ? '<h3 style="margin:26px 0 6px">데이터 백업</h3>'
+      + '<p class="muted" style="margin-bottom:10px">모든 데이터를 <b>JSON 한 파일</b>로 내려받습니다. 구조를 바꾸거나 일괄 정리를 실행하기 <b>전에 한 번 눌러두면</b> 되돌릴 수 있습니다. 파일은 이 PC에만 저장되며 서버로 가지 않습니다.</p>'
+      + '<div class="chk-row" style="margin-bottom:10px"><label><input type="checkbox" id="bk-photos"> 사진(설비 점검 기록)도 포함 — 파일이 커집니다</label></div>'
+      + '<div style="display:flex;gap:10px;align-items:center"><button class="btn primary" id="btn-backup">⬇ 전체 데이터 내보내기</button><span class="muted" id="bk-state"></span></div>' : '');
   renderWorkerTable();
   renderCapacityBox();
+  const bkBtn = $('#btn-backup');
+  if (bkBtn) bkBtn.addEventListener('click', exportAllData);
   $('#btn-save-masters').addEventListener('click', async () => {
     const next = { ...MASTERS };
     $$('#masters-form input[data-key]').forEach((el) => {
