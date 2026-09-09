@@ -41,7 +41,7 @@ const addDays = (ymd, n) => {
    - 모든 읽기/쓰기는 dataService(Firestore)를 통함. localStorage 폴백 제거.
    - api()/post() 규약(경로·반환형태)은 기존과 동일 → 화면·계산 코드는 무변경.
    - /api/chat(OpenAI)은 api()를 거치지 않고 기존대로 fetch로 직접 호출됨(구조 유지). */
-const COLLECTIONS = ['records', 'sheets', 'plans', 'orders', 'productmap', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies'];
+const COLLECTIONS = ['records', 'sheets', 'plans', 'orders', 'productmap', 'standards', 'custspecs', 'equipchecks', 'equipment', 'policies', 'companies'];
 async function api(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   const body = opts.body ? JSON.parse(opts.body) : null;
@@ -82,6 +82,19 @@ const loadEquipChecks = async () => { EQUIPCHECKS = await api('/api/equipchecks'
 const loadEquipment = async () => { EQUIPMENT = await api('/api/equipment'); };
 const loadPolicies = async () => { POLICIES = await api('/api/policies'); };
 const loadMasters = async () => { MASTERS = await api('/api/masters'); };
+/* 업체는 companies 컬렉션이 정본 (업체마다 문서 1개 = 감사필드·동시편집 안전).
+   아직 옮기지 않은 환경에서는 masters.companies를 읽기 전용으로 보여주고 이전 버튼을 띄운다. */
+const loadCompanies = async () => {
+  try { COMPANIES = await api('/api/companies'); }
+  catch (e) { console.warn('[companies] 불러오기 실패', e); COMPANIES = []; }
+  CO_LEGACY = !COMPANIES.length && !!COMPANIES.length;
+  if (CO_LEGACY) COMPANIES = COMPANIES.slice();
+};
+const coWritable = () => {
+  if (!CO_LEGACY) return true;
+  alert('업체 정보를 아직 별도 컬렉션으로 옮기지 않았습니다.\n\n업체별 사양 화면 위쪽의 [🚚 업체 데이터 옮기기]를 먼저 실행해 주세요.');
+  return false;
+};
 
 /* ===================== 자동계산 (엑셀 수식 동일) ===================== */
 function calc(r) {
@@ -235,6 +248,8 @@ $('#sidebar-backdrop')?.addEventListener('click', closeMobileNav);
 $$('.nav-btn, .hub-card[data-goto]').forEach((b) => b.addEventListener('click', closeMobileNav));   // 메뉴 선택하면 서랍 자동으로 닫기
 
 /* ===================== 역할 기반 권한 (RBAC) — PIN 관리자모드 대체 ===================== */
+let COMPANIES = [];   // 업체별 사양 (companies 컬렉션)
+let CO_LEGACY = false; // true면 아직 masters.companies에 들어 있는 상태
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
 const ROLE_PAGES = {
@@ -1083,7 +1098,7 @@ function impGuessColumn(vals) {
     product: setOf([...(MASTERS.products || []), ...(STANDARDS || []).map((x) => x.product)]),
     productCode: setOf((STANDARDS || []).map((x) => x.productCode)),
     color: setOf(MASTERS.colors || []),
-    customer: setOf((MASTERS.companies || []).map((c) => c.name)),
+    customer: setOf(COMPANIES.map((c) => c.name)),
   };
   const hit = (set) => (set.size ? ratio((x) => set.has(impNorm(x))) : 0);
   const out = [];
@@ -1243,7 +1258,7 @@ function impLoadSheet(name) {
 /* 매핑 → 실제 객체 + 검증 + 중복/계산차이 표시 */
 function impParse() {
   const def = IMPORT_DEFS[IMP.key];
-  const existing = { records: RECORDS, plans: PLANS, orders: ORDERS, productmap: PRODUCTMAP, standards: STANDARDS, custspecs: CUSTSPECS, companies: (MASTERS.companies || []) }[IMP.key] || [];
+  const existing = { records: RECORDS, plans: PLANS, orders: ORDERS, productmap: PRODUCTMAP, standards: STANDARDS, custspecs: CUSTSPECS, companies: COMPANIES }[IMP.key] || [];
   const phMode = IMP.key === 'records' && impRecordsBase(IMP.part) === 'PH';
   // PH(프리컷·하이브리드)는 행마다 파트가 달라 중복키에 파트 포함, 제품은 제품코드 기준
   const dupKeyFn = phMode
@@ -1456,20 +1471,23 @@ async function impRun() {
   let added = 0, updated = 0, failed = 0;
   try {
     if (IMP.key === 'companies') {
-      // 회사 목록은 기준정보(masters) 안의 배열 → 병합 후 한 번에 저장
-      const list = (MASTERS.companies || []).slice();
-      for (const r of news) {
-        list.push({ ...r.obj, id: Math.max(0, ...list.map((x) => x.id || 0)) + 1 });
-        added++;
+      if (!coWritable()) { if (btn) btn.disabled = false; return; }
+      if (news.length) {
+        await dataService.createMany('companies', news.map((r) => r.obj), (d, t) => { if (pg) pg.textContent = `등록 중… ${d}/${t}`; });
+        added = news.length;
       }
-      if (willUpdate) {
-        for (const d of dups) {
-          const i2 = list.findIndex((x) => def.dupKey(x) === def.dupKey(d.obj));
-          if (i2 >= 0) { list[i2] = { ...list[i2], ...d.obj, id: list[i2].id }; updated++; }
+      if (willUpdate && dups.length) {
+        // 엑셀에 없는 칸은 그대로 두고 값이 있는 칸만 얹는다
+        const merged = dups.map((d) => {
+          const cur = COMPANIES.find((x) => def.dupKey(x) === def.dupKey(d.obj));
+          return cur ? { ...cur, ...d.obj, id: cur.id } : null;
+        }).filter(Boolean);
+        if (merged.length) {
+          await dataService.updateMany('companies', merged, (d, t) => { if (pg) pg.textContent = `덮어쓰는 중… ${d}/${t}`; });
+          updated = merged.length;
         }
       }
-      if (pg) pg.textContent = '저장 중…';
-      MASTERS = await post('/api/masters', { ...MASTERS, companies: list }, 'PUT');
+      await loadCompanies();
       fillMasterInputs();
     } else {
     let genPlans = 0, learnedMaps = 0;
@@ -1616,7 +1634,7 @@ function buildAiContext() {
     기본규정: polOf('regulation'),
     건수: { records: RECORDS.length, sheets: SHEETS.length, plans: PLANS.length, standards: STANDARDS.length, custspecs: CUSTSPECS.length, equipchecks: EQUIPCHECKS.length, equipment: EQUIPMENT.length, policies: pol.length },
     records: recs,
-    companies: (MASTERS.companies || []).map((c) => ({ name: c.name, specType: c.specType, country: c.country, toner: c.toner, colors: c.colors, notes: c.notes })),
+    companies: COMPANIES.map((c) => ({ name: c.name, specType: c.specType, country: c.country, toner: c.toner, colors: c.colors, notes: c.notes })),
     custspecs: (CUSTSPECS || []).map((s) => ({ product: s.product, customer: s.customer, specType: s.specType, coatingMid: s.coatingMid, toner: s.toner })),
     equipchecks: (EQUIPCHECKS || []).map((e) => ({ date: e.date, machine: e.machine, abnormal: e.abnormal, note: e.note })),
     equipment: (EQUIPMENT || []).map((e) => ({ name: e.name, model: e.model, manager: e.manager, 이력수: (e.history || []).length })),
@@ -2717,7 +2735,7 @@ function customerSpecType(customer) {
   if (!c) return 'NEAL';
   const norm = (v) => String(v ?? '').trim().toLowerCase();
   const target = norm(c);
-  const cos = MASTERS.companies || [];
+  const cos = COMPANIES;
   const co = cos.find((x) => norm(x.name) === target)
     || cos.find((x) => { const n = norm(x.name); return n && (target.includes(n) || n.includes(target)); });
   if (co && co.specType) return co.specType === 'OEM' ? 'OEM' : 'NEAL';
@@ -2750,7 +2768,7 @@ const pouchOptionsOf = (v) => String(v ?? '').split(',').map((x) => x.trim()).fi
 function findCompanyOf(customer) {
   const b = String(customer ?? '').trim().toLowerCase();
   if (!b) return null;
-  const cos = MASTERS.companies || [];
+  const cos = COMPANIES;
   return cos.find((x) => String(x.name || '').trim().toLowerCase() === b)
     || cos.find((x) => { const a = String(x.name || '').trim().toLowerCase(); return !!a && (a.includes(b) || b.includes(a)); })
     || null;
@@ -3273,7 +3291,7 @@ custspecForm.addEventListener('submit', async (e) => {
     refreshCurrentPage();
     // 업체 상세를 열어둔 채 사양을 저장했다면 그 목록도 갱신
     if (!$('#company-modal').hidden && editingCompanyId) {
-      const co = (MASTERS.companies || []).find((x) => x.id === editingCompanyId);
+      const co = COMPANIES.find((x) => x.id === editingCompanyId);
       if (co) renderCompanySpecs(co);
     }
   } catch (err) { alert('저장 실패: ' + err.message); }
@@ -3285,7 +3303,7 @@ $('#custspec-delete').addEventListener('click', async () => {
   $('#custspec-modal').hidden = true;
   refreshCurrentPage();
   if (!$('#company-modal').hidden && editingCompanyId) {
-    const co = (MASTERS.companies || []).find((x) => x.id === editingCompanyId);
+    const co = COMPANIES.find((x) => x.id === editingCompanyId);
     if (co) renderCompanySpecs(co);
   }
 });
@@ -3319,7 +3337,7 @@ function renderCompanies() {
     .some((k) => filledVal(c[k]) && !isDefaultMark(c[k]));
   /* 업체가 실제로 요구한 것이 하나라도 있는지 ('NEAL' 같은 기본 표기는 제외) */
   const hasReq = (c) => Object.keys(CO_SPEC_MAP).some((k) => filledVal(c[k]) && !isDefaultMark(c[k]));
-  const all = (MASTERS.companies || []).slice().map((c) => ({
+  const all = COMPANIES.slice().map((c) => ({
     ...c, _exc: specsOfCompany(c), _oem: customerSpecType(c.name) === 'OEM', _noPack: !packSet(c),
   }));
   // 드롭다운 선택지는 실제 데이터에서 만든다 (필터를 걸어도 목록은 그대로 유지)
@@ -3344,6 +3362,12 @@ function renderCompanies() {
   const dupBtn = $('#btn-co-dedupe');
   dupBtn.hidden = !dupeGroups;
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
+  // 아직 기준정보 안에 들어 있으면 옮기기 버튼을 띄운다 (그 전까지 수정은 막힌다)
+  const splitBtn = $('#btn-co-split');
+  splitBtn.hidden = !(CO_LEGACY && ME && ME.role === 'admin');
+  splitBtn.textContent = `🚚 업체 데이터 옮기기 (${all.length})`;
+  const warn = $('#co-legacy-warn');
+  if (warn) warn.hidden = !CO_LEGACY;
   /* 값은 항상 그대로 보여준다 — 'NEAL'처럼 기본과 같다는 표기는 흐리게, 전용 값만 진하게.
      긴 값(인박스 지시문 등)은 한 줄로 줄이고 전체 내용은 마우스를 올리면 보인다. */
   const cell = (v, cls = '') => {
@@ -3466,7 +3490,7 @@ const coRefCount = (name) => {
 };
 /* 이름이 비슷한 업체 묶음 찾기 */
 function findCoDupeGroups() {
-  const cos = (MASTERS.companies || []).map((c) => ({ co: c, key: normCoName(c.name) })).filter((x) => x.key);
+  const cos = COMPANIES.map((c) => ({ co: c, key: normCoName(c.name) })).filter((x) => x.key);
   const groups = [];
   const used = new Set();
   cos.forEach((a, i) => {
@@ -3509,12 +3533,13 @@ function openCoDedupeModal() {
 async function runCoDedupe() {
   const picked = $$('#codedupe-body input[data-dupe]:checked').map((el) => Number(el.dataset.dupe));
   if (!picked.length) { alert('합칠 그룹을 선택하세요.'); return; }
+  if (!coWritable()) return;
   const btn = $('#codedupe-run');
   btn.disabled = true; btn.textContent = '합치는 중…';
   let renamed = 0, mergedCos = 0;
   const renameMap = new Map();     // 없어지는 이름 → 대표 이름
   try {
-    let companies = (MASTERS.companies || []).slice();
+    const coUpdates = [], coDeletes = [];
     for (const gi of picked) {
       const g = CO_DUPE_GROUPS[gi];
       const keepId = Number(($(`#codedupe-body input[name="codedupe-${gi}"]:checked`) || {}).value);
@@ -3529,7 +3554,8 @@ async function runCoDedupe() {
           if ((mergedInfo[k] == null || String(mergedInfo[k]).trim() === '') && v != null && String(v).trim() !== '') mergedInfo[k] = v;
         });
       });
-      companies = companies.filter((c) => !others.some((o) => o.id === c.id)).map((c) => (c.id === keep.id ? mergedInfo : c));
+      coUpdates.push(mergedInfo);
+      others.forEach((o) => coDeletes.push(o.id));
       // 참조 데이터의 업체명 교체
       for (const def of CO_REF_COLLS) {
         const targets = (def.get() || []).filter((r) => others.some((o) => String(r.customer || '').trim() === String(o.name || '').trim()));
@@ -3549,8 +3575,10 @@ async function runCoDedupe() {
       const nk = renameMap.get(String(k).trim()) || k;
       if (nextTypes[nk] !== 'OEM') nextTypes[nk] = v;    // 합쳐지는 쪽 중 하나라도 OEM이면 OEM 유지
     });
-    MASTERS = await post('/api/masters', { ...MASTERS, companies, customers: nextCustomers, customerTypes: nextTypes }, 'PUT');
-    await Promise.all([loadCustSpecs(), loadStandards(), loadProductMap(), loadOrders(), loadPlans(), loadRecords()]);
+    for (const co of coUpdates) await post('/api/companies/' + co.id, co, 'PUT');
+    for (const id of coDeletes) await api('/api/companies/' + id, { method: 'DELETE' });
+    MASTERS = await post('/api/masters', { ...MASTERS, customers: nextCustomers, customerTypes: nextTypes }, 'PUT');
+    await Promise.all([loadCompanies(), loadCustSpecs(), loadStandards(), loadProductMap(), loadOrders(), loadPlans(), loadRecords()]);
     $('#codedupe-modal').hidden = true;
     refreshCurrentPage();
     alert(`합치기 완료\n\n· 정리한 중복 업체: ${mergedCos}곳\n· 업체명을 바꾼 데이터: ${renamed}건`);
@@ -3571,7 +3599,7 @@ function openCompanyModal(id = null) {
   companyForm.reset();
   $('#company-modal-title').textContent = id ? '업체 정보 수정' : '업체 등록';
   $('#company-delete').hidden = !id;
-  const c = id ? (MASTERS.companies || []).find((x) => x.id === id) : null;
+  const c = id ? COMPANIES.find((x) => x.id === id) : null;
   if (c) [...companyForm.elements].forEach((el) => { if (el.name && c[el.name] != null) el.value = c[el.name]; });
   companyForm.elements.specType.value = c ? (c.specType || 'NEAL') : 'NEAL';
   // 신규 등록 중에는 붙일 사양이 없으므로 탭을 감춘다
@@ -3587,12 +3615,55 @@ $('#co-tabs').addEventListener('click', (e) => {
 });
 /* 제품별 예외 등록·수정: 업체명을 미리 채워 연다 (업체 창은 열어둔 채) */
 $('#co-pane-spec').addEventListener('click', (e) => {
-  const co = (MASTERS.companies || []).find((x) => x.id === editingCompanyId);
+  const co = COMPANIES.find((x) => x.id === editingCompanyId);
   if (!co) return;
   const row = e.target.closest('.co-spec-row');
   if (row) { openCustSpecModal(Number(row.dataset.csid)); return; }
   if (e.target.closest('#co-add-spec') || e.target.closest('#co-spec-new')) { openCustSpecModal(null, { customer: co.name }); return; }
 });
+/* ── 업체 데이터 옮기기 (1회성) ────────────────────────────────
+   masters/singleton 문서 안 배열에 76곳이 모여 있으면
+     · 한 곳만 고쳐도 문서를 통째로 덮어써 동시 편집 시 서로를 지운다
+     · 누가·언제 고쳤는지가 업체 단위로 안 남는다
+     · firestore.rules가 masters 통째 단위라 업체별 권한 제어가 안 된다
+   그래서 업체마다 문서 1개인 companies 컬렉션으로 옮긴다. id는 그대로 유지한다. */
+async function runCoSplit() {
+  const list = (MASTERS.companies || []).slice();
+  if (!list.length) { alert('옮길 업체가 없습니다.'); return; }
+  const existing = await api('/api/companies').catch(() => []);
+  if (existing.length) {
+    alert(`companies 컬렉션에 이미 ${existing.length}건이 있습니다.\n중복 생성을 막기 위해 중단합니다. 화면을 새로고침해 주세요.`);
+    return;
+  }
+  const oem = list.filter((c) => (c.specType || 'NEAL') === 'OEM').length;
+  if (!confirm(`업체 ${list.length}곳을 별도 컬렉션으로 옮깁니다. (OEM ${oem}곳)\n\n`
+    + `· 업체마다 문서 1개가 되어 누가·언제 고쳤는지가 남습니다\n`
+    + `· id와 값은 그대로 유지됩니다\n`
+    + `· 원본(기준정보 안의 목록)은 옮긴 뒤 비웁니다\n\n`
+    + `되돌릴 수 있게 [기준정보 → 전체 데이터 내보내기]를 먼저 받아두셨나요?`)) return;
+  const btn = $('#btn-co-split');
+  btn.disabled = true; btn.textContent = '옮기는 중…';
+  try {
+    // id를 그대로 쓰기 위해 create가 아니라 지정 id로 넣는다
+    for (let i = 0; i < list.length; i++) {
+      const c = list[i];
+      await post('/api/companies/' + c.id, { ...c, id: c.id, createdAt: c.createdAt || new Date().toISOString(), createdByEmail: c.createdByEmail || ((ME && ME.email) || '') }, 'PUT');
+      btn.textContent = `옮기는 중… ${i + 1}/${list.length}`;
+    }
+    // counters를 최대 id 이상으로 올려 다음 등록이 겹치지 않게
+    const maxId = Math.max(0, ...list.map((c) => Number(c.id) || 0));
+    if (dataService.setCounterAtLeast) await dataService.setCounterAtLeast('companies', maxId);
+    // 원본 비우기 (기준정보의 나머지 값은 그대로)
+    const next = { ...MASTERS }; delete next.companies;
+    MASTERS = await post('/api/masters', next, 'PUT');
+    await loadCompanies();
+    refreshCurrentPage();
+    alert(`업체 ${list.length}곳을 옮겼습니다.\n이제 업체를 고쳐도 다른 업체 문서에 영향을 주지 않고, 수정 이력이 남습니다.`);
+  } catch (err) {
+    alert('옮기는 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 상태를 확인해 주세요.');
+  } finally { btn.disabled = false; btn.textContent = '🚚 업체 데이터 옮기기'; }
+}
+$('#btn-co-split').addEventListener('click', runCoSplit);
 $('#btn-new-company').addEventListener('click', () => openCompanyModal());
 $('#company-modal-close').addEventListener('click', () => ($('#company-modal').hidden = true));
 $('#company-cancel').addEventListener('click', () => ($('#company-modal').hidden = true));
@@ -3622,27 +3693,31 @@ $('#co-search').addEventListener('input', renderCompanies);
 
 companyForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!coWritable()) return;
   const c = {};
   [...companyForm.elements].forEach((el) => { if (el.name) c[el.name] = el.value || null; });
-  MASTERS.companies = MASTERS.companies || [];
-  if (editingCompanyId) {
-    c.id = editingCompanyId;
-    const i = MASTERS.companies.findIndex((x) => x.id === editingCompanyId);
-    // 폼에 없는 필드(예전 요약값·등록일 등)가 저장하면서 지워지지 않도록 기존 문서에 병합
-    if (i >= 0) MASTERS.companies[i] = { ...MASTERS.companies[i], ...c }; else MASTERS.companies.push(c);
-  } else {
-    c.id = Math.max(0, ...MASTERS.companies.map((x) => x.id || 0)) + 1;
-    MASTERS.companies.push(c);
-  }
-  try { MASTERS = await post('/api/masters', MASTERS, 'PUT'); $('#company-modal').hidden = true; refreshCurrentPage(); }
-  catch (err) { alert('저장 실패: ' + err.message); }
+  try {
+    if (editingCompanyId) {
+      // 폼에 없는 필드가 저장하면서 지워지지 않도록 기존 문서에 병합
+      const cur = COMPANIES.find((x) => x.id === editingCompanyId) || {};
+      await post('/api/companies/' + editingCompanyId, { ...cur, ...c }, 'PUT');
+    } else {
+      await post('/api/companies', c);
+    }
+    await loadCompanies();
+    $('#company-modal').hidden = true;
+    refreshCurrentPage();
+  } catch (err) { alert('저장 실패: ' + err.message); }
 });
 $('#company-delete').addEventListener('click', async () => {
-  if (!editingCompanyId || !confirm('이 업체 정보를 삭제하시겠습니까?')) return;
-  MASTERS.companies = (MASTERS.companies || []).filter((x) => x.id !== editingCompanyId);
-  MASTERS = await post('/api/masters', MASTERS, 'PUT');
-  $('#company-modal').hidden = true;
-  refreshCurrentPage();
+  if (!editingCompanyId || !coWritable()) return;
+  if (!confirm('이 업체를 삭제하시겠습니까?')) return;
+  try {
+    await api('/api/companies/' + editingCompanyId, { method: 'DELETE' });
+    await loadCompanies();
+    $('#company-modal').hidden = true;
+    refreshCurrentPage();
+  } catch (err) { alert('삭제 실패: ' + err.message); }
 });
 
 /* ===================== 설비 일상점검 (equipchecks) ===================== */
@@ -6555,7 +6630,7 @@ async function exportAllData() {
 
 function renderMasters() {
   const custTypes = MASTERS.customerTypes || {};
-  const cos = MASTERS.companies || [];
+  const cos = COMPANIES;
   const coOf = (name) => cos.find((x) => String(x.name || '').trim() === String(name).trim());
   // 업체 정보 + 기준정보 업체명을 합친 목록 (한쪽에만 있어도 빠지지 않게)
   const custNames = [...new Set([...cos.map((x) => x.name), ...(MASTERS.customers || [])]
@@ -6617,7 +6692,7 @@ function renderMasters() {
    업체명이 있어도 자동완성에서 사라지지 않게 하기 위함(무엇을 입력할 수 있는지는 안 바뀜, 자유 입력은 그대로 됨). */
 function allCustomerNames() {
   const set = new Set();
-  (MASTERS.companies || []).forEach((c) => { if (c && c.name) set.add(c.name); });
+  COMPANIES.forEach((c) => { if (c && c.name) set.add(c.name); });
   (MASTERS.customers || []).forEach((c) => { if (c) set.add(c); });
   [ORDERS, PRODUCTMAP, STANDARDS, CUSTSPECS].forEach((list) => (list || []).forEach((r) => { if (r && r.customer) set.add(r.customer); }));
   return [...set].sort((a, b) => a.localeCompare(b, 'ko'));
@@ -6949,6 +7024,7 @@ let __booted = false;
 async function bootApp() {
   if (__booted) return; __booted = true;
   await Promise.all([loadRecords(), loadSheets(), loadPlans(), loadOrders(), loadProductMap(), loadStandards(), loadCustSpecs(), loadEquipChecks(), loadEquipment(), loadPolicies(), loadMasters()]);
+  await loadCompanies();
   fillMasterInputs();
   updateMetricLabels();
   applyRolePerms();

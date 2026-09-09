@@ -1030,3 +1030,5 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .imp-codes-grid label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .imp-codes-grid b { min-width: 74px; }
 .imp-codes-grid input { flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+
+.co-legacy-warn { border-color: #E0B23C; background: #FFFCF4; color: var(--warnink, #8F5E06); }
