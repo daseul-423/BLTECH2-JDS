@@ -47,3 +47,12 @@ functions/node_modules/
 functions/.env
 ui-debug.log
 .runtimeconfig.json
+
+# ===== 저장소에 둘 필요 없는 것 =====
+# 1회성 마이그레이션·시드 스크립트 (실행이 끝났고 대상 데이터도 db.json → Firestore로 옮겨짐)
+scripts/
+test1/public/migrate.html
+# 작업 중 만든 시안·프리뷰 (스크래치패드에 두고 커밋하지 않는다)
+test1/public/_*.html
+*-preview.html
+*-mockup.html
