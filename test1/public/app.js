@@ -828,7 +828,8 @@ const IMPORT_DEFS = {
   },
 };
 const impNorm = (s) => String(s == null ? '' : s).toLowerCase().replace(/[\s\n\r()%/\-_.]/g, '');
-let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip', from: '', to: '' };
+let IMP = { key: 'records', part: 'CAST', wb: null, sheet: '', headers: [], rows: [], map: {}, parsed: [], dupMode: 'skip', from: '', to: '',
+  doc: { customer: '', poNo: '', date: '', dueDate: '' }, guess: {}, skipped: [] };
 /* 공정별 열 정의 — CAST/SPLINT는 각자 양식, PRE-CUT·HYBRID는 공용 양식(PH, 구분 열로 행별 분류) */
 const impRecordsBase = (p) => (p === 'PRE-CUT' || p === 'HYBRID') ? 'PH' : p;
 const impFields = (def) => def.fieldsByBase ? def.fieldsByBase[impRecordsBase(IMP.part)] : (def.fields || []);
@@ -952,9 +953,37 @@ function renderImport() {
 
   let step2 = '';
   if (IMP.headers.length) {
-    const opts = (sel) => '<option value="">— 사용 안 함 —</option>' + IMP.headers.map((h, i) =>
-      `<option value="${i}" ${String(sel) === String(i) ? 'selected' : ''}>${esc(h || '(빈 열 ' + (i + 1) + ')')}</option>`).join('');
-    step2 = `<div class="imp-step"><h3>3. 열 연결 <span class="muted">엑셀 열 → 앱 항목 (자동 추천됨)</span></h3>
+    const nCols = Math.max(IMP.headers.length, ...IMP.rows.slice(0, 5).map((r) => r.length), 0);
+    // 열 이름이 없거나 제각각이어도 알아보게 실제 값 예시를 함께 보여준다
+    const sampleOf = (i) => IMP.rows.map((r) => impStr(r[i])).filter(Boolean).slice(0, 3).join(', ');
+    const colLabel = (i) => {
+      const h = IMP.headers[i] || '';
+      const sm = sampleOf(i);
+      return (h || `${i + 1}번째 열`) + (sm ? ` — ${sm}${sm.length > 40 ? '' : ' …'}` : ' (빈 열)');
+    };
+    const opts = (sel) => '<option value="">— 사용 안 함 —</option>'
+      + Array.from({ length: nCols }, (_, i) =>
+        `<option value="${i}" ${String(sel) === String(i) ? 'selected' : ''}>${esc(colLabel(i))}</option>`).join('');
+    const auto = Object.entries(IMP.guess || {});
+    const fieldLabel = (k) => (impFields(def).find((f) => f.k === k) || {}).label || k;
+    const autoNote = auto.length ? `<div class="imp-auto">
+      <b>🤖 값을 보고 이렇게 나눴습니다</b> — 틀린 곳은 아래에서 바꿔 주세요.
+      <div class="imp-auto-list">${auto.map(([c, g]) => `<span class="imp-auto-chip">
+        <i>${esc(colLabel(Number(c)).slice(0, 46))}</i> → <b>${g.key === '_unit' ? '단위 (등록 안 함)' : esc(fieldLabel(g.key))}</b></span>`).join('')}</div>
+      ${IMP.skipped && IMP.skipped.length ? `<p class="muted" style="margin:8px 0 0;font-size:12.5px">건너뛴 줄: ${IMP.skipped.map((x) => esc(x.slice(0, 40))).join(' / ')}</p>` : ''}
+    </div>` : '';
+    const docBox = IMP.key === 'orders' ? `<div class="imp-doc">
+      <b>📄 문서 정보</b> <span class="muted">표에 없는 값은 여기서 채웁니다 — 확인해 주세요</span>
+      <div class="imp-doc-grid">
+        <label>업체명 <input type="text" data-impdoc="customer" value="${esc(IMP.doc.customer || '')}" list="dl-customers" placeholder="예: 오셔"></label>
+        <label>수주일 <input type="date" data-impdoc="date" value="${esc(IMP.doc.date || '')}"></label>
+        <label>희망출고일 <input type="date" data-impdoc="dueDate" value="${esc(IMP.doc.dueDate || '')}"></label>
+        <label>발주번호 <input type="text" data-impdoc="poNo" value="${esc(IMP.doc.poNo || '')}"></label>
+      </div>
+      <p class="muted" style="margin:8px 0 0;font-size:12.5px">※ 업체명은 <b>업체별 사양에 등록된 이름</b>과 같아야 사양·품목 매핑이 연결됩니다.</p>
+    </div>` : '';
+    step2 = `<div class="imp-step"><h3>3. 열 연결 <span class="muted">엑셀 열 → 앱 항목</span></h3>
+      ${autoNote}${docBox}
       <div class="imp-map">${impFields(def).map((f) => `<label class="imp-mrow"><span>${esc(f.label)}</span>
         <select data-impmap="${f.k}">${opts(IMP.map[f.k])}</select></label>`).join('')}</div>
       ${impCalcCols(def).length ? `<p class="muted imp-note">※ 로스율·총수량 등 <b>계산 항목은 앱이 다시 계산</b>합니다. (엑셀 값과 다르면 미리보기에 표시)</p>` : ''}
@@ -974,8 +1003,27 @@ function renderImport() {
         ${rg ? `<span class="muted">파일 안의 기간: <b>${esc(rg.min)} ~ ${esc(rg.max)}</b></span>` : ''}
         ${outN ? `<span class="badge plain">기간 밖 ${outN}건 제외</span>` : ''}
       </div>` : '';
+    /* 수주주문서: 품목 매핑이 없어 제품명을 못 채운 코드들 — 여기서 바로 등록하게 한다 */
+    let codeBox = '';
+    if (IMP.key === 'orders') {
+      const miss = [...new Set(IMP.parsed
+        .filter((r) => r._err && String(r._err).includes('매핑') && r.obj.custCode)
+        .map((r) => impStr(r.obj.custCode)))];
+      if (miss.length) {
+        codeBox = `<div class="imp-codes">
+          <b>🔗 품목 매핑이 없는 고객사 코드 ${miss.length}개</b>
+          <span class="muted">내부 품명을 적으면 한 번에 등록하고, 다음부터는 자동으로 연결됩니다.</span>
+          <div class="imp-codes-grid">${miss.map((c) => `<label><b>${esc(c)}</b>
+            <input type="text" data-impcode="${esc(c)}" list="dl-products" placeholder="내부 품명"></label>`).join('')}</div>
+          <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+            <button type="button" class="btn primary small" id="imp-code-save">품목 매핑 등록</button>
+            <span class="muted" style="font-size:12.5px">업체: <b>${esc(IMP.doc.customer || '(문서 정보에서 지정)')}</b> · 적은 것만 등록됩니다</span>
+          </div>
+        </div>`;
+      }
+    }
     step3 = `<div class="imp-step"><h3>4. 미리보기 <span class="muted">등록 대상 ${inRange.length}건 (앞 30건 표시)</span></h3>
-      ${dateBar}
+      ${codeBox}${dateBar}
       <div class="chk-row" style="margin-bottom:10px">
         <label><input type="radio" name="imp-dup" value="skip" ${IMP.dupMode === 'skip' ? 'checked' : ''}> 중복 <b>건너뛰기</b></label>
         <label><input type="radio" name="imp-dup" value="update" ${IMP.dupMode === 'update' ? 'checked' : ''}> 중복 <b>덮어쓰기</b></label>
@@ -1011,27 +1059,184 @@ function renderImport() {
     </div>
     ${step2}${step3}`;
 }
+/* ── 엑셀 자동 분석 ──────────────────────────────────────────────
+   수주주문서는 업체마다 양식이 제각각이라 헤더 이름으로는 열을 찾을 수 없다.
+   그래서 '값의 모양'을 보고 판단한다.
+     ① 표가 시작되는 행 찾기 — 숫자 칸과 글자 칸이 함께 있는 행이 3줄 이상 이어지는 곳
+     ② 각 열이 무엇인지 값으로 판정 — 코드·수량·날짜·색상·단위·메모
+     ③ 표 위 서식 영역에서 업체명·날짜 같은 '문서 전체에 해당하는 값' 뽑기
+   판단 결과는 반드시 화면에 그대로 보여주고 사람이 고칠 수 있게 한다. */
+const IMP_UNITS = new Set(['box', 'ea', 'roll', 'rolls', 'pcs', 'case', '개', '박스', '롤', '매', '장']);
+const impStr = (v) => (v == null ? '' : String(v)).trim();
+const impIsDateVal = (v) => v instanceof Date || /^\d{4}[-./]\d{1,2}[-./]\d{1,2}/.test(impStr(v));
+const impIsNumVal = (v) => { const t = impStr(v).replace(/,/g, ''); return t !== '' && !isNaN(Number(t)); };
+const impIsCodeVal = (v) => { const t = impStr(v); return /^[A-Za-z0-9][A-Za-z0-9\-_/.]{1,15}$/.test(t) && /\d/.test(t); };
+
+/* 한 열의 값들을 보고 어떤 항목인지 추측 — [항목, 확신도] */
+function impGuessColumn(vals) {
+  const v = vals.filter((x) => impStr(x) !== '');
+  if (v.length < 2) return null;
+  const ratio = (fn) => v.filter(fn).length / v.length;
+  const setOf = (arr) => new Set(arr.map(impNorm).filter(Boolean));
+  const known = {
+    custCode: setOf((PRODUCTMAP || []).map((m) => m.custCode)),
+    product: setOf([...(MASTERS.products || []), ...(STANDARDS || []).map((x) => x.product)]),
+    productCode: setOf((STANDARDS || []).map((x) => x.productCode)),
+    color: setOf(MASTERS.colors || []),
+    customer: setOf((MASTERS.companies || []).map((c) => c.name)),
+  };
+  const hit = (set) => (set.size ? ratio((x) => set.has(impNorm(x))) : 0);
+  const out = [];
+  if (ratio((x) => IMP_UNITS.has(impStr(x).toLowerCase())) >= 0.7) out.push(['_unit', 0.95]);
+  if (ratio(impIsDateVal) >= 0.6) out.push(['dueDate', 0.75]);
+  if (hit(known.custCode) >= 0.4) out.push(['custCode', 0.6 + hit(known.custCode) * 0.4]);
+  if (hit(known.product) >= 0.4) out.push(['product', 0.6 + hit(known.product) * 0.4]);
+  if (hit(known.productCode) >= 0.4) out.push(['productCode', 0.55 + hit(known.productCode) * 0.4]);
+  if (hit(known.color) >= 0.6) out.push(['color', 0.6 + hit(known.color) * 0.35]);
+  if (hit(known.customer) >= 0.5) out.push(['customer', 0.6 + hit(known.customer) * 0.35]);
+  if (ratio(impIsNumVal) >= 0.8) {
+    const nums = v.filter(impIsNumVal).map((x) => Number(impStr(x).replace(/,/g, '')));
+    const allInt = nums.every((n) => Number.isInteger(n));
+    const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+    if (allInt && avg >= 5) out.push(['qty', 0.7]);
+    else out.push(['length', 0.5]);
+  }
+  if (ratio(impIsCodeVal) >= 0.7) out.push(['custCode', 0.55]);
+  const avgLen = v.reduce((a, x) => a + impStr(x).length, 0) / v.length;
+  if (avgLen > 18) out.push(['note', 0.4]);
+  out.sort((a, b) => b[1] - a[1]);
+  return out[0] ? { key: out[0][0], score: out[0][1] } : null;
+}
+
+/* 문서 위쪽 서식 영역에서 뽑을 값들 — 라벨은 '포함'으로 찾는다 */
+const IMP_DOC_LABELS = [
+  ['dueDate', ['출고희망일', '희망출고일', '납기일', '납기', '출고예정일', '출고일', 'delivery']],
+  ['date', ['주문접수일', '수주일', '접수일', '주문일', 'orderdate']],
+  ['poNo', ['pi번호', 'po번호', '발주번호', '주문번호', '수주번호', 'pino', 'ponumber']],
+  ['customer', ['주문업체', '업체명', '고객사', '거래처', '바이어', 'buyer', 'customer', '업체']],
+];
+/* 라벨 칸을 찾으면 값은 '바로 아래 칸' 또는 '오른쪽 인접 칸'에 있다.
+   서식 문서는 라벨이 한 줄에 늘어서고 값이 그 아래 줄에 오는 경우가 많아 아래를 먼저 본다.
+   옆 칸이 또 다른 라벨인 경우가 흔하므로 라벨로 보이는 값은 건너뛴다. */
+const IMP_LABEL_WORDS = [].concat(...IMP_DOC_LABELS.map(([, l]) => l),
+  ['rev', 'revno', '제품코드', '수량', '단위', '비고', '구분', '특이사항', '요청사항', 'oem유무', '브랜드', '합계', '총계']);
+const impLooksLabel = (v) => {
+  const t = impNorm(v);
+  return !!t && IMP_LABEL_WORDS.some((l) => t === impNorm(l) || t.includes(impNorm(l)));
+};
+function impScanDocMeta(aoa, upto) {
+  const meta = {};
+  for (const [key, labels] of IMP_DOC_LABELS) {
+    for (let r = 0; r < upto && meta[key] === undefined; r++) {
+      const row = aoa[r] || [];
+      for (let c = 0; c < row.length; c++) {
+        const cell = impNorm(row[c]);
+        if (!cell || !labels.some((l) => cell.includes(impNorm(l)))) continue;
+        const cands = [];
+        if (aoa[r + 1]) cands.push(aoa[r + 1][c]);                    // 아래 칸 먼저
+        for (let c2 = c + 1; c2 < row.length; c2++) cands.push(row[c2]);   // 그다음 오른쪽
+        const wantDate = key === 'date' || key === 'dueDate';
+        const ok = cands.filter((v) => impStr(v) !== '' && !impLooksLabel(v));
+        const pick = wantDate ? ok.find(impIsDateVal) : ok[0];
+        if (pick !== undefined) { meta[key] = pick; break; }
+      }
+    }
+  }
+  const date = (v) => (v == null ? '' : impDate(v) || '');
+  return {
+    customer: impStr(meta.customer),
+    poNo: impStr(meta.poNo),
+    date: date(meta.date),
+    dueDate: date(meta.dueDate),
+  };
+}
+
+/* 표가 시작되는 행 — 숫자+글자가 섞인 행이 연달아 나오는 첫 지점 */
+function impFindTableStart(aoa) {
+  const ok = (r) => {
+    const cells = (r || []).map(impStr).filter((x) => x !== '');
+    if (cells.length < 2) return false;
+    return cells.some(impIsNumVal) && cells.some((x) => !impIsNumVal(x));
+  };
+  for (let i = 0; i < Math.min(aoa.length, 40); i++) {
+    let run = 0;
+    for (let j = i; j < Math.min(aoa.length, i + 4); j++) { if (ok(aoa[j])) run++; else break; }
+    if (run >= 3) return i;
+  }
+  return -1;
+}
+
+/* 표 위 몇 줄 중 '데이터가 든 열과 가장 많이 겹치는 줄'을 헤더로 본다 (소제목 줄 걸러내기) */
+function impPickHeaderRow(aoa, dataStart) {
+  const used = new Set();
+  for (let i = dataStart; i < Math.min(aoa.length, dataStart + 12); i++) {
+    (aoa[i] || []).forEach((c, ci) => { if (impStr(c) !== '') used.add(ci); });
+  }
+  let best = -1, bestScore = 0;
+  for (let i = Math.max(0, dataStart - 3); i < dataStart; i++) {
+    const cols = (aoa[i] || []).map((c, ci) => (impStr(c) !== '' ? ci : -1)).filter((x) => x >= 0);
+    const overlap = cols.filter((c) => used.has(c)).length;
+    if (overlap >= bestScore && overlap > 0) { bestScore = overlap; best = i; }
+  }
+  return best;
+}
+
 /* 시트 → 헤더/행 추출 + 열 자동 매칭 */
 function impLoadSheet(name) {
   IMP.sheet = name;
   const ws = IMP.wb.Sheets[name];
   const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
-  // 헤더 행 = 비어있지 않은 셀이 가장 많은 앞쪽 행
-  let hi = 0, best = -1;
-  for (let i = 0; i < Math.min(aoa.length, 10); i++) {
-    const n = aoa[i].filter((c) => String(c).trim()).length;
-    if (n > best) { best = n; hi = i; }
+  const def = IMPORT_DEFS[IMP.key];
+
+  // 표가 어디서 시작하는지부터 찾는다 (서식 문서는 위쪽이 표가 아니다)
+  const dataStart = impFindTableStart(aoa);
+  let hi;
+  if (dataStart > 0) {
+    const h = impPickHeaderRow(aoa, dataStart);
+    hi = h >= 0 ? h : dataStart - 1;
+  } else {
+    hi = 0; let best = -1;
+    for (let i = 0; i < Math.min(aoa.length, 10); i++) {
+      const n = (aoa[i] || []).filter((c) => String(c).trim()).length;
+      if (n > best) { best = n; hi = i; }
+    }
   }
   IMP.headers = (aoa[hi] || []).map((h) => String(h).replace(/\s+/g, ' ').trim());
-  IMP.rows = aoa.slice(hi + 1).filter((r) => r.some((c) => String(c).trim()));
-  // 자동 매칭
-  const def = IMPORT_DEFS[IMP.key];
+  const bodyFrom = dataStart > 0 ? dataStart : hi + 1;
+  IMP.rows = aoa.slice(bodyFrom).filter((r) => r.some((c) => String(c).trim()));
+  IMP.skipped = dataStart > hi + 1
+    ? aoa.slice(hi + 1, dataStart).map((r) => (r || []).map(impStr).filter(Boolean).join(' · ')).filter(Boolean)
+    : [];
+
+  // 문서 전체에 해당하는 값 (업체명·날짜·발주번호) — 표 위 서식 영역에서
+  IMP.doc = IMP.key === 'orders' && dataStart > 0
+    ? impScanDocMeta(aoa, dataStart)
+    : { customer: '', poNo: '', date: '', dueDate: '' };
+
+  // ① 헤더 이름으로 먼저 맞춰보고
   IMP.map = {};
+  IMP.guess = {};
   const used = new Set();
   impFields(def).forEach((f) => {
     const cand = [impNorm(f.label), ...f.alias.map(impNorm)];
     const idx = IMP.headers.findIndex((h, i) => !used.has(i) && cand.includes(impNorm(h)));
     if (idx >= 0) { IMP.map[f.k] = idx; used.add(idx); }
+  });
+  // ② 못 찾은 항목은 열의 '값'을 보고 채운다
+  const nCols = Math.max(IMP.headers.length, ...IMP.rows.slice(0, 60).map((r) => r.length), 0);
+  const fieldKeys = new Set(impFields(def).map((f) => f.k));
+  const guesses = [];
+  for (let c = 0; c < nCols; c++) {
+    if (used.has(c)) continue;
+    const g = impGuessColumn(IMP.rows.slice(0, 60).map((r) => r[c]));
+    if (g) guesses.push({ col: c, ...g });
+  }
+  guesses.sort((a, b) => b.score - a.score);
+  guesses.forEach((g) => {
+    IMP.guess[g.col] = g;                                  // 화면 안내용 (단위 열 등 포함)
+    if (g.key === '_unit' || !fieldKeys.has(g.key)) return;
+    if (IMP.map[g.key] !== undefined || used.has(g.col)) return;
+    IMP.map[g.key] = g.col; used.add(g.col);
   });
   IMP.parsed = [];
 }
@@ -1067,6 +1272,12 @@ function impParse() {
         : IMP.part;
     }
     if (IMP.key === 'orders') obj.priority = normPriority(obj.priority);
+    // 문서 전체에 해당하는 값(업체명·날짜·발주번호)은 행에 없으면 문서 정보에서 채운다
+    if (IMP.key === 'orders') {
+      ['customer', 'date', 'dueDate', 'poNo'].forEach((k) => {
+        if ((obj[k] == null || obj[k] === '') && impStr(IMP.doc[k])) obj[k] = IMP.doc[k];
+      });
+    }
     // 수주주문서: 고객사코드(외부코드)가 있고 제품명이 비어있으면 제품표준서에서 매핑 조회해 채운다
     let mapMiss = false, mapUncertain = false;
     if (IMP.key === 'orders' && obj.custCode && !obj.product) {
@@ -1177,6 +1388,7 @@ if ($('#page-import')) {
       renderImport(); return;
     }
     if (e.target.closest('#imp-run')) { await impRun(); return; }
+    if (e.target.closest('#imp-code-save')) { await impSaveCodes(); return; }
     if (e.target.closest('#imp-range-clear')) { IMP.from = ''; IMP.to = ''; impParse(); renderImport(); return; }
   });
   $('#page-import').addEventListener('change', async (e) => {
@@ -1193,6 +1405,10 @@ if ($('#page-import')) {
       return;
     }
     if (e.target.id === 'imp-sheet') { impLoadSheet(e.target.value); impParse(); renderImport(); return; }
+    if (e.target.dataset.impdoc !== undefined) {
+      IMP.doc[e.target.dataset.impdoc] = e.target.value;
+      impParse(); renderImport(); return;
+    }
     if (e.target.dataset.impmap !== undefined) {
       const v = e.target.value;
       if (v === '') delete IMP.map[e.target.dataset.impmap]; else IMP.map[e.target.dataset.impmap] = Number(v);
@@ -1205,6 +1421,27 @@ if ($('#page-import')) {
     }
   });
 }
+/* 미리보기에서 적은 내부 품명을 품목 매핑으로 한 번에 등록 */
+async function impSaveCodes() {
+  const rows = $$('#import-body input[data-impcode]')
+    .map((el) => ({ custCode: el.dataset.impcode, product: el.value.trim() }))
+    .filter((x) => x.product);
+  if (!rows.length) { alert('내부 품명을 하나 이상 적어주세요.'); return; }
+  const customer = impStr(IMP.doc.customer);
+  if (!customer) { alert('문서 정보의 업체명을 먼저 채워주세요.\n같은 코드라도 업체가 다르면 다른 제품일 수 있습니다.'); return; }
+  const btn = $('#imp-code-save');
+  btn.disabled = true; btn.textContent = '등록 중…';
+  try {
+    await dataService.createMany('productmap',
+      rows.map((r) => ({ customer, custCode: r.custCode, product: r.product, part: IMP.part })));
+    await loadProductMap();
+    impParse(); renderImport();
+    alert(`품목 매핑 ${rows.length}건을 등록했습니다.\n미리보기가 다시 계산됐습니다.`);
+  } catch (err) {
+    alert('등록 실패: ' + err.message);
+  } finally { if ($('#imp-code-save')) { $('#imp-code-save').disabled = false; $('#imp-code-save').textContent = '품목 매핑 등록'; } }
+}
+
 async function impRun() {
   const def = IMPORT_DEFS[IMP.key];
   const ok = IMP.parsed.filter((r) => !r._err && !r._out);   // 오류·기간 밖 제외
