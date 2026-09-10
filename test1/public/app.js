@@ -3367,6 +3367,10 @@ function renderCompanies() {
   dupBtn.hidden = !dupeGroups;
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
   // 아직 기준정보 안에 들어 있으면 옮기기 버튼을 띄운다 (그 전까지 수정은 막힌다)
+  const excDead = can('delete', 'custspecs') ? excCleanPlans().filter((p) => !p.adds.length).length : 0;
+  const excBtn = $('#btn-exc-clean');
+  excBtn.hidden = !excDead;
+  excBtn.textContent = `🧹 제품별 예외 정리 (${excDead})`;
   const splitBtn = $('#btn-co-split');
   splitBtn.hidden = !(CO_LEGACY && can('create', 'companies'));
   splitBtn.textContent = `🚚 업체 데이터 옮기기 (${all.length})`;
@@ -3384,21 +3388,32 @@ function renderCompanies() {
     }
     return `<div class="co-cell ${cls}" title="${t}">${isDefaultMark(v) ? `<span class="muted">${t}</span>` : `<b>${t}</b>`}</div>`;
   };
-  const excCell = (c) => c._exc.length
-    ? `<div class="co-cell">${c._exc.map((s) => `<span class="co-req">${esc(s.product || '')}${s.variant ? '(' + esc(s.variant) + ')' : ''}</span>`).join('')}</div>`
-    : '<div class="co-cell muted">-</div>';
+  /* 컬러와 토너는 같은 이야기(어떤 컬러에 어떤 토너를 쓰는지)라 한 칸에 붙여 보여준다 */
+  const colorTonerCell = (c) => {
+    const bits = [];
+    if (filledVal(c.colors)) bits.push(`<span class="co-req"><i>컬러</i> ${esc(c.colors)}</span>`);
+    if (filledVal(c.toner) && !isDefaultMark(c.toner)) bits.push(`<span class="co-req"><i>토너</i> ${esc(c.toner)}</span>`);
+    const t = [c.colors, c.toner].filter(filledVal).join(' / ');
+    return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join('')}</div>` : '<div class="co-cell muted">기본</div>';
+  };
+  /* 특이사항과 제품별 예외도 '이 업체에서 따로 챙길 것' 하나로 묶는다 */
+  const noteCell = (c) => {
+    const bits = [];
+    c._exc.forEach((x) => bits.push(`<span class="co-exc">${esc(x.product || '')}${x.variant ? '(' + esc(x.variant) + ')' : ''}</span>`));
+    if (filledVal(c.notes)) bits.push(esc(c.notes));
+    const t = [...c._exc.map((x) => x.product), c.notes].filter(Boolean).join(' · ');
+    return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join(' ')}</div>` : '<div class="co-cell muted">-</div>';
+  };
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b></td>
     <td>${esc(c.country || '-')}</td>
     <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}${c._oem && c._noPack ? ' <span class="badge bad" title="OEM인데 전용 파우치·박스가 비어 있습니다. 이대로면 작업지시서에 기본 포장이 나갑니다">전용 포장 미입력</span>' : ''}</td>
     <td>${cell(c.packLabel)}</td><td>${cell(c.packInBox)}</td><td>${cell(c.packOutBox)}</td>
-    <td>${cell(c.toner)}</td>
-    <td>${cell(c.colors, 'narrow')}</td>
-    <td>${excCell(c)}</td>
-    <td>${cell(c.notes, 'wide')}</td>
+    <td>${colorTonerCell(c)}</td>
+    <td>${noteCell(c)}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table class="co-table"><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>토너</th><th>컬러</th><th>제품별 예외</th><th>특이사항</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table class="co-table"><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>컬러 · 토너</th><th>특이사항 · 제품별 예외</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 업체가 없습니다.</div>';
 }
 
@@ -3668,6 +3683,86 @@ async function runCoSplit() {
   } finally { btn.disabled = false; btn.textContent = '🚚 업체 데이터 옮기기'; }
 }
 $('#btn-co-split').addEventListener('click', runCoSplit);
+/* ── 제품별 예외 정리 ──────────────────────────────────────────────
+   제품별 예외는 '그 업체의 그 제품만' 다를 때 쓰는 것이다.
+   그런데 예전 [예전 값 일괄 정리]가 업체의 포장·토너를 제품 하나에 붙여 예외로 만들어 둔 것이 많다.
+   업체 요구사항이나 제품표준서와 값이 똑같으면 있으나 마나이고, 나중에 업체 값을 고쳤을 때
+   옛 값을 덮어쓰는 사고를 만든다. 그런 것만 골라 지운다. */
+function excCleanPlans() {
+  return (CUSTSPECS || []).map((x) => {
+    if (!filledVal(x.customer)) return { spec: x, adds: [], reason: '업체가 지정되지 않아 적용되지 않습니다' };
+    const co = findCompanyOf(x.customer) || {};
+    const std = findStandard({ part: x.part, product: x.product, customer: x.customer }) || {};
+    const coVal = {};
+    Object.entries(CO_SPEC_MAP).forEach(([ck, sk]) => { coVal[sk] = co[ck]; });
+    const adds = [];
+    SPEC_KEYS.forEach((k) => {
+      if (!filledVal(x[k])) return;
+      const v = String(x[k]).trim();
+      const fromCo = filledVal(coVal[k]) ? String(coVal[k]).trim() : '';
+      const fromStd = filledVal(std[k]) ? String(std[k]).trim() : '';
+      if (v === fromCo || v === fromStd) return;              // 같은 값 = 더하는 것이 없음
+      if (!fromCo && !fromStd && isDefaultMark(v)) return;     // 'NEAL' 같은 기본 표기
+      adds.push({ key: k, value: x[k], co: coVal[k], std: std[k] });
+    });
+    return { spec: x, co, std, adds, reason: adds.length ? '' : '업체 요구사항·제품표준서와 값이 같습니다' };
+  });
+}
+
+let EXC_CLEAN = [];
+function openExcCleanModal() {
+  EXC_CLEAN = excCleanPlans();
+  const dead = EXC_CLEAN.filter((p) => !p.adds.length);
+  const alive = EXC_CLEAN.filter((p) => p.adds.length);
+  const label = (k) => ({ coatingMin: '코팅 하한', coatingMid: '코팅량', coatingMax: '코팅 상한', toner: '토너',
+    pouchType: '파우치', inBoxSpec: 'In Box', outBoxSpec: 'Out Box', labelSpec: '라벨',
+    manualSpec: '설명서', enclosures: '동봉품', packingNote: '포장 주의' }[k] || k);
+  const deadRows = dead.map((p) => {
+    const i = EXC_CLEAN.indexOf(p);
+    return `<tr class="no-click"><td><input type="checkbox" data-excdel="${i}" checked></td>
+      <td><b>${esc(p.spec.customer || '(업체 없음)')}</b></td>
+      <td>${esc(p.spec.product || '')} <span class="muted">${esc(p.spec.part || 'CAST')}</span></td>
+      <td class="muted">${esc(p.reason)}</td></tr>`;
+  }).join('');
+  const aliveRows = alive.map((p) => `<tr class="no-click"><td></td>
+    <td><b>${esc(p.spec.customer || '')}</b></td>
+    <td>${esc(p.spec.product || '')} <span class="muted">${esc(p.spec.part || 'CAST')}</span></td>
+    <td>${p.adds.map((a) => `<span class="co-req"><i>${label(a.key)}</i> <b>${esc(a.value)}</b>${
+      filledVal(a.std) ? ` <span class="muted">(표준 ${esc(a.std)})</span>` : ''}</span>`).join('')}</td></tr>`).join('');
+  $('#excclean-body').innerHTML = `
+    ${dead.length ? `<h3 style="margin:0 0 6px;font-size:14px">지워도 되는 것 <span class="muted" style="font-weight:400">${dead.length}건</span></h3>
+      <div class="table-wrap"><table><thead><tr><th style="width:34px"></th><th>업체</th><th>제품</th><th>이유</th></tr></thead>
+      <tbody>${deadRows}</tbody></table></div>` : '<div class="empty">지워도 되는 예외가 없습니다.</div>'}
+    ${alive.length ? `<h3 style="margin:18px 0 6px;font-size:14px">남겨야 하는 것 <span class="muted" style="font-weight:400">${alive.length}건 — 실제로 다른 값이 있습니다</span></h3>
+      <div class="table-wrap"><table><thead><tr><th style="width:34px"></th><th>업체</th><th>제품</th><th>기본과 다른 값</th></tr></thead>
+      <tbody>${aliveRows}</tbody></table></div>` : ''}`;
+  $('#excclean-run').hidden = !dead.length;
+  $('#excclean-modal').hidden = false;
+}
+
+async function runExcClean() {
+  const picked = $$('#excclean-body input[data-excdel]:checked').map((el) => EXC_CLEAN[Number(el.dataset.excdel)]).filter(Boolean);
+  if (!picked.length) { alert('삭제할 항목을 선택하세요.'); return; }
+  if (!confirm(`제품별 예외 ${picked.length}건을 삭제합니다.\n\n작업지시서에 나가는 값은 그대로입니다 (업체 요구사항·제품표준서에서 같은 값을 가져옵니다).\n\n진행할까요?`)) return;
+  const btn = $('#excclean-run');
+  btn.disabled = true; btn.textContent = '삭제 중…';
+  try {
+    for (let i = 0; i < picked.length; i++) {
+      await api('/api/custspecs/' + picked[i].spec.id, { method: 'DELETE' });
+      btn.textContent = `삭제 중… ${i + 1}/${picked.length}`;
+    }
+    await loadCustSpecs();
+    $('#excclean-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`제품별 예외 ${picked.length}건을 정리했습니다.`);
+  } catch (err) {
+    alert('삭제 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
+  } finally { btn.disabled = false; btn.textContent = '선택한 예외 삭제'; }
+}
+$('#btn-exc-clean').addEventListener('click', openExcCleanModal);
+$('#excclean-close').addEventListener('click', () => ($('#excclean-modal').hidden = true));
+$('#excclean-cancel').addEventListener('click', () => ($('#excclean-modal').hidden = true));
+$('#excclean-run').addEventListener('click', runExcClean);
 $('#btn-new-company').addEventListener('click', () => openCompanyModal());
 $('#company-modal-close').addEventListener('click', () => ($('#company-modal').hidden = true));
 $('#company-cancel').addEventListener('click', () => ($('#company-modal').hidden = true));

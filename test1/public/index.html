@@ -337,6 +337,7 @@
         <span class="muted" id="co-count"></span>
         <button class="btn" id="btn-co-split" hidden>🚚 업체 데이터 옮기기</button>
         <button class="btn" id="btn-co-dedupe" hidden>🔗 중복 업체 합치기</button>
+        <button class="btn" id="btn-exc-clean" hidden>🧹 제품별 예외 정리</button>
         <button class="btn primary" id="btn-new-company">＋ 업체 등록</button>
       </div>
     </div>
@@ -1078,7 +1079,6 @@
           <label>업체명 *<input type="text" name="name" required></label>
           <label>나라<input type="text" name="country"></label>
           <label>등록일<input type="text" name="regDate" placeholder="예: 2024-01-05"></label>
-          <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN — 이 업체에 납품하는 컬러 목록"></label>
         </div>
       </fieldset>
       <fieldset>
@@ -1095,12 +1095,13 @@
         <p class="muted" style="margin-top:8px">※ 라벨 표기 규칙은 <b>제품표준서</b>에 있습니다. 업체별로 다른 점은 [특이사항]에 적으세요.<br>※ 파우치를 <b>쉼표로 두 개 이상</b> 적으면 수주 항목에 따라 골라 쓰는 <b>선택 옵션</b>으로 봅니다. 작업지시서에 함께 표시됩니다.</p>
       </fieldset>
       <fieldset>
-        <legend>그 밖의 요구사항 <span class="auto-tag">기본과 다른 것만</span></legend>
+        <legend>컬러 · 토너 · 특이사항 <span class="auto-tag">기본과 다른 것만</span></legend>
         <div class="form-grid">
+          <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN — 이 업체에 납품하는 컬러"></label>
           <label class="wide">토너<input type="text" name="toner" list="dl-toners" placeholder="예: 내수 / 오셔: HP, DB"></label>
           <label class="wide">특이사항<input type="text" name="notes" placeholder="예: RD만 오셔토너 사용"></label>
         </div>
-        <p class="muted" style="margin-top:8px">※ 특정 제품만 코팅량 등이 다르면 위쪽 <b>제품별 예외</b>에 그 제품만 등록하세요.</p>
+        <p class="muted" style="margin-top:8px">※ 컬러와 토너는 함께 봅니다 — 어떤 컬러에 어떤 토너를 쓰는지 적으세요. 특정 제품만 코팅량 등이 다르면 위쪽 <b>제품별 예외</b>에 등록합니다.</p>
       </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="company-delete" hidden>삭제</button>
@@ -1126,6 +1127,25 @@
       <span class="spacer"></span>
       <button type="button" class="btn" id="basefill-cancel">취소</button>
       <button type="button" class="btn primary" id="basefill-run">선택한 항목 옮기기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 제품별 예외 정리 (업체 사양과 겹치는 것 걸러내기) -->
+<div class="modal-back" id="excclean-modal" hidden>
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-head">
+      <h2>제품별 예외 정리</h2>
+      <button class="btn icon" id="excclean-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px"><b>제품별 예외</b>는 그 업체의 <b>특정 제품 하나만</b> 기본과 다를 때 쓰는 것입니다.
+      아래는 적혀 있는 값이 <b>그 업체의 업체 요구사항 또는 제품표준서 값과 똑같아서</b> 있으나 마나인 것들입니다.
+      지워도 작업지시서 내용은 그대로이고, 오히려 나중에 업체 값을 고쳤을 때 이 예외가 옛 값을 덮어쓰는 사고를 막습니다.</p>
+    <div id="excclean-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="excclean-cancel">취소</button>
+      <button type="button" class="btn danger" id="excclean-run">선택한 예외 삭제</button>
     </div>
   </div>
 </div>
