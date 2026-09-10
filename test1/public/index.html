@@ -321,6 +321,7 @@
       <h1>품목 매핑 <span class="muted" style="font-size:13px;font-weight:400">고객사 외부품명/코드 ↔ 내부 품명·품번 — 공정 구분 없이 통합 관리</span></h1>
       <div class="head-actions">
         <input type="text" id="pm-search" placeholder="업체명, 외부코드, 내부품명 검색">
+        <button class="btn" id="btn-pm-part" hidden>🏭 공정 지정</button>
         <button class="btn" id="btn-import-productmap">📥 엑셀 업로드</button>
         <button class="btn primary" id="btn-new-productmap">＋ 매핑 등록</button>
       </div>
@@ -783,6 +784,7 @@
     </div>
     <form id="productmap-form">
       <div class="form-grid">
+        <label>공정<select name="part"><option value="">— 미지정 —</option><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
         <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
         <label>고객사 외부품명/코드<input type="text" name="custCode" placeholder="거래처가 부르는 이름/코드 — 나중에 채워도 됨"></label>
         <label>내부 품명 *<input type="text" name="product" list="dl-products" required></label>
@@ -1173,6 +1175,24 @@
       <span class="spacer"></span>
       <button type="button" class="btn" id="namefix-cancel">취소</button>
       <button type="button" class="btn primary" id="namefix-run">선택한 항목 정리</button>
+    </div>
+  </div>
+</div>
+
+<!-- 품목 매핑 공정 일괄 지정 -->
+<div class="modal-back" id="pmpart-modal" hidden>
+  <div class="modal" style="max-width:900px">
+    <div class="modal-head">
+      <h2>품목 매핑 — 공정 지정</h2>
+      <button class="btn icon" id="pmpart-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px">품목 매핑에는 공정 칸이 없어 한 덩어리로 나열됩니다.
+      <b>내부 품명의 앞부분(제품군)</b>으로 묶어 두었으니, 제품군마다 공정을 한 번씩만 골라 주세요. 그 제품군의 매핑 전체에 적용됩니다.</p>
+    <div id="pmpart-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="pmpart-cancel">취소</button>
+      <button type="button" class="btn primary" id="pmpart-run">공정 지정</button>
     </div>
   </div>
 </div>

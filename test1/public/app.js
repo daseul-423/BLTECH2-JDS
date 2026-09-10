@@ -846,6 +846,7 @@ const IMPORT_DEFS = {
     dupKey: (r) => [r.customer ?? '', r.custCode ?? '', r.product ?? ''].join('|'),
     dupLabel: '업체명+고객사 외부품명/코드+내부 품명',
     fields: [
+      F('part', '공정', ['공정', '구분', '파트']),
       F('customer', '업체명', ['업체명', '고객사', '거래처', '취급업체명', '취급 업체명']),
       F('custCode', '고객사 외부품명/코드', ['고객사코드', '외부코드', '외부품명', '거래처코드', '고객코드', '발주코드', 'custcode',
         '외부 품명(CUSTOMER CODE)', '외부품명(CUSTOMER CODE)', 'CUSTOMER CODE']),
@@ -2654,6 +2655,70 @@ if ($('#so-upload-modal')) {
 }
 
 /* ===================== 품목 매핑 (고객사 외부품명/코드 ↔ 내부 품명·품번, 공정 구분 없음) ===================== */
+/* 내부 품명의 앞부분을 '제품군'으로 본다 — SMRC-2F-BL(SMILE) → SMRC, (프리컷)NHPS-3014F → 프리컷
+   품목 매핑에는 공정 칸이 없어서, 이 제품군 단위로 공정을 한 번씩만 정해주면 전체가 분류된다. */
+function pmFamily(product) {
+  const t = String(product || '').trim();
+  const m = /^[(（]\s*([^)）]+)\s*[)）]/.exec(t);          // (프리컷)... 처럼 앞에 괄호가 붙은 형태
+  if (m) return m[1].trim();
+  const m2 = /^([A-Za-z가-힣]+)/.exec(t);
+  return m2 ? m2[1].toUpperCase() : '(기타)';
+}
+
+let PM_FAMS = [];
+function openPmPartModal() {
+  const map = new Map();
+  (PRODUCTMAP || []).forEach((m) => {
+    const f = pmFamily(m.product);
+    if (!map.has(f)) map.set(f, { fam: f, items: [], parts: new Set() });
+    map.get(f).items.push(m);
+    map.get(f).parts.add(m.part || '');
+  });
+  PM_FAMS = [...map.values()].sort((a, b) => b.items.length - a.items.length || a.fam.localeCompare(b.fam, 'ko'));
+  const opts = (cur) => '<option value="">— 미지정 —</option>'
+    + PARTS.map((p) => `<option value="${p}"${p === cur ? ' selected' : ''}>${p}</option>`).join('');
+  const rows = PM_FAMS.map((g, i) => {
+    const cur = g.parts.size === 1 ? [...g.parts][0] : '';
+    const sample = g.items.slice(0, 3).map((m) => m.product).join(', ');
+    return `<tr class="no-click">
+      <td><b>${esc(g.fam)}</b></td>
+      <td class="num">${g.items.length}건</td>
+      <td class="muted" style="font-size:12.5px">${esc(sample)}${g.items.length > 3 ? ' …' : ''}</td>
+      <td><select data-pmfam="${i}">${opts(cur)}</select></td>
+    </tr>`;
+  }).join('');
+  $('#pmpart-body').innerHTML = `<div class="table-wrap"><table>
+    <thead><tr><th>제품군</th><th class="num">건수</th><th>내부 품명 예시</th><th style="width:150px">공정</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    <p class="muted" style="margin-top:10px;font-size:12.5px">제품군마다 공정을 한 번만 고르면 그 제품군의 매핑 전체에 적용됩니다. 비워두면 그대로 둡니다.</p>`;
+  $('#pmpart-modal').hidden = false;
+}
+
+async function runPmPart() {
+  const picks = $$('#pmpart-body select[data-pmfam]')
+    .map((el) => ({ g: PM_FAMS[Number(el.dataset.pmfam)], part: el.value }))
+    .filter((x) => x.g && x.part);
+  const changed = [];
+  picks.forEach(({ g, part }) => g.items.forEach((m) => { if ((m.part || '') !== part) changed.push({ ...m, part }); }));
+  if (!changed.length) { alert('바뀌는 항목이 없습니다. 공정을 골라주세요.'); return; }
+  if (!confirm(`품목 매핑 ${changed.length}건에 공정을 지정합니다.\n\n다른 값은 그대로입니다. 진행할까요?`)) return;
+  const btn = $('#pmpart-run');
+  btn.disabled = true; btn.textContent = '적용 중…';
+  try {
+    await dataService.updateMany('productmap', changed, (d, t) => { btn.textContent = `적용 중… ${d}/${t}`; });
+    await loadProductMap();
+    $('#pmpart-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`품목 매핑 ${changed.length}건에 공정을 지정했습니다.`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message);
+  } finally { btn.disabled = false; btn.textContent = '공정 지정'; }
+}
+$('#btn-pm-part').addEventListener('click', openPmPartModal);
+$('#pmpart-close').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
+$('#pmpart-cancel').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
+$('#pmpart-run').addEventListener('click', runPmPart);
+
 function renderProductMap() {
   const box = $('#productmap-table');
   if (!box) return;
@@ -2664,6 +2729,12 @@ function renderProductMap() {
 
   const impBtn = $('#btn-import-productmap');
   if (impBtn) impBtn.hidden = !canAccessPage('import');
+  const noPart = PRODUCTMAP.filter((m) => !m.part).length;
+  const ppBtn = $('#btn-pm-part');
+  if (ppBtn) {
+    ppBtn.hidden = !can('update', 'productmap');
+    ppBtn.textContent = noPart ? `🏭 공정 지정 (미지정 ${noPart})` : '🏭 공정 지정';
+  }
   const missingN = PRODUCTMAP.filter((m) => !m.custCode).length;
   const autoN = PRODUCTMAP.filter((m) => m.note === PM_AUTO_NOTE).length;
   const sumEl = $('#pm-missing-sum');
@@ -2675,16 +2746,28 @@ function renderProductMap() {
   }
 
   if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목 매핑이 없습니다. [＋ 매핑 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
-  const rows = list.map((m) => `<tr data-pmid="${m.id}">
+  const rowOf = (m) => `<tr data-pmid="${m.id}">
     <td>${esc(m.customer ?? '')}</td>
     <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : '<span class="badge warn">미입력</span>'}</td>
     <td>${esc(m.product ?? '')}</td>
     <td class="muted">${esc(m.productCode ?? '-')}</td>
+    <td><span class="badge plain">${esc(pmFamily(m.product))}</span></td>
     <td>${m.note === PM_AUTO_NOTE ? '<span class="badge plain" title="수주주문서 등록 시 자동으로 생성됨">🤖 자동</span>' : esc(m.note ?? '')}</td>
-  </tr>`).join('');
+  </tr>`;
+  /* 공정으로 묶어 보여준다. 공정이 아직 안 정해진 것은 맨 아래로 모아 눈에 띄게 한다. */
+  const zones = [...PARTS, ''];
+  const body = zones.map((z) => {
+    const sub = list.filter((m) => (m.part || '') === z);
+    if (!sub.length) return '';
+    const label = z || '공정 미지정';
+    const fams = [...new Set(sub.map((m) => pmFamily(m.product)))].slice(0, 8).join(' · ');
+    return `<tr class="co-zone"><td colspan="6">${z ? '🏭 ' + esc(z) : '❓ 공정 미지정'}
+      <span class="muted">${sub.length}건${fams ? ' · ' + esc(fams) : ''}</span></td></tr>`
+      + sub.map(rowOf).join('');
+  }).join('');
   box.innerHTML = `<table><thead><tr>
-    <th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>비고</th>
-  </tr></thead><tbody>${rows}</tbody></table>`;
+    <th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>제품군</th><th>비고</th>
+  </tr></thead><tbody>${body}</tbody></table>`;
 }
 $('#pm-search')?.addEventListener('input', renderProductMap);
 
