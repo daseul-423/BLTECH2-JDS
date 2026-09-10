@@ -6590,6 +6590,7 @@ async function exportAllData() {
   const btn = $('#btn-backup'), st = $('#bk-state');
   const withPhotos = $('#bk-photos') && $('#bk-photos').checked;
   btn.disabled = true;
+  const failed = [];
   const out = {
     exportedAt: new Date().toISOString(),
     exportedBy: (ME && ME.email) || '',
@@ -6604,13 +6605,22 @@ async function exportAllData() {
     return c;
   });
   try {
+    // 못 읽는 컬렉션 하나 때문에 백업 전체가 실패하면 안 된다 (보안 규칙 미배포 등)
     for (const col of COLLECTIONS) {
       st.textContent = `${col} 가져오는 중…`;
-      const rows = await api('/api/' + col);
-      out.data[col] = withPhotos ? rows : stripPhotos(rows);
+      try {
+        const rows = await api('/api/' + col);
+        out.data[col] = withPhotos ? rows : stripPhotos(rows);
+      } catch (e) {
+        console.warn('[백업] ' + col + ' 건너뜀', e);
+        out.data[col] = [];
+        failed.push(col);
+      }
     }
     st.textContent = '기준정보 가져오는 중…';
-    out.data.masters = await api('/api/masters');
+    try { out.data.masters = await api('/api/masters'); }
+    catch (e) { out.data.masters = {}; failed.push('masters'); }
+    out.failedCollections = failed;
     const text = JSON.stringify(out, null, 1);
     const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
     const a = document.createElement('a');
@@ -6619,9 +6629,11 @@ async function exportAllData() {
     a.click();
     URL.revokeObjectURL(a.href);
     const mb = (blob.size / 1024 / 1024).toFixed(2);
-    const counts = COLLECTIONS.map((c) => `${c} ${out.data[c].length}`).join(' · ');
-    st.textContent = `완료 — ${mb} MB`;
-    alert(`백업 파일을 내려받았습니다 (${mb} MB)\n\n${counts}\n\n다운로드 폴더에 저장됩니다.`);
+    const counts = COLLECTIONS.map((c) => `${c} ${(out.data[c] || []).length}`).join(' · ');
+    st.textContent = `완료 — ${mb} MB${failed.length ? ' (건너뜀 ' + failed.join(', ') + ')' : ''}`;
+    alert(`백업 파일을 내려받았습니다 (${mb} MB)\n\n${counts}\n\n`
+      + (failed.length ? `※ 읽을 수 없어 건너뛴 것: ${failed.join(', ')}\n(아직 만들지 않았거나 보안 규칙이 없는 컬렉션입니다 — 지금은 데이터도 없습니다)\n\n` : '')
+      + '다운로드 폴더에 저장됩니다.');
   } catch (err) {
     st.textContent = '';
     alert('백업 실패: ' + err.message);
