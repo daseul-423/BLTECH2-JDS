@@ -54,8 +54,15 @@
   window.dataService = {
     auth: _auth,
 
-    list: function (col) {
-      return _db.collection(col).get().then(function (qs) {
+    /* opts.from/opts.to 를 주면 Firestore에서 걸러서 가져온다.
+       (전부 읽어와 화면에서 거르면 읽은 횟수만큼 요금이 나가므로, 필요한 기간만 읽는다) */
+    list: function (col, opts) {
+      var q = _db.collection(col);
+      var o = opts || {};
+      var f = o.dateField || 'date';
+      if (o.from) q = q.where(f, '>=', String(o.from));
+      if (o.to) q = q.where(f, '<=', String(o.to));
+      return q.get().then(function (qs) {
         return qs.docs.map(function (d) { return d.data(); });
       });
     },

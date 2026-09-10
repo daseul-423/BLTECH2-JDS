@@ -56,10 +56,9 @@ async function api(path, opts = {}) {
   if (m && COLLECTIONS.includes(m[1])) {
     const col = m[1], id = m[2] ? Number(m[2]) : null;
     if (id == null && method === 'GET') {
-      let out = await dataService.list(col);
+      // 기간을 주면 Firestore에서 걸러 가져온다 (전부 읽으면 그만큼 읽기 요금이 나간다)
       const from = url.searchParams.get('from'), to = url.searchParams.get('to');
-      if (from) out = out.filter((r) => r.date >= from);
-      if (to) out = out.filter((r) => r.date <= to);
+      let out = await dataService.list(col, { from, to });
       out.sort((a, b) => (a.date === b.date ? String(a.machine ?? '').localeCompare(String(b.machine ?? '')) : a.date < b.date ? 1 : -1));
       return out;
     }
@@ -70,15 +69,62 @@ async function api(path, opts = {}) {
   throw new Error('unknown route: ' + p);
 }
 const post = (path, body, method = 'POST') => api(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-const loadRecords = async () => { RECORDS = await api('/api/records'); };
-const loadSheets = async () => { SHEETS = await api('/api/sheets'); };
-const loadPlans = async () => { PLANS = await api('/api/plans'); };
+/* ── 필요한 기간만 읽기 ────────────────────────────────────────────
+   Firestore는 '읽은 문서 수'로 요금이 매겨진다. 새로고침할 때마다 실적 전체를
+   읽으면 건수가 쌓일수록 그대로 비용·대기시간이 된다.
+   그래서 기본은 최근 몇 달치만 읽고, 그보다 예전 자료가 필요한 화면에서만
+   모자란 기간을 추가로 불러와 합친다. (화면 동작은 그대로) */
+const LOAD_MONTHS = { records: 6, sheets: 6, plans: 6, equipchecks: 12 };
+const LOADED_FROM = {};                    // 컬렉션별로 '지금 메모리에 있는 시작일'
+const monthsAgoStr = (n) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  d.setDate(1);
+  return d.toISOString().slice(0, 10);
+};
+const prevDayStr = (ymd) => {
+  const d = new Date(ymd + 'T00:00:00');
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
+const sortByDateDesc = (arr) => arr.sort((a, b) =>
+  (a.date === b.date ? String(a.machine ?? '').localeCompare(String(b.machine ?? '')) : (a.date < b.date ? 1 : -1)));
+
+async function loadWindowed(col, setter) {
+  const from = monthsAgoStr(LOAD_MONTHS[col] ?? 6);
+  LOADED_FROM[col] = from;
+  setter(await api(`/api/${col}?from=${from}`));
+}
+
+/* 지정한 날짜까지 거슬러 필요한 만큼만 더 읽어와 합친다. 새로 읽었으면 true */
+async function ensureLoadedFrom(col, from, getter, setter) {
+  if (!from) return false;
+  const cur = LOADED_FROM[col];
+  if (!cur || from >= cur) return false;                 // 이미 그 기간까지 갖고 있음
+  const older = await api(`/api/${col}?from=${from}&to=${prevDayStr(cur)}`);
+  const seen = new Set(getter().map((x) => x.id));
+  setter(sortByDateDesc(getter().concat(older.filter((x) => !seen.has(x.id)))));
+  LOADED_FROM[col] = from;
+  return true;
+}
+/* 화면 기간 필터가 메모리 범위보다 과거를 가리키면 그만큼 채워 넣고 다시 그린다 */
+async function ensureRangeForRender(col, from, getter, setter, rerender) {
+  try {
+    if (await ensureLoadedFrom(col, from, getter, setter)) rerender();
+  } catch (e) { console.warn('[' + col + '] 이전 기간 불러오기 실패', e); }
+}
+
+const loadRecords = async () => loadWindowed('records', (v) => { RECORDS = v; });
+const loadSheets = async () => loadWindowed('sheets', (v) => { SHEETS = v; });
+const loadPlans = async () => loadWindowed('plans', (v) => { PLANS = v; });
+const ensureRecordsFrom = (from, rerender) =>
+  ensureRangeForRender('records', from, () => RECORDS, (v) => { RECORDS = v; }, rerender);
 // 규칙 미배포 환경에서도 앱 부팅이 막히지 않도록 실패는 빈 목록으로 처리
 const loadOrders = async () => { try { ORDERS = await api('/api/orders'); } catch (e) { console.warn('[orders] 불러오기 실패', e); ORDERS = []; } };
 const loadProductMap = async () => { try { PRODUCTMAP = await api('/api/productmap'); } catch (e) { console.warn('[productmap] 불러오기 실패', e); PRODUCTMAP = []; } };
 const loadStandards = async () => { STANDARDS = await api('/api/standards'); };
 const loadCustSpecs = async () => { CUSTSPECS = await api('/api/custspecs'); };
-const loadEquipChecks = async () => { EQUIPCHECKS = await api('/api/equipchecks'); };
+const loadEquipChecks = async () => loadWindowed('equipchecks', (v) => { EQUIPCHECKS = v; });
 const loadEquipment = async () => { EQUIPMENT = await api('/api/equipment'); };
 const loadPolicies = async () => { POLICIES = await api('/api/policies'); };
 const loadMasters = async () => { MASTERS = await api('/api/masters'); };
@@ -3930,7 +3976,11 @@ $('#equipcheck-delete').addEventListener('click', async () => {
   await api('/api/equipchecks/' + editingEquipCheckId, { method: 'DELETE' });
   await loadEquipChecks(); $('#equipcheck-modal').hidden = true; refreshCurrentPage();
 });
-['ec-month', 'ec-machine', 'ec-part'].forEach((id) => $('#' + id).addEventListener('input', renderEquipChecks));
+['ec-month', 'ec-machine', 'ec-part'].forEach((id) => $('#' + id).addEventListener('input', () => {
+  renderEquipChecks();
+  const m = $('#ec-month').value;
+  if (id === 'ec-month' && m) ensureRangeForRender('equipchecks', m + '-01', () => EQUIPCHECKS, (v) => { EQUIPCHECKS = v; }, renderEquipChecks);
+}));
 
 /* ===================== 설비 대장 (설비별 탭 → 체크리스트 + 점검·수리 이력) ===================== */
 let editingEquipmentId = null;      // 설비 정보 등록/수정 모달 대상
@@ -5562,6 +5612,14 @@ function renderLogs() {
   const nfx = $('#btn-fix-names');
   nfx.hidden = !nameN;
   nfx.textContent = `🧹 제품명·업체명 정리 (${nameN})`;
+  /* 최근 몇 달치만 올려두고 쓰므로, 어디까지 읽어왔는지 보이게 한다 */
+  const lf = $('#f-loaded');
+  if (lf) {
+    const from = LOADED_FROM.records;
+    lf.textContent = from ? `${from}부터 ${fmt(RECORDS.length)}건 불러옴` : `${fmt(RECORDS.length)}건`;
+    const all = $('#btn-load-all');
+    if (all) all.hidden = !from;
+  }
   const fix = $('#btn-fix-machine');
   if (fix) {
     const mc = $('#f-machine').value;
@@ -6916,7 +6974,7 @@ function renderDataStat() {
    시트별로 나눈 엑셀 한 파일로 뽑아 두면 언제든 열어 보고 정렬·필터할 수 있다.
    백업 겸 업무용 사본이며, 이 파일을 고쳐도 시스템 데이터는 바뀌지 않는다. */
 const XL_SHEETS = [
-  { name: '생산실적', get: () => RECORDS, dated: true, cols: [
+  { name: '생산실적', col: 'records', get: () => RECORDS, dated: true, cols: [
     ['date', '생산일'], ['part', '공정'], ['machine', '호기'], ['orderNo', '차수'],
     ['customer', '업체명'], ['product', '제품명'], ['color', '칼라'], ['size', '인치'], ['length', '길이(m)'],
     ['planQty', '계획수량'], ['prodQty', '생산수량'], ['totalProd', '총생산'], ['totalRoll', '총수량(roll)'],
@@ -6925,13 +6983,13 @@ const XL_SHEETS = [
     ['baseType', '기재'], ['baseLength', '투입원단'], ['weight', '중량'], ['workers', '작업자'], ['remarks', '비고'],
     ['createdByEmail', '작성자'], ['updatedAt', '수정일시'],
   ] },
-  { name: '생산계획', get: () => PLANS, dated: true, cols: [
+  { name: '생산계획', col: 'plans', get: () => PLANS, dated: true, cols: [
     ['date', '생산일'], ['part', '공정'], ['machine', '호기'], ['seq', '순서'], ['priority', '우선순위'],
     ['customer', '업체명'], ['orderNo', '차수'], ['product', '제품명'], ['color', '칼라'],
     ['pouchType', '포장'], ['length', '길이(m)'], ['planQty', '계획수량'],
     ['status', '상태'], ['dueDate', '희망출고일'], ['orderException', '조건·특이사항'], ['note', '비고'],
   ] },
-  { name: '수주', get: () => ORDERS, dated: true, cols: [
+  { name: '수주', col: 'orders', get: () => ORDERS, dated: true, cols: [
     ['date', '수주일'], ['part', '공정'], ['priority', '우선순위'], ['customer', '업체명'], ['poNo', '발주번호'],
     ['custCode', '고객사코드'], ['product', '제품명'], ['productCode', '제품코드'], ['color', '칼라'],
     ['pouchType', '포장'], ['length', '길이(m)'], ['qty', '수주수량'], ['dueDate', '희망출고일'], ['note', '비고'],
@@ -6956,7 +7014,7 @@ const XL_SHEETS = [
   { name: '품목 매핑', get: () => PRODUCTMAP, cols: [
     ['customer', '업체명'], ['custCode', '고객사 외부품명/코드'], ['product', '내부 품명'], ['productCode', '내부 품번'], ['note', '비고'],
   ] },
-  { name: '설비 일상점검', get: () => EQUIPCHECKS, dated: true, cols: [
+  { name: '설비 일상점검', col: 'equipchecks', get: () => EQUIPCHECKS, dated: true, cols: [
     ['date', '점검일'], ['part', '공정'], ['machine', '호기'], ['checker', '점검자'],
     ['temp', '온도'], ['humid', '습도'], ['note', '비고'], ['createdByEmail', '작성자'],
   ] },
@@ -6972,11 +7030,16 @@ async function exportExcel() {
     const wb = XLSX.utils.book_new();
     const made = [];
     for (const sh of XL_SHEETS) {
-      let list = (sh.get() || []).slice();
+      let list;
       if (sh.dated) {
-        if (from) list = list.filter((r) => String(r.date || '') >= from);
-        if (to) list = list.filter((r) => String(r.date || '') <= to);
+        /* 화면에는 최근 몇 달치만 올려두므로, 내보내기는 지정한 기간을 직접 읽어온다
+           (기간을 비우면 전체 — 그래야 '전체 내보내기'가 실제로 전체가 된다) */
+        st.textContent = `${sh.name} 가져오는 중…`;
+        const qs = [from && `from=${from}`, to && `to=${to}`].filter(Boolean).join('&');
+        list = await api(`/api/${sh.col}${qs ? '?' + qs : ''}`);
         list.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      } else {
+        list = (sh.get() || []).slice();
       }
       const aoa = [sh.cols.map(([, label]) => label)];
       list.forEach((r) => aoa.push(sh.cols.map(([k]) => {
@@ -7443,21 +7506,53 @@ $('#btn-csv').addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
 });
 /* ===================== 필터 이벤트 ===================== */
+/* 기간을 예전으로 잡으면 그만큼만 더 읽어와 채운 뒤 다시 그린다 */
 ['f-from', 'f-to', 'f-machine', 'f-customer', 'f-search'].forEach((id) =>
-  $('#' + id).addEventListener('input', renderLogs));
+  $('#' + id).addEventListener('input', () => {
+    renderLogs();
+    if (id === 'f-from') ensureRecordsFrom($('#f-from').value, renderLogs);
+  }));
+$('#btn-load-all').addEventListener('click', async () => {
+  const btn = $('#btn-load-all');
+  btn.disabled = true; btn.textContent = '불러오는 중…';
+  try {
+    RECORDS = await api('/api/records');       // 기간 없이 = 전체
+    LOADED_FROM.records = '';
+    renderLogs();
+    alert(`실적 전체 ${fmt(RECORDS.length)}건을 불러왔습니다.`);
+  } catch (e) { alert('불러오기 실패: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '⬇ 이전 자료 모두 불러오기'; }
+});
 $('#btn-filter-reset').addEventListener('click', () => {
   ['f-from', 'f-to', 'f-search', 'f-machine', 'f-customer'].forEach((id) => ($('#' + id).value = ''));
   renderLogs();
 });
-$('#dash-month').addEventListener('input', renderDashboard);
+$('#dash-month').addEventListener('input', () => {
+  renderDashboard();
+  const m = $('#dash-month').value;
+  if (m) ensureRecordsFrom(m + '-01', renderDashboard);
+});
 ['a-from', 'a-to', 'a-machine', 'a-customer', 'a-product', 'a-metric', 'a-group', 'a-pivot-row', 'a-pivot-col']
-  .forEach((id) => $('#' + id).addEventListener('input', renderAnalysis));
+  .forEach((id) => $('#' + id).addEventListener('input', () => {
+    renderAnalysis();
+    if (id === 'a-from') ensureRecordsFrom($('#a-from').value, renderAnalysis);
+  }));
 $('#a-reset').addEventListener('click', () => {
   ['a-from', 'a-to', 'a-machine', 'a-customer', 'a-product'].forEach((id) => ($('#' + id).value = ''));
   renderAnalysis();
 });
-['p-from', 'p-to', 'p-machine', 'p-status', 'p-priority'].forEach((id) => $('#' + id).addEventListener('input', renderPlans));
-['s-month', 's-machine'].forEach((id) => $('#' + id).addEventListener('input', renderSheets));
+['p-from', 'p-to', 'p-machine', 'p-status', 'p-priority'].forEach((id) => $('#' + id).addEventListener('input', () => {
+  renderPlans();
+  if (id === 'p-from') {
+    ensureRangeForRender('plans', $('#p-from').value, () => PLANS, (v) => { PLANS = v; }, renderPlans);
+    ensureRecordsFrom($('#p-from').value, renderPlans);   // 계획 대비 실적도 같이 필요
+  }
+}));
+['s-month', 's-machine'].forEach((id) => $('#' + id).addEventListener('input', () => {
+  renderSheets();
+  const m = $('#s-month').value;
+  if (id === 's-month' && m) ensureRangeForRender('sheets', m + '-01', () => SHEETS, (v) => { SHEETS = v; }, renderSheets);
+}));
 
 /* ===================== 초기화 (Firebase 로그인 후 부팅) ===================== */
 let __booted = false;
