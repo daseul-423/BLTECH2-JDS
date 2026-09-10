@@ -10,7 +10,11 @@
 <!-- 로그인 게이트 (인증 전 전체 화면 차단) -->
 <div id="login-screen" class="login-screen">
   <form id="login-form" class="login-card">
-    <div class="login-mark">C</div>
+    <div class="login-logo">
+      <img class="logo-img" src="logo.jpg" alt="BL tech" data-alt="logo.png,logo.svg"
+           onerror="var a=(this.dataset.alt||'').split(',').filter(Boolean); if(a.length){this.dataset.alt=a.slice(1).join(','); this.src=a[0];} else {this.remove(); document.getElementById('login-logo-fallback').hidden=false;}">
+      <div class="logo-fallback" id="login-logo-fallback" hidden><b>BL</b> tech</div>
+    </div>
     <h1>생산관리 플랫폼</h1>
     <p class="muted">승인된 계정만 로그인할 수 있습니다.</p>
     <label>이메일<input type="email" name="email" required autocomplete="username"></label>
@@ -19,31 +23,40 @@
     <div id="login-error" class="login-error"></div>
   </form>
 </div>
+<button type="button" class="mobile-nav-toggle" id="mobile-nav-toggle" aria-label="메뉴 열기">☰</button>
+<div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 <aside class="sidebar">
   <div class="logo">
-    <div class="logo-mark">C</div>
-    <div>
-      <div class="logo-title">생산관리 플랫폼</div>
-      <div class="logo-sub">BL-TECH 생산1팀</div>
+    <!-- 로고 파일(logo.png)이 없으면 글자 대체 표시로 자동 전환 -->
+    <div class="logo-box">
+      <!-- 로고 파일은 logo.jpg → logo.png → logo.svg 순서로 찾고, 없으면 글자로 대체 -->
+      <img class="logo-img" src="logo.jpg" alt="BL tech" data-alt="logo.png,logo.svg"
+           onerror="var a=(this.dataset.alt||'').split(',').filter(Boolean); if(a.length){this.dataset.alt=a.slice(1).join(','); this.src=a[0];} else {this.remove(); document.getElementById('logo-fallback').hidden=false;}">
+      <div class="logo-fallback" id="logo-fallback" hidden><b>BL</b> tech</div>
     </div>
+    <div class="logo-title">생산관리 플랫폼</div>
   </div>
   <nav>
     <button class="nav-btn home-btn active" data-page="home">🏠 홈</button>
     <div class="nav-group">
       <div class="nav-group-label">작업</div>
       <button class="nav-btn" data-page="dashboard">📊 대시보드</button>
+      <button class="nav-btn" data-page="orders">📦 수주 관리</button>
       <button class="nav-btn" data-page="plans">🗓 생산계획 · 작업지시</button>
       <button class="nav-btn" data-page="sheets">📝 공정일지 작성</button>
       <button class="nav-btn" data-page="equipchecks">🛠 설비 일상점검</button>
     </div>
     <div class="nav-group" id="admin-nav" hidden>
       <div class="nav-group-label">관리자</div>
+      <div class="nav-sublabel">실적 · 분석</div>
       <button class="nav-btn" data-page="logs">📋 실적관리</button>
       <button class="nav-btn" data-page="analysis">📈 실적·불량 분석</button>
-      <button class="nav-btn" data-page="companies">🏭 업체 정보</button>
+      <div class="nav-sublabel">제품 · 설비 자료</div>
+      <button class="nav-btn" data-page="companies">🏭 업체별 사양</button>
       <button class="nav-btn" data-page="standards">📦 제품표준서</button>
+      <button class="nav-btn" data-page="productmap">🔗 품목 매핑</button>
       <button class="nav-btn" data-page="equipment">📒 설비 대장</button>
-      <button class="nav-btn" data-page="overview">📑 전체 사양 보기</button>
+      <div class="nav-sublabel">시스템 관리</div>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
       <button class="nav-btn" data-page="import">📥 엑셀 업로드</button>
       <button class="nav-btn" data-page="policies">📕 규정 · Q&amp;A 관리</button>
@@ -70,9 +83,11 @@
       </div>
       <div class="hub-group-label">관리자 <span class="muted" style="font-weight:400">🔒 PIN</span></div>
       <div class="hub-cards">
+        <div class="hub-card admin" data-goto="orders"><div class="hub-ico">📦</div><h3>수주 관리</h3><p>수주주문서 업로드·등록 → 생산계획 자동 생성.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="logs"><div class="hub-ico">📋</div><h3>실적관리</h3><p>생산실적 조회·CSV, 실적·불량 분석, 대시보드.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="companies"><div class="hub-ico">🏭</div><h3>업체 정보</h3><p>업체별 컬러·수지·토너·특이사항.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="standards"><div class="hub-ico">📦</div><h3>제품표준서</h3><p>제품별 기재·수지·촉매·코어·규격.</p><span class="hub-open">열기 →</span></div>
+        <div class="hub-card admin" data-goto="productmap"><div class="hub-ico">🔗</div><h3>품목 매핑</h3><p>고객사 외부품명/코드 ↔ 내부 품명·품번.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="equipment"><div class="hub-ico">📒</div><h3>설비 대장</h3><p>설비 목록 관리 + 점검·수리 이력.</p><span class="hub-open">열기 →</span></div>
       </div>
     </div>
@@ -116,12 +131,34 @@
           <option value="">상태 전체</option>
           <option>계획</option><option>진행</option><option>완료</option><option>보류</option>
         </select>
+        <select id="p-priority">
+          <option value="">우선순위 전체</option>
+          <option>긴급</option><option>높음</option><option>보통</option><option>낮음</option>
+        </select>
         <button class="btn primary" id="btn-new-plan">＋ 계획 등록</button>
       </div>
     </div>
     <div class="card">
       <p class="muted" style="margin-bottom:10px">실적·달성률은 같은 날짜/호기/제품의 생산실적과 자동 매칭됩니다.</p>
       <div class="table-wrap" id="plans-table"></div>
+    </div>
+  </section>
+
+  <!-- 수주 관리 -->
+  <section id="page-orders" class="page" hidden>
+    <div class="page-head">
+      <h1>수주 관리 <span class="muted" style="font-size:13px;font-weight:400">수주 등록 시 생산계획 자동 생성 · 생산 마감 = 희망출고일 − 3일</span></h1>
+      <div class="head-actions">
+        <input type="date" id="o-from"> ~ <input type="date" id="o-to">
+        <input type="text" id="o-search" placeholder="업체, 제품, 발주번호...">
+        <button class="btn" id="btn-import-orders" hidden>📥 수주주문서 업로드</button>
+        <button class="btn" id="btn-gen-plans" hidden>🗓 계획 일괄 생성</button>
+        <button class="btn primary" id="btn-new-order">＋ 수주 등록</button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:10px">수주주문서를 업로드하거나 직접 등록하면 <b>희망출고일 3일 전</b>을 생산 마감일로 하는 생산계획이 자동 생성됩니다. 세부 배정(호기 등)은 <b>생산계획표</b>에서 수정하세요.</p>
+      <div class="table-wrap" id="orders-table"></div>
     </div>
   </section>
 
@@ -158,6 +195,7 @@
       <label>검색 <input type="text" id="f-search" placeholder="제품명, Lot, 작업자..."></label>
       <button class="btn" id="btn-filter-reset">초기화</button>
       <button class="btn" id="btn-fix-machine" hidden>✏ 호기명 변경</button>
+      <button class="btn" id="btn-fix-names" hidden>🧹 제품명·업체명 정리</button>
       <button class="btn danger" id="btn-del-filtered" hidden>🗑 표시된 실적 삭제</button>
     </div>
     <div class="card">
@@ -264,6 +302,7 @@
       <div class="head-actions">
         <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
         <input type="text" id="st-search" placeholder="제품명, 제품코드, 업체 검색">
+        <button class="btn" id="btn-std-basefill" hidden>📥 기본 사양 가져오기</button>
         <button class="btn primary" id="btn-new-standard">＋ 표준서 등록</button>
       </div>
     </div>
@@ -273,52 +312,55 @@
     </div>
   </section>
 
-  <!-- 고객사별 생산사양 -->
-  <section id="page-custspecs" class="page" hidden>
+  <!-- 품목 매핑 (고객사 외부품명/코드 ↔ 내부 품명·품번, 공정 구분 없음) -->
+  <section id="page-productmap" class="page" hidden>
     <div class="page-head">
-      <h1>고객사별 생산사양</h1>
+      <h1>품목 매핑 <span class="muted" style="font-size:13px;font-weight:400">고객사 외부품명/코드 ↔ 내부 품명·품번 — 공정 구분 없이 통합 관리</span></h1>
       <div class="head-actions">
-        <div class="part-toggle"><button data-part="CAST" class="active">CAST</button><button data-part="SPLINT">SPLINT</button><button data-part="PRE-CUT">PRE-CUT</button><button data-part="HYBRID">HYBRID</button></div>
-        <input type="text" id="cs-search" placeholder="제품명, 고객사 검색">
-        <button class="btn primary" id="btn-new-custspec">＋ 사양 등록</button>
+        <input type="text" id="pm-search" placeholder="업체명, 외부코드, 내부품명 검색">
+        <button class="btn" id="btn-import-productmap">📥 엑셀 업로드</button>
+        <button class="btn primary" id="btn-new-productmap">＋ 매핑 등록</button>
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">기본 <b>NEAL 사양</b>과 <b>고객사 OEM 사양</b>으로 구분합니다. 코팅·토너·라벨·파우치·박스·설명서·동봉품·포장주의사항을 관리하며, 작업지시에서 고객사 지정(기준정보)에 따라 자동 선택됩니다.</p>
-      <div id="custspecs-list" class="standard-grid"></div>
-    </div>
-  </section>
-
-  <!-- 전체 사양 보기 -->
-  <section id="page-overview" class="page" hidden>
-    <div class="page-head">
-      <h1>전체 사양 보기</h1>
-      <div class="head-actions">
-        <input type="text" id="ov-search" placeholder="제품명 · 고객사 · 코드 검색">
-      </div>
-    </div>
-    <div class="card">
-      <h3 style="margin:0 0 10px">고객사별 생산사양 <span class="muted" style="font-size:13px;font-weight:400">OEM · NEAL 전체 · 행 클릭 시 수정</span></h3>
-      <div class="table-wrap" id="ov-custspecs"></div>
-    </div>
-    <div class="card" style="margin-top:16px">
-      <h3 style="margin:0 0 10px">제품표준서 <span class="muted" style="font-size:13px;font-weight:400">제품 자체 기준 · 행 클릭 시 수정</span></h3>
-      <div class="table-wrap" id="ov-standards"></div>
+      <p class="muted" style="margin-bottom:10px">거래처마다 부르는 제품코드/이름이 다를 때, 여기에 등록해두면 <b>수주주문서 업로드 시 내부 품명으로 자동 연동</b>됩니다. 제품표준서(자재 기준)와는 별개의 자료입니다. 외부품명/코드는 비워둔 채 우선 등록하고 나중에 채울 수 있습니다 — 행을 클릭하면 수정 모달이 열립니다.</p>
+      <p class="muted" id="pm-missing-sum" style="margin-bottom:10px"></p>
+      <div class="table-wrap" id="productmap-table"></div>
     </div>
   </section>
 
   <!-- OEM (고객사별 사양) -->
   <section id="page-companies" class="page" hidden>
     <div class="page-head">
-      <h1>업체 정보</h1>
+      <h1>업체별 사양</h1>
       <div class="head-actions">
-        <input type="text" id="co-search" placeholder="고객사 · 나라 · 컬러 · 토너 검색">
+        <input type="text" id="co-search" placeholder="업체 · 나라 · 컬러 · 토너 · 포장 검색">
         <span class="muted" id="co-count"></span>
-        <button class="btn primary" id="btn-new-company">＋ 고객사 등록</button>
+        <button class="btn" id="btn-co-split" hidden>🚚 업체 데이터 옮기기</button>
+        <button class="btn" id="btn-co-dedupe" hidden>🔗 중복 업체 합치기</button>
+        <button class="btn" id="btn-exc-clean" hidden>🧹 제품별 예외 정리</button>
+        <button class="btn primary" id="btn-new-company">＋ 업체 등록</button>
       </div>
     </div>
+    <div class="card co-legacy-warn" id="co-legacy-warn" hidden>
+      <b>⚠ 업체 정보가 아직 기준정보 문서 안에 모여 있습니다.</b>
+      <p class="muted" style="margin:6px 0 0">한 곳만 고쳐도 문서를 통째로 덮어쓰기 때문에 <b>동시에 편집하면 서로의 수정이 지워지고</b>, 누가·언제 고쳤는지도 남지 않습니다.
+        위의 <b>[🚚 업체 데이터 옮기기]</b>를 실행하면 업체마다 문서 1개로 나뉘고 수정 이력이 남습니다.
+        옮기기 전까지 업체 등록·수정은 막혀 있습니다. 실행 전 <b>기준정보 → 전체 데이터 내보내기</b>로 백업을 먼저 받아두세요. 버튼이 보이지 않으면 <b>관리자·매니저 권한</b>이 필요합니다.</p>
+    </div>
+    <div class="card filter-bar">
+      <label>포장 구분 <select id="co-f-type">
+        <option value="">전체</option><option value="OEM">OEM 포장</option><option value="NEAL">NEAL 포장</option>
+      </select></label>
+      <label>나라 <select id="co-f-country"><option value="">전체</option></select></label>
+      <label>파우치 <select id="co-f-pouch"><option value="">전체</option></select></label>
+      <label><input type="checkbox" id="co-f-nopack"> ⚠ 전용 포장 미입력만</label>
+      <label><input type="checkbox" id="co-f-exc"> 제품별 예외 있는 곳만</label>
+      <label><input type="checkbox" id="co-f-req"> 요구사항 있는 곳만</label>
+      <button class="btn" id="co-f-reset">초기화</button>
+    </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">고객사별(SIGMAX·OSSUR·크로실 등) 포장사양(인박스/아웃박스/파우치·라벨)과 특이사항(코팅·토너·컬러 등)입니다. OEM(전용 사양)을 위에 표시하며, 행을 클릭하면 수정할 수 있습니다. 제품 자체 기준은 <b>제품표준서</b>에서 관리합니다.</p>
+      <p class="muted" style="margin-bottom:10px">업체가 요구하는 <b>기본과 다른 사양</b>만 적는 곳입니다. <b>포장 구분(OEM/NEAL)</b>은 파우치·인박스·아웃박스를 전용 원부자재로 쓰는지 여부이고, 토너·코팅량·라벨이 다른 것은 <b>업체 요구사항</b>일 뿐 OEM이 아닙니다. 제품 자체의 기준(자재·코팅량·기본 포장)은 <b>제품표준서</b>에 있습니다.</p>
       <div class="table-wrap" id="companies-list"></div>
     </div>
   </section>
@@ -667,17 +709,20 @@
     <form id="plan-form">
       <div class="form-grid">
         <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
+        <label>우선순위<select name="priority"><option value="낮음">낮음</option><option value="보통" selected>보통</option><option value="높음">높음</option><option value="긴급">긴급</option></select></label>
         <label>생산일 *<input type="date" name="date" required></label>
+        <label>희망출고일<input type="date" name="dueDate"></label>
         <label>호기 *<select name="machine" required></select></label>
         <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
         <label>주문 차수<input type="number" name="orderNo"></label>
         <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
         <label>칼라<input type="text" name="color" list="dl-colors"></label>
         <label>길이(m)<input type="number" step="0.1" name="length"></label>
+        <label>포장(파우치)<input type="text" name="pouchType" list="dl-pouches" placeholder="업체가 두 종류를 쓰면 어느 것인지"></label>
         <label>계획수량 *<input type="number" name="planQty" required></label>
         <label>상태<select name="status"><option>계획</option><option>진행</option><option>완료</option><option>보류</option></select></label>
         <label class="wide">비고<input type="text" name="note"></label>
-        <label class="wide">수주별 예외사항<input type="text" name="orderException" placeholder="이 수주에만 적용되는 특이 요구(포장/사양 변경 등)"></label>
+        <label class="wide">우선순위 조건 · 특이사항<textarea name="orderException" rows="2" placeholder="예: 설비제약(2호기만 가능), 색상변경 셋업시간 필요, VIP 고객사 우선 등 — 줄바꿈으로 여러 개 입력 가능"></textarea></label>
       </div>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="plan-delete" hidden>삭제</button>
@@ -686,6 +731,94 @@
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- 수주 등록/수정 -->
+<div class="modal-back" id="order-modal" hidden>
+  <div class="modal" style="max-width:640px">
+    <div class="modal-head">
+      <h2 id="order-modal-title">수주 등록</h2>
+      <button class="btn icon" id="order-modal-close">✕</button>
+    </div>
+    <form id="order-form">
+      <div class="form-grid">
+        <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
+        <label>우선순위<select name="priority"><option value="낮음">낮음</option><option value="보통" selected>보통</option><option value="높음">높음</option><option value="긴급">긴급</option></select></label>
+        <label>수주일 *<input type="date" name="date" required></label>
+        <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
+        <label>발주번호<input type="text" name="poNo"></label>
+        <label>고객사코드(외부코드)<input type="text" name="custCode" id="order-custcode" placeholder="거래처 발주서 상의 코드"></label>
+        <label>제품명 *(내부)<input type="text" name="product" list="dl-products" required></label>
+        <label>제품코드(내부)<input type="text" name="productCode"></label>
+        <label>칼라<input type="text" name="color" list="dl-colors"></label>
+        <label>길이(m)<input type="number" step="0.1" name="length"></label>
+        <label>포장(파우치)<input type="text" name="pouchType" list="dl-pouches" placeholder="업체가 두 종류를 쓰면 어느 것인지"></label>
+        <label>수주수량 *<input type="number" name="qty" required></label>
+        <label>희망출고일 *<input type="date" name="dueDate" required></label>
+        <label class="wide">비고<input type="text" name="note"></label>
+        <label class="wide">우선순위 조건 · 특이사항<textarea name="orderException" rows="2" placeholder="예: 설비제약(2호기만 가능), 색상변경 셋업시간 필요, VIP 고객사 우선 등"></textarea></label>
+      </div>
+      <p class="muted" id="order-custcode-hint" style="margin-top:6px"></p>
+      <p class="muted" style="margin:10px 0 0">저장하면 생산계획이 자동 생성됩니다 — 생산 마감일 = 희망출고일 − 3일, 우선순위가 높을수록 같은 날짜 안에서 앞순서로 배치됩니다</p>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="order-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="order-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 품목 매핑 등록/수정 -->
+<div class="modal-back" id="productmap-modal" hidden>
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head">
+      <h2 id="productmap-modal-title">품목 매핑 등록</h2>
+      <button class="btn icon" id="productmap-modal-close">✕</button>
+    </div>
+    <form id="productmap-form">
+      <div class="form-grid">
+        <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
+        <label>고객사 외부품명/코드<input type="text" name="custCode" placeholder="거래처가 부르는 이름/코드 — 나중에 채워도 됨"></label>
+        <label>내부 품명 *<input type="text" name="product" list="dl-products" required></label>
+        <label>내부 품번<input type="text" name="productCode"></label>
+        <label class="wide">비고<input type="text" name="note"></label>
+      </div>
+      <div class="modal-foot">
+        <button type="button" class="btn danger" id="productmap-delete" hidden>삭제</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="productmap-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 수주주문서 업로드 (엑셀·PDF·사진 — 형식 자유) -->
+<div class="modal-back" id="so-upload-modal" hidden>
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-head">
+      <h2>수주주문서 업로드</h2>
+      <button class="btn icon" id="so-upload-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:10px">
+      <b>엑셀(.xlsx/.csv)</b>은 열 연결 화면으로 이동해 표 그대로 등록합니다.<br>
+      <b>PDF·사진(스캔·캡처)</b>은 AI가 문서 내용을 읽어 아래 표로 추출합니다 — <b>등록 전에 내용을 확인·수정</b>하세요.<br>
+      거래처 문서에는 보통 <b>고객사코드(외부코드)</b>만 적혀 있습니다. <b>품목 매핑</b>에 코드가 등록돼 있으면 내부 제품명이 자동으로 채워지고, 없으면 직접 입력하세요.
+    </p>
+    <input type="file" id="so-upload-file" accept=".xlsx,.xlsm,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp">
+    <div class="muted" id="so-upload-state" style="margin-top:8px"></div>
+    <div id="so-extract-wrap" hidden>
+      <div class="table-wrap so-draft" style="margin-top:12px" id="so-extract-body"></div>
+      <div class="modal-foot">
+        <button type="button" class="btn" id="so-extract-add">＋ 행 추가</button>
+        <span class="spacer"></span>
+        <span class="muted" id="so-extract-sum"></span>
+        <button type="button" class="btn primary" id="so-extract-run">등록 + 생산계획 생성</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -725,8 +858,7 @@
         <div class="form-grid">
           <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
           <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
-          <label>제품코드<input type="text" name="productCode" placeholder="예: NHC-3F-BK"></label>
-          <label>칼라<input type="text" name="color" list="dl-colors"></label>
+          <label>제품코드<input type="text" name="productCode" placeholder="예: NHC-3F"></label>
           <label>업체명<input type="text" name="customer" list="dl-customers" placeholder="비우면 공용"></label>
           <label>브랜드<input type="text" name="brand" placeholder="예: NEAL CAST PLUS"></label>
           <label class="wide">규격<input type="text" name="sizeSpec" placeholder="예: 3inch x 4.4yds (7.5cm x 4.0m)"></label>
@@ -742,7 +874,23 @@
           <label>코어 종류<input type="text" name="core" list="dl-cores"></label>
           <label class="wide">비고<input type="text" name="note"></label>
         </div>
-        <p class="muted" style="margin-top:8px">※ 코팅량·토너·라벨·파우치·박스 등은 <b>고객사별 생산사양</b>에서 관리합니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>기본 사양 <span class="auto-tag">업체 요구가 없으면 이 값으로 생산</span></legend>
+        <div class="form-grid">
+          <label>코팅량(하)<input type="number" step="0.1" name="coatingMin"></label>
+          <label>코팅량(중심)<input type="number" step="0.1" name="coatingMid"></label>
+          <label>코팅량(상)<input type="number" step="0.1" name="coatingMax"></label>
+          <label>기본 토너<input type="text" name="toner" list="dl-toners"></label>
+          <label>파우치<input type="text" name="pouchType" list="dl-pouches" placeholder="예: NEAL CAST PLUS 파우치"></label>
+          <label class="wide">라벨 표기<input type="text" name="labelSpec" placeholder="LOT·EXP·Model 표기 규칙 등"></label>
+          <label class="wide">In Box<input type="text" name="inBoxSpec" placeholder="예: NEAL CAST PLUS 내박스 — 10 ROLL"></label>
+          <label class="wide">Out Box<input type="text" name="outBoxSpec" placeholder="예: NEAL CAST 외박스 — 10ROLLS/BOX"></label>
+          <label class="wide">설명서<input type="text" name="manualSpec"></label>
+          <label class="wide">동봉품<input type="text" name="enclosures"></label>
+          <label class="wide">포장 주의사항<input type="text" name="packingNote"></label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ 업체가 요구하는 다른 값은 <b>업체별 사양</b>에 적습니다. 여기 값은 그 업체를 위한 값이 아니라 <b>이 제품의 기준</b>입니다.</p>
       </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="standard-delete" hidden>삭제</button>
@@ -754,24 +902,127 @@
   </div>
 </div>
 
+<!-- 생산계획 자동 생성 (조건 → 결과 확인 → 저장) -->
+<div class="modal-back" id="plangen-modal" hidden>
+  <div class="modal" style="max-width:1100px">
+    <div class="modal-head">
+      <h2 id="plangen-title">생산계획 자동 생성</h2>
+      <button class="btn icon" id="plangen-close">✕</button>
+    </div>
+
+    <div id="plangen-step1">
+      <p class="muted" style="margin-bottom:12px">기간과 결원을 넣으면 <b>하루 생산 가능량에 맞춰 날짜를 나누고, 호기와 인원까지 배정</b>해 드립니다. 저장 전에 결과를 먼저 보여드립니다.</p>
+      <fieldset>
+        <legend>1. 대상 · 기간</legend>
+        <div class="form-grid">
+          <label>생산 시작일<input type="date" id="pg-from"></label>
+          <label>생산 종료일<input type="date" id="pg-to"></label>
+        </div>
+        <p class="muted" style="margin-top:8px" id="pg-target"></p>
+      </fieldset>
+      <fieldset>
+        <legend>2. 결원 · 근태 <span class="auto-tag">이 사람들을 피해서 배치합니다</span></legend>
+        <div id="pg-absents"></div>
+        <button type="button" class="btn small" id="pg-absent-add">＋ 결원 추가</button>
+        <p class="muted" style="margin-top:8px;font-size:12.5px">※ <b>연차·결근</b>은 그날 배치에서 빼고, <b>오전/오후 반차</b>는 시간이 자동으로 들어갑니다. <b>조퇴·출장지원</b>은 시간을 직접 넣으세요.</p>
+      </fieldset>
+      <div class="modal-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="plangen-cancel">취소</button>
+        <button type="button" class="btn primary" id="pg-run">계획 만들기 →</button>
+      </div>
+    </div>
+
+    <div id="plangen-step2" hidden>
+      <div id="pg-result"></div>
+      <div class="modal-foot">
+        <button type="button" class="btn" id="pg-back">← 조건 고치기</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="plangen-cancel2">취소</button>
+        <button type="button" class="btn primary" id="pg-save">이대로 저장</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<!-- 작업자 배치 자격 -->
+<div class="modal-back" id="worker-modal" hidden>
+  <div class="modal" style="max-width:560px">
+    <div class="modal-head">
+      <h2 id="worker-modal-title">작업자</h2>
+      <button class="btn icon" id="worker-modal-close">✕</button>
+    </div>
+    <form id="worker-form">
+      <fieldset>
+        <legend>기본</legend>
+        <div class="form-grid">
+          <label>소속 파트<select name="part"></select></label>
+          <label>고정 담당 호기<select name="machine"></select></label>
+          <label>입사일<input type="date" name="startDate"></label>
+          <label class="wide">비고<input type="text" name="note" placeholder="예: 1호기 대체 가능 · 교육 이수 예정"></label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ <b>고정 담당 호기</b>를 정하면 그 호기 계획에 이 사람이 먼저 배치됩니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>가능한 자리</legend>
+        <div id="worker-caps"></div>
+        <div class="chk-row" style="margin-top:10px">
+          <span class="chk-title" style="width:74px">지원</span>
+          <label><input type="checkbox" name="support"> 다른 파트에도 지원 갈 수 있음</label>
+        </div>
+        <p class="muted" style="margin-top:8px">※ 역량이 늘면 여기서 체크만 추가하면 됩니다. 예전 계획은 그대로 남고, <b>다음 배치부터</b> 반영됩니다.</p>
+      </fieldset>
+      <fieldset>
+        <legend>역량 변경 이력 <span class="auto-tag">저장하면 자동 기록</span></legend>
+        <div id="worker-history"></div>
+      </fieldset>
+      <div class="modal-foot">
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="worker-cancel">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 중복 업체 합치기 -->
+<div class="modal-back" id="codedupe-modal" hidden>
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-head">
+      <h2>중복 업체 합치기</h2>
+      <button class="btn icon" id="codedupe-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px">이름이 비슷해 <b>같은 업체로 보이는 것</b>을 찾았습니다. 합칠 그룹만 체크하고, <b>대표로 쓸 이름</b>을 골라주세요. 합치면 나머지 이름으로 저장된 <b>사양 · 수주 · 계획 · 실적 · 표준서 · 품목매핑의 업체명이 대표 이름으로 바뀝니다.</b> 빈 칸인 업체 정보는 상대 값으로 채웁니다. 이미 작성된 <b>공정일지에 적힌 업체명은 기록 보존을 위해 그대로 둡니다.</b></p>
+    <div id="codedupe-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="codedupe-cancel">취소</button>
+      <button type="button" class="btn primary" id="codedupe-run">선택한 그룹 합치기</button>
+    </div>
+  </div>
+</div>
+
+
 <!-- 고객사별 생산사양 등록/수정 모달 -->
 <div class="modal-back" id="custspec-modal" hidden>
   <div class="modal" style="max-width:900px">
     <div class="modal-head">
-      <h2 id="custspec-modal-title">생산사양 등록</h2>
+      <h2 id="custspec-modal-title">제품별 예외 등록</h2>
       <button class="btn icon" id="custspec-modal-close">✕</button>
     </div>
     <form id="custspec-form">
       <fieldset>
         <legend>적용 대상</legend>
         <div class="form-grid">
-          <label>적용 대상 *<select name="specTarget"></select></label>
+          <label>업체 *<select name="specTarget" required></select></label>
           <label>공정 *<select name="part"><option>CAST</option><option>SPLINT</option><option>PRE-CUT</option><option>HYBRID</option></select></label>
           <label>제품명 *<input type="text" name="product" list="dl-products" required></label>
           <label>칼라<input type="text" name="color" list="dl-colors"></label>
           <label>변형/구분<input type="text" name="variant" placeholder="예: 백 / 전용 (같은 고객사·제품 구분)"></label>
         </div>
-        <p class="muted" style="margin-top:8px">‘기본 NEAL’은 제품 공통 사양, 그 외는 각 고객사 전용 사양입니다. 고객사는 <b>기준정보</b>에서 추가합니다.</p>
+        <p class="muted" style="margin-top:8px">이 업체의 <b>이 제품만</b> 기본과 다를 때 적습니다. <b>비워둔 칸은 제품표준서의 기본 사양</b>을 그대로 씁니다.</p>
       </fieldset>
       <fieldset>
         <legend>생산사양</legend>
@@ -785,36 +1036,7 @@
         </div>
       </fieldset>
       <fieldset>
-        <legend>포장 사양 · 사진</legend>
-        <div class="photo-grid">
-          <div class="photo-slot" data-img="pouch">
-            <div class="photo-head">라벨 · 파우치</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-          <div class="photo-slot" data-img="inBox">
-            <div class="photo-head">In Box (내박스)</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-          <div class="photo-slot" data-img="outBox">
-            <div class="photo-head">Out Box (외박스)</div>
-            <div class="photo-box"><img hidden><span class="photo-empty">사진 없음</span></div>
-            <div class="photo-btns">
-              <button type="button" class="btn small photo-pick">📷 사진 선택</button>
-              <button type="button" class="btn small danger photo-del" hidden>삭제</button>
-            </div>
-            <input type="file" accept="image/*" hidden>
-          </div>
-        </div>
+        <legend>포장 사양</legend>
         <div class="form-grid" style="margin-top:12px">
           <label class="wide">라벨 표기사항<input type="text" name="labelSpec" placeholder="LOT/EXP/Model 표기 규칙 등"></label>
           <label class="wide">In Box 기준<input type="text" name="inBoxSpec" placeholder="예: 10 ROLL, 라벨 표기사항"></label>
@@ -842,32 +1064,48 @@
       <h2 id="company-modal-title">업체 등록</h2>
       <button class="btn icon" id="company-modal-close">✕</button>
     </div>
+    <div class="co-tabs" id="co-tabs" hidden>
+      <button type="button" class="active" data-cotab="info">업체 요구사항</button>
+      <button type="button" data-cotab="spec">제품별 예외 <span id="co-spec-count" class="co-tab-cnt">0</span></button>
+    </div>
+    <div class="co-pane" id="co-pane-spec" hidden>
+      <div class="card-head-row" style="margin-bottom:10px">
+        <p class="muted" style="margin:0">이 업체의 <b>특정 제품만</b> 기본과 다를 때 그 제품을 등록합니다. 업체 전체에 해당하는 포장·토너는 [업체 요구사항] 탭에 적으세요.</p>
+        <button type="button" class="btn primary small" id="co-add-spec">＋ 제품별 예외</button>
+      </div>
+      <div id="co-spec-list"></div>
+    </div>
     <form id="company-form">
       <fieldset>
-        <legend>기본</legend>
+        <legend>업체</legend>
         <div class="form-grid">
           <label>업체명 *<input type="text" name="name" required></label>
           <label>나라<input type="text" name="country"></label>
-          <label>구분<select name="specType"><option value="NEAL">기본 NEAL</option><option value="OEM">OEM(전용)</option></select></label>
+          <label>등록일<input type="text" name="regDate" placeholder="예: 2024-01-05"></label>
+          <label class="wide">다른 표기(별칭)<input type="text" name="aliases" placeholder="실적·주문서에 다르게 적히는 이름 — 쉼표로 구분. 예: OSSUR, 오슈어"></label>
         </div>
       </fieldset>
       <fieldset>
-        <legend>생산 사양</legend>
+        <legend>포장 구분</legend>
         <div class="form-grid">
-          <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN"></label>
-          <label>수지 종류<input type="text" name="resin"></label>
-          <label>기재 / 길이<input type="text" name="baseLength" placeholder="예: 50TEX / 3.6M"></label>
-          <label class="wide">토너 종류<input type="text" name="toner"></label>
+          <label class="wide">구분 *<select name="specType">
+            <option value="NEAL">NEAL 포장 — 기본 원부자재 그대로</option>
+            <option value="OEM">OEM — 파우치·박스 등 전용 원부자재 사용</option>
+          </select></label>
+          <label class="wide">파우치<input type="text" name="packLabel" placeholder="비우면 제품표준서의 기본 파우치. 두 종류면 쉼표로: 전용(OEM) 파우치, 백색 무지 파우치"></label>
+          <label class="wide">In Box<input type="text" name="packInBox" placeholder="비우면 기본. 예: 무지박스"></label>
+          <label class="wide">Out Box<input type="text" name="packOutBox" placeholder="비우면 기본. 예: 무지박스"></label>
         </div>
+        <p class="muted" style="margin-top:8px">※ 라벨 표기 규칙은 <b>제품표준서</b>에 있습니다. 업체별로 다른 점은 [특이사항]에 적으세요.<br>※ 파우치를 <b>쉼표로 두 개 이상</b> 적으면 수주 항목에 따라 골라 쓰는 <b>선택 옵션</b>으로 봅니다. 작업지시서에 함께 표시됩니다.</p>
       </fieldset>
       <fieldset>
-        <legend>포장</legend>
+        <legend>컬러 · 토너 · 특이사항 <span class="auto-tag">기본과 다른 것만</span></legend>
         <div class="form-grid">
-          <label>인박스<input type="text" name="packInBox" placeholder="NEAL / 무지 / 전용"></label>
-          <label>아웃박스<input type="text" name="packOutBox"></label>
-          <label>파우치 / 라벨<input type="text" name="packLabel"></label>
-          <label class="wide">특이사항<input type="text" name="notes"></label>
+          <label class="wide">컬러<input type="text" name="colors" placeholder="예: WH BL GR PN — 이 업체에 납품하는 컬러"></label>
+          <label class="wide">토너<input type="text" name="toner" list="dl-toners" placeholder="예: 내수 / 오셔: HP, DB"></label>
+          <label class="wide">특이사항<input type="text" name="notes" placeholder="예: RD만 오셔토너 사용"></label>
         </div>
+        <p class="muted" style="margin-top:8px">※ 컬러와 토너는 함께 봅니다 — 어떤 컬러에 어떤 토너를 쓰는지 적으세요. 특정 제품만 코팅량 등이 다르면 위쪽 <b>제품별 예외</b>에 등록합니다.</p>
       </fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="company-delete" hidden>삭제</button>
@@ -876,6 +1114,63 @@
         <button type="submit" class="btn primary">저장</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- 예전 '고객사별 생산사양'의 기본 NEAL 값 → 제품표준서로 옮기기 (1회성) -->
+<div class="modal-back" id="basefill-modal" hidden>
+  <div class="modal" style="max-width:960px">
+    <div class="modal-head">
+      <h2>기본 사양 가져오기</h2>
+      <button class="btn icon" id="basefill-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px">예전 <b>고객사별 생산사양</b>에 업체 지정 없이 등록돼 있던 <b>기본 값</b>(코팅량·기본 포장·라벨)을 같은 제품의 <b>제품표준서</b>로 옮깁니다.
+      <b>제품표준서에 이미 값이 있는 칸은 건드리지 않습니다.</b> 옮긴(또는 이미 같은 값이라 옮길 것이 없는) 원본은 삭제해 중복을 없앱니다.</p>
+    <div id="basefill-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="basefill-cancel">취소</button>
+      <button type="button" class="btn primary" id="basefill-run">선택한 항목 옮기기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 제품별 예외 정리 (업체 사양과 겹치는 것 걸러내기) -->
+<div class="modal-back" id="excclean-modal" hidden>
+  <div class="modal" style="max-width:1000px">
+    <div class="modal-head">
+      <h2>제품별 예외 정리</h2>
+      <button class="btn icon" id="excclean-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px"><b>제품별 예외</b>는 그 업체의 <b>특정 제품 하나만</b> 기본과 다를 때 쓰는 것입니다.
+      아래는 적혀 있는 값이 <b>그 업체의 업체 요구사항 또는 제품표준서 값과 똑같아서</b> 있으나 마나인 것들입니다.
+      지워도 작업지시서 내용은 그대로이고, 오히려 나중에 업체 값을 고쳤을 때 이 예외가 옛 값을 덮어쓰는 사고를 막습니다.</p>
+    <div id="excclean-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="excclean-cancel">취소</button>
+      <button type="button" class="btn danger" id="excclean-run">선택한 예외 삭제</button>
+    </div>
+  </div>
+</div>
+
+<!-- 제품명·업체명 표기 정리 -->
+<div class="modal-back" id="namefix-modal" hidden>
+  <div class="modal" style="max-width:1040px">
+    <div class="modal-head">
+      <h2>제품명 · 업체명 표기 정리</h2>
+      <button class="btn icon" id="namefix-close">✕</button>
+    </div>
+    <p class="muted" style="margin-bottom:12px">제품명 뒤에 <b>(업체-포장)</b> 형태로 붙어 있는 표기를 떼어냅니다.
+      같은 제품인데 포장만 다른 것은 <b>제품이 다른 게 아니라 포장이 다른 것</b>이므로, 제품명은 하나로 두고
+      업체명과 <b>파우치</b> 칸으로 나눕니다. 업체명도 대표 이름으로 통일합니다.
+      <b>수량·날짜·로스 등 실적 값은 건드리지 않습니다.</b></p>
+    <div id="namefix-body"></div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button type="button" class="btn" id="namefix-cancel">취소</button>
+      <button type="button" class="btn primary" id="namefix-run">선택한 항목 정리</button>
+    </div>
   </div>
 </div>
 
@@ -1024,7 +1319,7 @@
 </div>
 
 <!-- 작업지시서 모달 -->
-<div class="modal-back" id="order-modal" hidden>
+<div class="modal-back" id="workorder-modal" hidden>
   <div class="modal" style="max-width:860px">
     <div class="modal-head no-print">
       <h2>작업지시서</h2>
@@ -1109,12 +1404,16 @@
       </svg>
       <h3>무엇을 도와드릴까요?</h3>
       <p>생산 실적·불량 분석부터 사내 규정까지 물어보세요.</p>
-      <div class="ai-chips">
-        <button type="button" class="ai-chip" data-q="이번 달 호기별 불량률 알려줘">📊 이번 달 호기별 불량률</button>
-        <button type="button" class="ai-chip" data-q="작업자별 총로스율 순위 알려줘">🏆 작업자별 로스율 순위</button>
-        <button type="button" class="ai-chip" data-q="연차 휴가 규정 알려줘">📕 연차 휴가 규정</button>
-        <button type="button" class="ai-chip" data-q="최근 설비 점검 이력 요약해줘">🛠 설비 점검 이력</button>
-      </div>
+    </div>
+  </div>
+
+  <!-- 예시 질문 팝업 — 처음엔 펼쳐져 있다가 첫 질문 후 접힘, 입력창 옆 아이콘 버튼으로 다시 열고 닫을 수 있음 -->
+  <div class="ai-quick-panel" id="ai-quick-panel">
+    <div class="ai-chips">
+      <button type="button" class="ai-chip" data-q="이번 달 호기별 불량률 알려줘">📊 이번 달 호기별 불량률</button>
+      <button type="button" class="ai-chip" data-q="작업자별 총로스율 순위 알려줘">🏆 작업자별 로스율 순위</button>
+      <button type="button" class="ai-chip" data-q="연차 휴가 규정 알려줘">📕 연차 휴가 규정</button>
+      <button type="button" class="ai-chip" data-q="최근 설비 점검 이력 요약해줘">🛠 설비 점검 이력</button>
     </div>
   </div>
 
@@ -1135,6 +1434,9 @@
   <div class="ai-attach" id="ai-attach" hidden></div>
 
   <div class="ai-input">
+    <button type="button" class="ai-tool" id="ai-quick-toggle" aria-label="예시 질문" title="예시 질문">
+      <svg viewBox="0 0 24 24" fill="none"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3.5 10.9c.4.3.7.8.7 1.3v.3h5.6v-.3c0-.5.3-1 .7-1.3A6 6 0 0012 3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
     <button type="button" class="ai-tool" id="ai-attach-btn" aria-label="이미지 첨부" title="이미지 첨부">
       <svg viewBox="0 0 24 24" fill="none"><path d="M18.5 11.5l-6.8 6.8a4.5 4.5 0 01-6.4-6.4l7.6-7.6a3 3 0 014.3 4.3l-7.6 7.6a1.5 1.5 0 01-2.2-2.2l6.8-6.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
