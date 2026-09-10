@@ -809,24 +809,6 @@ const IMPORT_DEFS = {
     ],
     calcCols: [],
   },
-  custspecs: {
-    label: '업체 제품별 예외', coll: 'custspecs', hasPart: true,
-    desc: '업체+제품당 1행 — 그 업체의 그 제품만 기본과 다를 때. 비운 칸은 제품표준서 값을 씁니다',
-    dupKey: (r) => [r.part, r.customer ?? '', r.product, r.color ?? '', r.variant ?? ''].join('|'),
-    dupLabel: '공정+업체+제품+색상+구분',
-    fields: [
-      F('customer', '업체명', ['업체명', '고객사', '거래처']),
-      F('product', '제품명', ['제품명', '품명']), F('color', '칼라', ['칼라', '색상']),
-      F('variant', '구분', ['구분']), F('coatingMin', '코팅량 하한', ['코팅량하한', '코팅하한'], 'num'),
-      F('coatingMid', '코팅량 중심', ['코팅량중심', '코팅량'], 'num'), F('coatingMax', '코팅량 상한', ['코팅량상한', '코팅상한'], 'num'),
-      F('toner', '토너', ['토너']), F('pouchType', '파우치 종류', ['파우치종류', '파우치']),
-      F('labelSpec', '라벨 표기', ['라벨표기', '라벨']), F('inBoxSpec', 'In Box 기준', ['inbox기준', 'inbox']),
-      F('outBoxSpec', 'Out Box 기준', ['outbox기준', 'outbox']), F('manualSpec', '사용설명서', ['사용설명서']),
-      F('enclosures', '동봉물', ['동봉물']), F('packingNote', '포장 비고', ['포장비고']),
-      F('note', '비고', ['비고', '특이사항']),
-    ],
-    calcCols: [],
-  },
   companies: {
     label: '업체별 사양', coll: 'companies', hasPart: false,
     desc: '업체당 1행 — 포장 구분(OEM/NEAL)과 그 업체가 요구하는 포장·토너. 제품 자체 기준은 [제품표준서]에서 올립니다',
@@ -1400,7 +1382,7 @@ function impDateRange() {
 if ($('#page-import')) {
   $('#page-import').addEventListener('click', async (e) => {
     const t = e.target.closest('[data-imptype]');
-    if (t) { IMP.key = t.dataset.imptype; IMP.headers = []; IMP.rows = []; IMP.parsed = []; IMP.wb = null; renderImport(); return; }
+    if (t) { IMP.key = IMPORT_DEFS[t.dataset.imptype] ? t.dataset.imptype : 'records'; IMP.headers = []; IMP.rows = []; IMP.parsed = []; IMP.wb = null; renderImport(); return; }
     const p = e.target.closest('[data-imppart]');
     if (p) {
       IMP.part = p.dataset.imppart;
@@ -3490,7 +3472,7 @@ function setCompanyTab(tab) {
    같은 회사가 이름만 다르게 두 번 등록된 경우(시그맥스/시그멕스, 아스터/아스터호주 등)를 찾아
    대표 이름으로 합친다. 업체명은 여러 컬렉션에 문자열로 저장돼 있으므로 참조도 같이 바꾼다. */
 const CO_REF_COLLS = [
-  { coll: 'custspecs', label: '생산사양', get: () => CUSTSPECS },
+  { coll: 'custspecs', label: '제품별 예외', get: () => CUSTSPECS },
   { coll: 'standards', label: '제품표준서', get: () => STANDARDS },
   { coll: 'productmap', label: '품목매핑', get: () => PRODUCTMAP },
   { coll: 'orders', label: '수주', get: () => ORDERS },
