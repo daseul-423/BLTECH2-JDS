@@ -891,6 +891,13 @@ function phKind(v) {
   if (/precut|프리컷|프리커트|프리캇/.test(s)) return 'PRE-CUT';
   return null;
 }
+/* PH 양식의 '구분' 열은 하이브리드 행에는 'HYBRID', 프리컷 행에는 호기('2호기', '1(3)호기')가 적힌다.
+   즉 프리컷은 호기 정보가 구분 칸에 들어 있으므로 여기서 호기로 옮겨준다. */
+function phMachine(v) {
+  const m = /(\d+)\s*(?:\([^)]*\))?\s*호기/.exec(String(v ?? ''));
+  return m ? `${m[1]}호기` : '';
+}
+
 /* 수주주문서 '공정(구분)' 열 값 → 파트 4종 (한 파일에 CAST/SPLINT/PRE-CUT/HYBRID 혼재) */
 function orderPartOf(v) {
   const s = impNorm(v);
@@ -1320,6 +1327,8 @@ function impParse() {
         : IMP.key === 'orders' ? (orderPartOf(obj.kind) || IMP.part)
         : IMP.part;
     }
+    // 프리컷은 '구분' 칸에 호기가 적혀 온다 — 호기 칸이 비어 있으면 거기서 가져온다
+    if (phMode && !obj.machine) { const mc = phMachine(obj.kind); if (mc) obj.machine = mc; }
     if (IMP.key === 'orders') obj.priority = normPriority(obj.priority);
     // 문서 전체에 해당하는 값(업체명·날짜·발주번호)은 행에 없으면 문서 정보에서 채운다
     if (IMP.key === 'orders') {
@@ -5620,6 +5629,10 @@ function renderLogs() {
     const all = $('#btn-load-all');
     if (all) all.hidden = !from;
   }
+  const phN = can('update', 'records') ? phFixPlans().length : 0;
+  const phb = $('#btn-fix-ph');
+  phb.hidden = !phN;
+  phb.textContent = `🧹 프리컷 호기 채우기 (${phN})`;
   const fix = $('#btn-fix-machine');
   if (fix) {
     const mc = $('#f-machine').value;
@@ -5766,6 +5779,34 @@ async function runNameFix() {
     alert('정리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
   } finally { btn.disabled = false; btn.textContent = '선택한 항목 정리'; }
 }
+/* 예전에 올린 프리컷 실적은 호기 칸이 비어 있다 — 구분 칸에서 뽑아 채운다 */
+function phFixPlans() {
+  return (RECORDS || []).filter((r) => {
+    if (!['PRE-CUT', 'HYBRID'].includes(r.part)) return false;
+    if (filledVal(r.machine)) return false;
+    return !!phMachine(r.kind);
+  }).map((r) => ({ rec: r, machine: phMachine(r.kind) }));
+}
+async function runPhFix() {
+  const list = phFixPlans();
+  if (!list.length) { alert('채울 호기가 없습니다.'); return; }
+  const by = {};
+  list.forEach((x) => { by[`${x.rec.kind} → ${x.machine}`] = (by[`${x.rec.kind} → ${x.machine}`] || 0) + 1; });
+  const detail = Object.entries(by).map(([k, v]) => `· ${k}  ${v}건`).join('\n');
+  if (!confirm(`프리컷·하이브리드 실적 ${list.length}건의 호기를 '구분' 칸에서 채웁니다.\n\n${detail}\n\n다른 값은 그대로입니다. 진행할까요?`)) return;
+  const btn = $('#btn-fix-ph');
+  btn.disabled = true; btn.textContent = '채우는 중…';
+  try {
+    await dataService.updateMany('records', list.map((x) => ({ ...x.rec, machine: x.machine })),
+      (d, t) => { btn.textContent = `채우는 중… ${d}/${t}`; });
+    await loadRecords();
+    refreshCurrentPage();
+    alert(`실적 ${list.length}건의 호기를 채웠습니다.`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message);
+  } finally { btn.disabled = false; }
+}
+$('#btn-fix-ph').addEventListener('click', runPhFix);
 $('#btn-fix-names').addEventListener('click', openNameFixModal);
 $('#namefix-close').addEventListener('click', () => ($('#namefix-modal').hidden = true));
 $('#namefix-cancel').addEventListener('click', () => ($('#namefix-modal').hidden = true));
@@ -5836,6 +5877,7 @@ function recordTable(recs, full = false) {
       <tr class="rec-row" data-rec-id="${r.id}">
         <td>${esc(r.date)}</td>
         <td>${kindOf(r)}</td>
+        <td>${esc(r.machine || phMachine(r.kind) || '')}</td>
         <td><b>${esc(r.productCode ?? r.product ?? '')}</b>${r.size != null ? ' ' + esc(r.size) + '\"' : ''}</td>
         <td class="num"><b>${fmt(qtyOf(r))}</b></td>
         <td class="num">${fabCell(r, r.fabricInput)}</td>
@@ -5846,13 +5888,13 @@ function recordTable(recs, full = false) {
         ${full ? `<td>${esc(r.lotNo ?? '')}</td><td>${esc(r.brand ?? '')}</td><td>${esc(r.workers ?? '')}</td><td>${esc(r.note ?? r.remarks ?? '')}</td>` : ''}
       </tr>`).join('');
     return `<table><thead><tr>
-      <th>날짜</th><th>구분</th><th>제품코드</th><th class="num">생산수량</th>
+      <th>날짜</th><th>구분</th><th>호기</th><th>제품코드</th><th class="num">생산수량</th>
       <th class="num">투입원단(kg)</th><th class="num">총페기량(kg)</th><th class="num">LOSS율</th>
       <th class="num">완제품(m)</th><th class="num">완제품(roll)</th>
       ${full ? '<th>LOT</th><th>브랜드</th><th>작업자</th><th>특이사항</th>' : ''}
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr class="prod-total">
-      <td colspan="3"><b>합계</b> <span class="muted">(LOSS율 = 총페기 ÷ 총투입)</span></td>
+      <td colspan="4"><b>합계</b> <span class="muted">(LOSS율 = 총페기 ÷ 총투입)</span></td>
       <td class="num"><b>${fmt(tQty)}</b></td>
       <td class="num"><b>${fmt(tFab, 2)}</b></td>
       <td class="num"><b>${fmt(tWaste, 2)}</b></td>
