@@ -835,6 +835,7 @@ const IMPORT_DEFS = {
     fields: [
       F('name', '업체명', ['업체명', '고객사', '회사명']),
       F('country', '나라', ['나라', '국가']),
+      F('aliases', '다른 표기(별칭)', ['별칭', '다른표기', '이명']),
       F('specType', '포장 구분', ['포장구분', '구분', 'oem유무', 'oem']),
       F('packLabel', '파우치', ['파우치', '파우치종류']),
       F('packInBox', 'In Box', ['inbox', '인박스', 'inbox기준']),
@@ -2773,15 +2774,21 @@ const isDefaultMark = (v) => DEFAULT_MARK.test(String(v ?? '').trim());
 /* 파우치를 쉼표로 여러 개 적으면 수주 항목에 따라 고르는 선택 옵션으로 본다 */
 const pouchOptionsOf = (v) => String(v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
 
+/* 업체가 실적·주문서에 다르게 적히는 이름들 (쉼표로 구분해 입력) */
+const coAliases = (co) => String((co && co.aliases) || '').split(',').map((x) => x.trim()).filter(Boolean);
+const coNames = (co) => [co && co.name, ...coAliases(co)].map((x) => String(x || '').trim().toLowerCase()).filter(Boolean);
+
 function findCompanyOf(customer) {
   const b = String(customer ?? '').trim().toLowerCase();
   if (!b) return null;
   const cos = COMPANIES;
-  const exact = cos.find((x) => String(x.name || '').trim().toLowerCase() === b);
+  // ① 이름 또는 별칭이 정확히 같은 곳
+  const exact = cos.find((x) => coNames(x).includes(b));
   if (exact) return exact;
-  /* 이름이 부분만 겹칠 때는 '한 곳만 걸릴 때'만 인정한다.
-     '내수/글로브메드'처럼 두 곳이 걸리면 사람만 판단할 수 있으므로 고르지 않는다. */
-  const loose = cos.filter((x) => { const a = String(x.name || '').trim().toLowerCase(); return !!a && (a.includes(b) || b.includes(a)); });
+  /* ② 부분만 겹칠 때는 '한 곳만 걸릴 때'만 인정한다.
+     'OSSUR'가 'SPS-OSSUR'에 걸리는 것처럼 엉뚱하게 붙을 수 있으므로,
+     그런 이름은 해당 업체의 [다른 표기(별칭)]에 등록해 두는 것이 정확하다. */
+  const loose = cos.filter((x) => coNames(x).some((a) => a.includes(b) || b.includes(a)));
   return loose.length === 1 ? loose[0] : null;
 }
 
@@ -3356,7 +3363,7 @@ function renderCompanies() {
   // 드롭다운 선택지는 실제 데이터에서 만든다 (필터를 걸어도 목록은 그대로 유지)
   fillCoFilterOptions(all);
   let items = all;
-  if (q) items = items.filter((c) => ['name', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox']
+  if (q) items = items.filter((c) => ['name', 'aliases', 'country', 'colors', 'toner', 'notes', 'packLabel', 'packInBox', 'packOutBox']
     .some((f) => String(c[f] ?? '').toLowerCase().includes(q))
     || c._exc.some((cs) => String(cs.product || '').toLowerCase().includes(q)));
   if (fType) items = items.filter((c) => (c._oem ? 'OEM' : 'NEAL') === fType);
@@ -6862,7 +6869,7 @@ function renderDataStat() {
     ['공정일지', (SHEETS || []).length + '건', ''],
   ];
   /* 실적에 적힌 업체명 중 업체별 사양에 '똑같은 이름'이 없는 것 — 사양이 엉뚱하게 붙을 수 있다 */
-  const known = new Set(COMPANIES.map((c) => String(c.name || '').trim().toLowerCase()).filter(Boolean));
+  const known = new Set(COMPANIES.flatMap(coNames));
   const unknown = new Map();
   (RECORDS || []).forEach((r) => {
     const n = String(r.customer || '').trim();
