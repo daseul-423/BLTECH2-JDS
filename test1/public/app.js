@@ -5623,14 +5623,22 @@ function openNameFixModal() {
   const groups = new Map();
   NAME_FIX.forEach((p, i) => {
     const key = p.kind + '::' + p.changes.join(' | ') + (p.warn ? ' | ⚠' : '');
-    if (!groups.has(key)) groups.set(key, { key, kind: p.kind, changes: p.changes, warn: p.warn, idx: [] });
+    if (!groups.has(key)) groups.set(key, { key, kind: p.kind, changes: p.changes, warn: p.warn,
+      from: String(p.rec.customer || ''), to: String(p.nextCustomer || ''), idx: [] });
     groups.get(key).idx.push(i);
   });
   NAME_FIX_GROUPS = [...groups.values()];
+  /* 자동 추측이 틀릴 수 있으므로(OSSUR ↔ SPS-OSSUR) 대상 업체를 직접 고르게 한다 */
+  const coPicker = (g, gi) => `<select data-namefixco="${gi}">`
+    + COMPANIES.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'ko'))
+      .map((c) => `<option value="${esc(c.name)}"${String(c.name) === g.to ? ' selected' : ''}>${esc(c.name)}</option>`).join('')
+    + '</select>';
   const rowOf = (g, gi, checked) => `<tr class="no-click">
     <td><input type="checkbox" data-namefix="${gi}"${checked && !g.warn ? ' checked' : ''}></td>
     <td class="num">${g.idx.length}건</td>
-    <td>${g.changes.map((c) => `<div>${esc(c)}</div>`).join('')}
+    <td>${g.kind === 'customer'
+      ? `업체명 <b>${esc(g.from || '(없음)')}</b> → ${coPicker(g, gi)}`
+      : g.changes.map((c) => `<div>${esc(c)}</div>`).join('')}
       ${g.warn ? `<div class="badge warn" style="margin-top:4px">${esc(g.warn)}</div>` : ''}</td>
   </tr>`;
   const section = (title, desc, kind, checked) => {
@@ -5644,7 +5652,7 @@ function openNameFixModal() {
   };
   $('#namefix-body').innerHTML = NAME_FIX.length
     ? section('제품명 표기 정리', '제품명 뒤에 붙은 (업체-포장) 표기를 떼어냅니다. 포장은 파우치 칸에 이미 들어 있어 정보가 사라지지 않습니다.', 'name', true)
-      + section('업체명 통일 — 확인 후 선택하세요', '실적에 적힌 업체명을 <b>업체별 사양에 등록된 이름</b>으로 맞춥니다. 건수가 많고 표기를 바꾸는 일이라 <b>기본으로 체크하지 않았습니다.</b> 바꿀 것만 골라주세요.', 'customer', false)
+      + section('업체명 통일 — 확인 후 선택하세요', '실적에 적힌 업체명을 <b>업체별 사양에 등록된 이름</b>으로 맞춥니다. 오른쪽 목록에서 <b>어느 업체로 보낼지 직접 고를 수 있습니다</b> (자동 추측이 틀릴 수 있습니다). 기본으로는 체크하지 않았습니다.', 'customer', false)
       + '<p class="muted" style="margin-top:10px;font-size:12.5px">⚠ 표시가 있는 묶음은 자동으로 판단할 수 없는 것입니다. 실적을 직접 열어 고쳐주세요.</p>'
     : '<div class="empty">정리할 표기가 없습니다.</div>';
   $('#namefix-run').hidden = !NAME_FIX.length;
@@ -5653,9 +5661,13 @@ function openNameFixModal() {
 let NAME_FIX_GROUPS = [];
 
 async function runNameFix() {
-  const picked = $$('#namefix-body input[data-namefix]:checked')
-    .flatMap((el) => NAME_FIX_GROUPS[Number(el.dataset.namefix)].idx)
-    .map((i) => NAME_FIX[i]);
+  const picked = $$('#namefix-body input[data-namefix]:checked').flatMap((el) => {
+    const gi = Number(el.dataset.namefix);
+    const g = NAME_FIX_GROUPS[gi];
+    const sel = $(`#namefix-body select[data-namefixco="${gi}"]`);
+    const target = sel ? sel.value : null;      // 사람이 고른 업체가 있으면 그것을 쓴다
+    return g.idx.map((i) => (target ? { ...NAME_FIX[i], nextCustomer: target } : NAME_FIX[i]));
+  });
   if (!picked.length) { alert('정리할 항목을 선택하세요.'); return; }
   if (!confirm(`실적 ${picked.length}건의 제품명·업체명 표기를 정리합니다.\n수량·날짜·로스 등 실적 값은 그대로입니다.\n\n진행할까요?`)) return;
   const btn = $('#namefix-run');
