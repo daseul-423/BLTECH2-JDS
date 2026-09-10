@@ -2777,9 +2777,12 @@ function findCompanyOf(customer) {
   const b = String(customer ?? '').trim().toLowerCase();
   if (!b) return null;
   const cos = COMPANIES;
-  return cos.find((x) => String(x.name || '').trim().toLowerCase() === b)
-    || cos.find((x) => { const a = String(x.name || '').trim().toLowerCase(); return !!a && (a.includes(b) || b.includes(a)); })
-    || null;
+  const exact = cos.find((x) => String(x.name || '').trim().toLowerCase() === b);
+  if (exact) return exact;
+  /* 이름이 부분만 겹칠 때는 '한 곳만 걸릴 때'만 인정한다.
+     '내수/글로브메드'처럼 두 곳이 걸리면 사람만 판단할 수 있으므로 고르지 않는다. */
+  const loose = cos.filter((x) => { const a = String(x.name || '').trim().toLowerCase(); return !!a && (a.includes(b) || b.includes(a)); });
+  return loose.length === 1 ? loose[0] : null;
 }
 
 /* 그 업체의 '제품별 예외' 중 이 제품에 맞는 것 */
@@ -6858,8 +6861,22 @@ function renderDataStat() {
     ['품목 매핑', (PRODUCTMAP || []).length + '건', ''],
     ['공정일지', (SHEETS || []).length + '건', ''],
   ];
+  /* 실적에 적힌 업체명 중 업체별 사양에 '똑같은 이름'이 없는 것 — 사양이 엉뚱하게 붙을 수 있다 */
+  const known = new Set(COMPANIES.map((c) => String(c.name || '').trim().toLowerCase()).filter(Boolean));
+  const unknown = new Map();
+  (RECORDS || []).forEach((r) => {
+    const n = String(r.customer || '').trim();
+    if (!n || known.has(n.toLowerCase())) return;
+    unknown.set(n, (unknown.get(n) || 0) + 1);
+  });
+  const unknownRow = unknown.size
+    ? `<tr class="no-click"><td>등록 안 된 업체명</td><td><b>${unknown.size}개</b></td>
+        <td>${[...unknown.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)
+          .map(([n, c]) => `<span class="co-req">${esc(n)} <i>${c}건</i></span>`).join('')}
+        <div class="muted" style="font-size:12px;margin-top:4px">업체별 사양에 같은 이름이 없어 사양이 엉뚱하게 붙을 수 있습니다. 업체로 등록하거나 실적의 업체명을 고쳐주세요.</div></td></tr>`
+    : '<tr class="no-click"><td>등록 안 된 업체명</td><td><b>0개</b></td><td><span class="badge ok">모두 등록됨</span></td></tr>';
   box.innerHTML = `<div class="table-wrap"><table><tbody>${rows.map(([k, v, tag]) =>
-    `<tr class="no-click"><td style="width:140px">${k}</td><td style="width:90px"><b>${v}</b></td><td>${tag}</td></tr>`).join('')}</tbody></table></div>`;
+    `<tr class="no-click"><td style="width:140px">${k}</td><td style="width:90px"><b>${v}</b></td><td>${tag}</td></tr>`).join('')}${unknownRow}</tbody></table></div>`;
 }
 
 /* ── 전체 데이터 백업 ─────────────────────────────────────────────
