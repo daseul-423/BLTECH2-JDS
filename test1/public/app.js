@@ -1159,8 +1159,11 @@ function impGuessColumn(vals) {
     else out.push(['length', 0.5]);
   }
   if (ratio(impIsCodeVal) >= 0.7) out.push(['custCode', 0.55]);
+  /* 비고는 '문장'이다. FP-NPC-2P-BL-ALHILAL 같은 코드가 길다는 이유로 비고로 들어가면 안 되므로
+     띄어쓰기나 한글이 섞인 값이 대부분일 때만 비고로 본다. */
   const avgLen = v.reduce((a, x) => a + impStr(x).length, 0) / v.length;
-  if (avgLen > 18) out.push(['note', 0.4]);
+  const proseRatio = ratio((x) => /[\s가-힣]/.test(impStr(x)));
+  if (avgLen > 18 && proseRatio >= 0.6) out.push(['note', 0.4]);
   out.sort((a, b) => b[1] - a[1]);
   return out[0] ? { key: out[0][0], score: out[0][1] } : null;
 }
@@ -2760,6 +2763,34 @@ document.addEventListener('click', (e) => {
   PM_CAT = v === '__none__' ? null : v;
   renderProductMap();
 });
+/* 비고에 품번·품명과 똑같은 값이 들어간 행 — 엑셀 열이 잘못 붙어 생긴 것이라 비워준다 */
+function pmBadNotes() {
+  return (PRODUCTMAP || []).filter((m) => {
+    const n = String(m.note || '').trim();
+    if (!n || n === PM_AUTO_NOTE) return false;
+    return n === String(m.productCode || '').trim()
+        || n === String(m.product || '').trim()
+        || n === String(m.custCode || '').trim();
+  });
+}
+async function runPmNoteClean() {
+  const list = pmBadNotes();
+  if (!list.length) { alert('정리할 비고가 없습니다.'); return; }
+  const sample = list.slice(0, 3).map((m) => `· ${m.product} — 비고 "${m.note}"`).join('\n');
+  if (!confirm(`비고에 품번·품명과 똑같은 값이 들어간 ${list.length}건의 비고를 비웁니다.\n\n${sample}${list.length > 3 ? '\n· …' : ''}\n\n품번·품명 등 다른 값은 그대로입니다. 진행할까요?`)) return;
+  const btn = $('#btn-pm-note');
+  btn.disabled = true; btn.textContent = '정리 중…';
+  try {
+    await dataService.updateMany('productmap', list.map((m) => ({ ...m, note: '' })),
+      (d, t) => { btn.textContent = `정리 중… ${d}/${t}`; });
+    await loadProductMap();
+    refreshCurrentPage();
+    alert(`비고 ${list.length}건을 비웠습니다.`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message);
+  } finally { btn.disabled = false; }
+}
+$('#btn-pm-note').addEventListener('click', runPmNoteClean);
 $('#btn-pm-part').addEventListener('click', openPmPartModal);
 $('#pmpart-close').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
 $('#pmpart-cancel').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
@@ -2780,6 +2811,12 @@ function renderProductMap() {
   if (dl2) {
     const cats = [...new Set([...PARTS, ...Object.values(PM_CAT_HINT), ...PRODUCTMAP.map((m) => m.part).filter(Boolean)])];
     dl2.innerHTML = cats.map((v) => `<option value="${esc(v)}">`).join('');
+  }
+  const badNote = can('update', 'productmap') ? pmBadNotes().length : 0;
+  const nbBtn = $('#btn-pm-note');
+  if (nbBtn) {
+    nbBtn.hidden = !badNote;
+    nbBtn.textContent = `🧹 비고 정리 (${badNote})`;
   }
   const noPart = PRODUCTMAP.filter((m) => !m.part).length;
   const ppBtn = $('#btn-pm-part');
