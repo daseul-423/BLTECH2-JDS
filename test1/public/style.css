@@ -1034,3 +1034,17 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .imp-codes-grid input { flex: 1; min-width: 0; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 
 .co-legacy-warn { border-color: #E0B23C; background: #FFFCF4; color: var(--warnink, #8F5E06); }
+
+/* 제품표준서 — 기재 종류별 묶음 */
+.std-group { margin-bottom: 22px; }
+.std-group-head {
+  margin: 0 0 10px; font-size: 14px; font-weight: 700; color: var(--brand-deep);
+  padding-bottom: 6px; border-bottom: 2px solid var(--brand-soft);
+}
+.std-group-head span { font-weight: 400; font-size: 12.5px; margin-left: 6px; }
+/* 업체별 사양 — 내수/해외 구역 머리줄 */
+.co-zone td {
+  background: var(--brand-soft); color: var(--brand-deep); font-weight: 700; font-size: 13px;
+  padding: 7px 10px; border-bottom: 1px solid var(--brand);
+}
+.co-zone td span { font-weight: 400; margin-left: 6px; }

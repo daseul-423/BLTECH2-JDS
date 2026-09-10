@@ -3000,7 +3000,7 @@ function renderStandards() {
   const bfBtn = $('#btn-std-basefill');
   if (bfBtn) { bfBtn.hidden = !legacyBase; bfBtn.textContent = `📥 기본 사양 가져오기 (${legacyBase})`; }
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
-  $('#standards-list').innerHTML = items.map((s) => {
+  const stdCard = (s) => {
     // 자재 기준만 보여준다. 코팅량·포장·색상은 생산사양 소관이라 여기 싣지 않는다.
     const mat = (label, v) => v ? `<span><i>${label}</i> ${esc(v)}</span>` : '';
     const coat = coatingSpec(s);
@@ -3018,7 +3018,23 @@ function renderStandards() {
         </div>
       </div>
     </div>`;
-  }).join('');
+  };
+  /* 기재 종류로 묶어서 보여준다 — 한 줄로 쭉 나열하면 30건만 되어도 찾기 어렵다 */
+  const groups = new Map();
+  items.forEach((s) => {
+    const k = String(s.baseType || '').trim() || '(기재 미입력)';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  });
+  const ordered = [...groups.entries()].sort((a, b) =>
+    (a[0] === '(기재 미입력)' ? 1 : b[0] === '(기재 미입력)' ? -1 : 0)
+    || b[1].length - a[1].length || a[0].localeCompare(b[0], 'ko'));
+  $('#standards-list').innerHTML = ordered.map(([k, list]) => `<section class="std-group">
+    <h3 class="std-group-head">${esc(k)} <span class="muted">${list.length}건</span></h3>
+    <div class="standard-grid">${list
+      .sort((a, b) => String(a.product || '').localeCompare(String(b.product || ''), 'ko'))
+      .map(stdCard).join('')}</div>
+  </section>`).join('');
 }
 $('#st-search').addEventListener('input', renderStandards);
 document.addEventListener('click', (e) => {
@@ -3354,7 +3370,8 @@ function renderCompanies() {
   if (fNoPack) items = items.filter((c) => c._oem && c._noPack);
   if (fExc) items = items.filter((c) => c._exc.length);
   if (fReq) items = items.filter((c) => hasReq(c) || c._exc.length);
-  items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
+  items.sort((a, b) => String(a.country || '').localeCompare(String(b.country || ''), 'ko')
+    || String(a.name || '').localeCompare(String(b.name || ''), 'ko'));
   const noPack = all.filter((c) => c._oem && c._noPack).length;   // 전체 기준 (필터와 무관한 할 일 수)
   const filtered = items.length !== all.length;
   $('#co-count').textContent = `${filtered ? `${items.length} / ` : '총 '}${all.length}개 · OEM ${items.filter((c) => c._oem).length}`
@@ -3406,14 +3423,28 @@ function renderCompanies() {
     const t = [...c._exc.map((x) => x.product), c.notes].filter(Boolean).join(' · ');
     return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join(' ')}</div>` : '';
   };
-  const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
+  /* 내수 / 해외로 묶어서 보여준다 */
+  const zoneOf = (c) => {
+    const n = String(c.country || '').trim();
+    if (!n) return '미지정';
+    return /^(내수|한국|국내)$/.test(n) ? '내수' : '해외';
+  };
+  const ZONES = ['내수', '해외', '미지정'];
+  const rowOf = (c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b></td>
     <td>${esc(c.country || '')}</td>
     <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}${c._oem && c._noPack ? ' <span class="badge bad" title="OEM인데 전용 파우치·박스가 비어 있습니다. 이대로면 작업지시서에 기본 포장이 나갑니다">전용 포장 미입력</span>' : ''}</td>
     <td>${cell(c.packLabel)}</td><td>${cell(c.packInBox)}</td><td>${cell(c.packOutBox)}</td>
     <td>${colorTonerCell(c)}</td>
     <td>${noteCell(c)}</td>
-  </tr>`).join('');
+  </tr>`;
+  const rows = ZONES.map((z) => {
+    const list = items.filter((c) => zoneOf(c) === z);
+    if (!list.length) return '';
+    const oemN = list.filter((c) => c._oem).length;
+    return `<tr class="co-zone"><td colspan="8">${z === '내수' ? '🇰🇷' : z === '해외' ? '🌐' : '❓'} ${z}
+      <span class="muted">${list.length}곳 · OEM ${oemN}</span></td></tr>` + list.map(rowOf).join('');
+  }).join('');
   $('#companies-list').innerHTML = items.length
     ? `<table class="co-table"><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>컬러 · 토너</th><th>제품별 예외</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 업체가 없습니다.</div>';
@@ -6880,6 +6911,94 @@ function renderDataStat() {
     `<tr class="no-click"><td style="width:140px">${k}</td><td style="width:90px"><b>${v}</b></td><td>${tag}</td></tr>`).join('')}${unknownRow}</tbody></table></div>`;
 }
 
+/* ── 엑셀로 내보내기 ──────────────────────────────────────────────
+   Firestore는 업무 중에 바로 열어보기 어렵다. 실적·계획·수주 같은 업무 데이터를
+   시트별로 나눈 엑셀 한 파일로 뽑아 두면 언제든 열어 보고 정렬·필터할 수 있다.
+   백업 겸 업무용 사본이며, 이 파일을 고쳐도 시스템 데이터는 바뀌지 않는다. */
+const XL_SHEETS = [
+  { name: '생산실적', get: () => RECORDS, dated: true, cols: [
+    ['date', '생산일'], ['part', '공정'], ['machine', '호기'], ['orderNo', '차수'],
+    ['customer', '업체명'], ['product', '제품명'], ['color', '칼라'], ['size', '인치'], ['length', '길이(m)'],
+    ['planQty', '계획수량'], ['prodQty', '생산수량'], ['totalProd', '총생산'], ['totalRoll', '총수량(roll)'],
+    ['processDefect', '공정불량'], ['totalLoss', '총로스'], ['totalLossRate', '총로스율(%)'],
+    ['pouchType', '파우치'], ['inBox', '인박스'], ['outBox', '아웃박스'],
+    ['baseType', '기재'], ['baseLength', '투입원단'], ['weight', '중량'], ['workers', '작업자'], ['remarks', '비고'],
+    ['createdByEmail', '작성자'], ['updatedAt', '수정일시'],
+  ] },
+  { name: '생산계획', get: () => PLANS, dated: true, cols: [
+    ['date', '생산일'], ['part', '공정'], ['machine', '호기'], ['seq', '순서'], ['priority', '우선순위'],
+    ['customer', '업체명'], ['orderNo', '차수'], ['product', '제품명'], ['color', '칼라'],
+    ['pouchType', '포장'], ['length', '길이(m)'], ['planQty', '계획수량'],
+    ['status', '상태'], ['dueDate', '희망출고일'], ['orderException', '조건·특이사항'], ['note', '비고'],
+  ] },
+  { name: '수주', get: () => ORDERS, dated: true, cols: [
+    ['date', '수주일'], ['part', '공정'], ['priority', '우선순위'], ['customer', '업체명'], ['poNo', '발주번호'],
+    ['custCode', '고객사코드'], ['product', '제품명'], ['productCode', '제품코드'], ['color', '칼라'],
+    ['pouchType', '포장'], ['length', '길이(m)'], ['qty', '수주수량'], ['dueDate', '희망출고일'], ['note', '비고'],
+  ] },
+  { name: '업체별 사양', get: () => COMPANIES, cols: [
+    ['name', '업체명'], ['aliases', '다른 표기'], ['country', '나라'], ['specType', '포장 구분'],
+    ['packLabel', '파우치'], ['packInBox', 'In Box'], ['packOutBox', 'Out Box'],
+    ['colors', '컬러'], ['toner', '토너'], ['notes', '특이사항'], ['updatedByEmail', '수정자'], ['updatedAt', '수정일시'],
+  ] },
+  { name: '제품표준서', get: () => STANDARDS, cols: [
+    ['part', '공정'], ['product', '제품명'], ['productCode', '제품코드'], ['category', '품목'],
+    ['baseType', '기재'], ['resinType', '수지'], ['catalyst', '촉매'], ['core', '코어'], ['sizeSpec', '규격'],
+    ['coatingMin', '코팅 하한'], ['coatingMid', '코팅 중심'], ['coatingMax', '코팅 상한'],
+    ['toner', '기본 토너'], ['pouchType', '파우치'], ['inBoxSpec', 'In Box'], ['outBoxSpec', 'Out Box'],
+    ['labelSpec', '라벨'], ['note', '비고'],
+  ] },
+  { name: '제품별 예외', get: () => CUSTSPECS, cols: [
+    ['customer', '업체명'], ['part', '공정'], ['product', '제품명'], ['color', '칼라'],
+    ['coatingMin', '코팅 하한'], ['coatingMid', '코팅 중심'], ['coatingMax', '코팅 상한'],
+    ['toner', '토너'], ['pouchType', '파우치'], ['inBoxSpec', 'In Box'], ['outBoxSpec', 'Out Box'], ['note', '비고'],
+  ] },
+  { name: '품목 매핑', get: () => PRODUCTMAP, cols: [
+    ['customer', '업체명'], ['custCode', '고객사 외부품명/코드'], ['product', '내부 품명'], ['productCode', '내부 품번'], ['note', '비고'],
+  ] },
+  { name: '설비 일상점검', get: () => EQUIPCHECKS, dated: true, cols: [
+    ['date', '점검일'], ['part', '공정'], ['machine', '호기'], ['checker', '점검자'],
+    ['temp', '온도'], ['humid', '습도'], ['note', '비고'], ['createdByEmail', '작성자'],
+  ] },
+];
+
+async function exportExcel() {
+  const btn = $('#btn-xlsx'), st = $('#xlsx-state');
+  const from = ($('#xlsx-from') || {}).value || '';
+  const to = ($('#xlsx-to') || {}).value || '';
+  btn.disabled = true; st.textContent = '엑셀 만드는 중…';
+  try {
+    await loadXLSX();
+    const wb = XLSX.utils.book_new();
+    const made = [];
+    for (const sh of XL_SHEETS) {
+      let list = (sh.get() || []).slice();
+      if (sh.dated) {
+        if (from) list = list.filter((r) => String(r.date || '') >= from);
+        if (to) list = list.filter((r) => String(r.date || '') <= to);
+        list.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      }
+      const aoa = [sh.cols.map(([, label]) => label)];
+      list.forEach((r) => aoa.push(sh.cols.map(([k]) => {
+        const v = r[k];
+        return (v == null || typeof v === 'object') ? '' : v;
+      })));
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = sh.cols.map(([, label]) => ({ wch: Math.max(10, Math.min(28, label.length * 2 + 4)) }));
+      XLSX.utils.book_append_sheet(wb, ws, sh.name);
+      made.push(sh.name + ' ' + list.length);
+    }
+    const period = (from || to) ? '_' + (from || '처음') + '~' + (to || '끝') : '';
+    XLSX.writeFile(wb, 'BL-TECH_데이터_' + todayStr() + period + '.xlsx');
+    st.textContent = '완료 ✓';
+    alert('엑셀 파일을 내려받았습니다.\n\n' + made.join(' · ')
+      + '\n\n시트별로 나뉘어 있고 첫 줄이 제목입니다.\n이 파일을 고쳐도 시스템 데이터는 바뀌지 않습니다.');
+  } catch (err) {
+    st.textContent = '';
+    alert('엑셀 내보내기 실패: ' + err.message);
+  } finally { btn.disabled = false; }
+}
+
 /* ── 전체 데이터 백업 ─────────────────────────────────────────────
    구조 변경·일괄 정리 전에 눌러두는 안전장치. 모든 컬렉션 + 기준정보를 JSON 한 파일로.
    사진(base64)은 용량이 커서 기본은 빼고, 필요하면 체크해서 포함한다. */
@@ -6976,6 +7095,12 @@ function renderMasters() {
     + '<h3 style="margin:26px 0 6px">데이터 상태</h3>'
     + '<p class="muted" style="margin-bottom:10px">지금 저장돼 있는 건수입니다. 정리 도구가 안 보일 때 여기서 대상이 몇 건인지 확인하세요.</p>'
     + '<div id="datastat-box"></div>'
+    + '<h3 style="margin:26px 0 6px">엑셀로 내보내기</h3>'
+    + '<p class="muted" style="margin-bottom:10px">실적·계획·수주 등을 <b>시트별로 나눈 엑셀 한 파일</b>로 받습니다. 업무 중 바로 열어 보고 정렬·필터할 수 있고, 사본 보관용으로도 쓰입니다. 이 파일을 고쳐도 시스템 데이터는 바뀌지 않습니다.</p>'
+    + '<div class="imp-range" style="margin-bottom:10px"><span class="ai-gen-label" style="width:auto">기간</span>'
+    + '<input type="date" id="xlsx-from"> ~ <input type="date" id="xlsx-to">'
+    + '<span class="muted">비우면 전체 — 실적·계획·수주·점검에만 적용됩니다</span></div>'
+    + '<div style="display:flex;gap:10px;align-items:center"><button class="btn primary" id="btn-xlsx">⬇ 엑셀로 내보내기</button><span class="muted" id="xlsx-state"></span></div>'
     + (ME && ME.role === 'admin' ? '<h3 style="margin:26px 0 6px">데이터 백업</h3>'
       + '<p class="muted" style="margin-bottom:10px">모든 데이터를 <b>JSON 한 파일</b>로 내려받습니다. 구조를 바꾸거나 일괄 정리를 실행하기 <b>전에 한 번 눌러두면</b> 되돌릴 수 있습니다. 파일은 이 PC에만 저장되며 서버로 가지 않습니다.</p>'
       + '<div class="chk-row" style="margin-bottom:10px"><label><input type="checkbox" id="bk-photos"> 사진(설비 점검 기록)도 포함 — 파일이 커집니다</label></div>'
@@ -6983,6 +7108,8 @@ function renderMasters() {
   renderWorkerTable();
   renderCapacityBox();
   renderDataStat();
+  const xlBtn = $('#btn-xlsx');
+  if (xlBtn) xlBtn.addEventListener('click', exportExcel);
   const bkBtn = $('#btn-backup');
   if (bkBtn) bkBtn.addEventListener('click', exportAllData);
   $('#btn-save-masters').addEventListener('click', async () => {
