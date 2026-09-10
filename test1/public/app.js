@@ -6808,6 +6808,33 @@ const MASTER_LABELS = {
   productCodes: '제품코드', baseTypes: '기재 타입', resins: '수지 종류',
   pouches: '파우치 종류', workers: '작업자', qcItems: '자체품질체크 품목', toners: '토너 종류', cores: '코어 종류', lossTypes: 'SPLINT 로스 항목',
 };
+/* 데이터 상태 — 어떤 것이 몇 건인지 한눈에 (정리 도구가 안 보일 때 원인 확인용) */
+function renderDataStat() {
+  const box = $('#datastat-box');
+  if (!box) return;
+  const excAll = (CUSTSPECS || []).length;
+  const excDead = excAll ? excCleanPlans().filter((x) => !x.adds.length).length : 0;
+  const nameN = (RECORDS || []).length ? nameFixPlans().length : 0;
+  const legacyCo = (MASTERS.companies || []).length;
+  const rows = [
+    ['업체별 사양', COMPANIES.length + '곳', CO_LEGACY
+      ? `<span class="badge warn">아직 기준정보 문서 안 — 옮기기 필요</span>`
+      : `<span class="badge ok">별도 컬렉션</span>${legacyCo ? ` <span class="badge warn">기준정보에 옛 목록 ${legacyCo}곳 남음</span>` : ''}`],
+    ['제품표준서', (STANDARDS || []).length + '건', ''],
+    ['제품별 예외', excAll + '건', excAll
+      ? (excDead ? `<span class="badge warn">지워도 되는 것 ${excDead}건</span>` : '<span class="badge ok">정리됨</span>')
+      : '<span class="badge ok">없음 — 정리 완료</span>'],
+    ['생산실적', (RECORDS || []).length + '건', nameN
+      ? `<span class="badge warn">제품명·업체명 정리 대상 ${nameN}건</span>` : '<span class="badge ok">표기 정상</span>'],
+    ['수주', (ORDERS || []).length + '건', ''],
+    ['생산계획', (PLANS || []).length + '건', ''],
+    ['품목 매핑', (PRODUCTMAP || []).length + '건', ''],
+    ['공정일지', (SHEETS || []).length + '건', ''],
+  ];
+  box.innerHTML = `<div class="table-wrap"><table><tbody>${rows.map(([k, v, tag]) =>
+    `<tr class="no-click"><td style="width:140px">${k}</td><td style="width:90px"><b>${v}</b></td><td>${tag}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
 /* ── 전체 데이터 백업 ─────────────────────────────────────────────
    구조 변경·일괄 정리 전에 눌러두는 안전장치. 모든 컬렉션 + 기준정보를 JSON 한 파일로.
    사진(base64)은 용량이 커서 기본은 빼고, 필요하면 체크해서 포함한다. */
@@ -6901,12 +6928,16 @@ function renderMasters() {
     + '<h3 style="margin:26px 0 6px">하루 생산 가능량</h3>'
     + '<p class="muted" style="margin-bottom:10px">계획을 하루치씩 나눠 짤 때 쓰는 기준량입니다. <b>호기 1대가 하루에 만드는 양</b>이며, 그 날 그 호기에 섞이는 제품에 따라 아래 규칙만큼 줄여서 계산합니다.</p>'
     + '<div id="capacity-box"></div>'
+    + '<h3 style="margin:26px 0 6px">데이터 상태</h3>'
+    + '<p class="muted" style="margin-bottom:10px">지금 저장돼 있는 건수입니다. 정리 도구가 안 보일 때 여기서 대상이 몇 건인지 확인하세요.</p>'
+    + '<div id="datastat-box"></div>'
     + (ME && ME.role === 'admin' ? '<h3 style="margin:26px 0 6px">데이터 백업</h3>'
       + '<p class="muted" style="margin-bottom:10px">모든 데이터를 <b>JSON 한 파일</b>로 내려받습니다. 구조를 바꾸거나 일괄 정리를 실행하기 <b>전에 한 번 눌러두면</b> 되돌릴 수 있습니다. 파일은 이 PC에만 저장되며 서버로 가지 않습니다.</p>'
       + '<div class="chk-row" style="margin-bottom:10px"><label><input type="checkbox" id="bk-photos"> 사진(설비 점검 기록)도 포함 — 파일이 커집니다</label></div>'
       + '<div style="display:flex;gap:10px;align-items:center"><button class="btn primary" id="btn-backup">⬇ 전체 데이터 내보내기</button><span class="muted" id="bk-state"></span></div>' : '');
   renderWorkerTable();
   renderCapacityBox();
+  renderDataStat();
   const bkBtn = $('#btn-backup');
   if (bkBtn) bkBtn.addEventListener('click', exportAllData);
   $('#btn-save-masters').addEventListener('click', async () => {
