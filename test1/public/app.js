@@ -2665,6 +2665,13 @@ function pmFamily(product) {
   return m2 ? m2[1].toUpperCase() : '(기타)';
 }
 
+/* 제품군 → 분류 기본 제안. 공정 4종에 안 담기는 제품군이 있어(배관·닐커버·언더패드·하이드로겔)
+   분류는 고정 선택지가 아니라 직접 적는 값으로 둔다. 아래는 알려진 것만 미리 채워준다. */
+const PM_CAT_HINT = {
+  PXRT: '배관', PXRH: '배관',
+  NCB: '닐커버', NUP: '언더패드', HYDROGEL: '하이드로겔',
+  '프리컷': 'PRE-CUT', '스마일프리컷': 'PRE-CUT',
+};
 let PM_FAMS = [];
 function openPmPartModal() {
   const map = new Map();
@@ -2675,33 +2682,37 @@ function openPmPartModal() {
     map.get(f).parts.add(m.part || '');
   });
   PM_FAMS = [...map.values()].sort((a, b) => b.items.length - a.items.length || a.fam.localeCompare(b.fam, 'ko'));
-  const opts = (cur) => '<option value="">— 미지정 —</option>'
-    + PARTS.map((p) => `<option value="${p}"${p === cur ? ' selected' : ''}>${p}</option>`).join('');
+  // 이미 쓰인 분류 + 공정 4종 + 알려진 제안을 추천 목록으로
+  const known = [...new Set([...PARTS, ...Object.values(PM_CAT_HINT),
+    ...(PRODUCTMAP || []).map((m) => m.part).filter(Boolean)])];
   const rows = PM_FAMS.map((g, i) => {
     const cur = g.parts.size === 1 ? [...g.parts][0] : '';
+    const suggest = cur || PM_CAT_HINT[g.fam] || '';
     const sample = g.items.slice(0, 3).map((m) => m.product).join(', ');
     return `<tr class="no-click">
       <td><b>${esc(g.fam)}</b></td>
       <td class="num">${g.items.length}건</td>
       <td class="muted" style="font-size:12.5px">${esc(sample)}${g.items.length > 3 ? ' …' : ''}</td>
-      <td><select data-pmfam="${i}">${opts(cur)}</select></td>
+      <td><input type="text" data-pmfam="${i}" list="dl-pmcat" value="${esc(suggest)}" placeholder="예: 배관 / 닐커버" style="width:100%"></td>
     </tr>`;
   }).join('');
-  $('#pmpart-body').innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>제품군</th><th class="num">건수</th><th>내부 품명 예시</th><th style="width:150px">공정</th></tr></thead>
+  const dl = `<datalist id="dl-pmcat">${known.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`;
+  $('#pmpart-body').innerHTML = dl + `<div class="table-wrap"><table>
+    <thead><tr><th>제품군</th><th class="num">건수</th><th>내부 품명 예시</th><th style="width:170px">분류</th></tr></thead>
     <tbody>${rows}</tbody></table></div>
-    <p class="muted" style="margin-top:10px;font-size:12.5px">제품군마다 공정을 한 번만 고르면 그 제품군의 매핑 전체에 적용됩니다. 비워두면 그대로 둡니다.</p>`;
+    <p class="muted" style="margin-top:10px;font-size:12.5px">제품군마다 분류를 한 번만 적으면 그 제품군의 매핑 전체에 적용됩니다. 비워두면 그대로 둡니다.
+    공정(CAST·SPLINT·PRE-CUT·HYBRID)이든 제품 종류(배관·닐커버·언더패드·하이드로겔)든 <b>부르시는 이름 그대로</b> 적으면 됩니다.</p>`;
   $('#pmpart-modal').hidden = false;
 }
 
 async function runPmPart() {
-  const picks = $$('#pmpart-body select[data-pmfam]')
-    .map((el) => ({ g: PM_FAMS[Number(el.dataset.pmfam)], part: el.value }))
+  const picks = $$('#pmpart-body input[data-pmfam]')
+    .map((el) => ({ g: PM_FAMS[Number(el.dataset.pmfam)], part: el.value.trim() }))
     .filter((x) => x.g && x.part);
   const changed = [];
   picks.forEach(({ g, part }) => g.items.forEach((m) => { if ((m.part || '') !== part) changed.push({ ...m, part }); }));
-  if (!changed.length) { alert('바뀌는 항목이 없습니다. 공정을 골라주세요.'); return; }
-  if (!confirm(`품목 매핑 ${changed.length}건에 공정을 지정합니다.\n\n다른 값은 그대로입니다. 진행할까요?`)) return;
+  if (!changed.length) { alert('바뀌는 항목이 없습니다. 분류를 적어주세요.'); return; }
+  if (!confirm(`품목 매핑 ${changed.length}건에 분류를 지정합니다.\n\n다른 값은 그대로입니다. 진행할까요?`)) return;
   const btn = $('#pmpart-run');
   btn.disabled = true; btn.textContent = '적용 중…';
   try {
@@ -2709,10 +2720,10 @@ async function runPmPart() {
     await loadProductMap();
     $('#pmpart-modal').hidden = true;
     refreshCurrentPage();
-    alert(`품목 매핑 ${changed.length}건에 공정을 지정했습니다.`);
+    alert(`품목 매핑 ${changed.length}건에 분류를 지정했습니다.`);
   } catch (err) {
     alert('처리 중 오류: ' + err.message);
-  } finally { btn.disabled = false; btn.textContent = '공정 지정'; }
+  } finally { btn.disabled = false; btn.textContent = '분류 지정'; }
 }
 $('#btn-pm-part').addEventListener('click', openPmPartModal);
 $('#pmpart-close').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
@@ -2729,11 +2740,16 @@ function renderProductMap() {
 
   const impBtn = $('#btn-import-productmap');
   if (impBtn) impBtn.hidden = !canAccessPage('import');
+  const dl2 = $('#dl-pmcat2');
+  if (dl2) {
+    const cats = [...new Set([...PARTS, ...Object.values(PM_CAT_HINT), ...PRODUCTMAP.map((m) => m.part).filter(Boolean)])];
+    dl2.innerHTML = cats.map((v) => `<option value="${esc(v)}">`).join('');
+  }
   const noPart = PRODUCTMAP.filter((m) => !m.part).length;
   const ppBtn = $('#btn-pm-part');
   if (ppBtn) {
     ppBtn.hidden = !can('update', 'productmap');
-    ppBtn.textContent = noPart ? `🏭 공정 지정 (미지정 ${noPart})` : '🏭 공정 지정';
+    ppBtn.textContent = noPart ? `📦 분류 지정 (미지정 ${noPart})` : '📦 분류 지정';
   }
   const missingN = PRODUCTMAP.filter((m) => !m.custCode).length;
   const autoN = PRODUCTMAP.filter((m) => m.note === PM_AUTO_NOTE).length;
@@ -2755,13 +2771,18 @@ function renderProductMap() {
     <td>${m.note === PM_AUTO_NOTE ? '<span class="badge plain" title="수주주문서 등록 시 자동으로 생성됨">🤖 자동</span>' : esc(m.note ?? '')}</td>
   </tr>`;
   /* 공정으로 묶어 보여준다. 공정이 아직 안 정해진 것은 맨 아래로 모아 눈에 띄게 한다. */
-  const zones = [...PARTS, ''];
+  // 실제로 쓰인 분류를 건수 많은 순으로 (미지정은 맨 아래)
+  const zones = [...new Set(list.map((m) => m.part || ''))]
+    .filter(Boolean)
+    .sort((a, b) => list.filter((m) => m.part === b).length - list.filter((m) => m.part === a).length
+      || a.localeCompare(b, 'ko'));
+  zones.push('');
   const body = zones.map((z) => {
     const sub = list.filter((m) => (m.part || '') === z);
     if (!sub.length) return '';
     const label = z || '공정 미지정';
     const fams = [...new Set(sub.map((m) => pmFamily(m.product)))].slice(0, 8).join(' · ');
-    return `<tr class="co-zone"><td colspan="6">${z ? '🏭 ' + esc(z) : '❓ 공정 미지정'}
+    return `<tr class="co-zone"><td colspan="6">${z ? '📦 ' + esc(z) : '❓ 분류 미지정'}
       <span class="muted">${sub.length}건${fams ? ' · ' + esc(fams) : ''}</span></td></tr>`
       + sub.map(rowOf).join('');
   }).join('');
