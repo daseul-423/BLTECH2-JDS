@@ -3364,7 +3364,7 @@ function renderCompanies() {
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
   // 아직 기준정보 안에 들어 있으면 옮기기 버튼을 띄운다 (그 전까지 수정은 막힌다)
   const splitBtn = $('#btn-co-split');
-  splitBtn.hidden = !(CO_LEGACY && ME && ME.role === 'admin');
+  splitBtn.hidden = !(CO_LEGACY && can('create', 'companies'));
   splitBtn.textContent = `🚚 업체 데이터 옮기기 (${all.length})`;
   const warn = $('#co-legacy-warn');
   if (warn) warn.hidden = !CO_LEGACY;
