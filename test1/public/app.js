@@ -761,6 +761,7 @@ const IMPORT_DEFS = {
       F('productCode', '제품코드', ['제품코드']),
       F('color', '칼라', ['칼라', '색상']),
       F('length', '길이', ['길이'], 'num'),
+      F('pouchType', '포장(파우치)', ['파우치', '포장', '포장구분']),
       F('qty', '수주수량', ['수주수량', '주문수량', '발주수량', '수량'], 'num'),
       F('dueDate', '희망출고일', ['희망출고일', '출고희망일', '출고예정일', '출고일', '납기일', '납기'], 'date'),
       F('orderException', '우선순위 조건·특이사항', ['우선순위조건', '조건', '특이사항', '고려사항']),
@@ -1983,6 +1984,7 @@ function renderPlans() {
       <td>${priorityBadge(p.priority, canDrag ? p.id : null)}</td>
       <td>${esc(p.date)}</td><td>${esc(p.dueDate ?? '-')}</td><td>${esc(p.machine)}</td><td>${esc(p.customer ?? '')}</td>
       <td class="num">${p.orderNo ?? '-'}</td><td><b>${esc(p.product)}</b> ${esc(p.color ?? '')}</td>
+      <td>${filledVal(p.pouchType) ? esc(p.pouchType) : '<span class="muted">기본</span>'}</td>
       <td class="num">${p.length ?? '-'}</td><td class="num">${fmt(p.planQty)}</td>
       <td class="num">${actual ? fmt(actual) : '-'}</td><td>${aBadge}</td>
       <td>${statusBadge(p.status)}</td><td>${p.orderId ? '<span class="badge plain" title="수주 #' + p.orderId + ' 자동 생성">📦</span> ' : ''}${p.orderException ? `<span class="badge warn" title="${esc(p.orderException)}">⚠ 조건</span> ` : ''}${esc(p.note ?? '')}</td>
@@ -1990,7 +1992,7 @@ function renderPlans() {
     </tr>`;
   }).join('');
   $('#plans-table').innerHTML = `<table><thead><tr>
-    <th class="drag-cell">순서</th><th>우선순위</th><th>생산일</th><th>출고일</th><th>호기</th><th>업체</th><th class="num">차수</th><th>제품</th>
+    <th class="drag-cell">순서</th><th>우선순위</th><th>생산일</th><th>출고일</th><th>호기</th><th>업체</th><th class="num">차수</th><th>제품</th><th>포장</th>
     <th class="num">길이</th><th class="num">계획수량</th><th class="num">실적(정품)</th><th>달성률</th><th>상태</th><th>비고</th><th>작업지시</th>
   </tr></thead><tbody>${rows}</tbody></table>`
   + (canDrag ? '<p class="muted" style="margin:8px 0 0">⠿ 핸들을 끌어 생산 순서를 바꿀 수 있습니다. 다른 날짜 사이에 놓으면 그 날짜로 일정이 이동합니다. <span id="plan-drag-status"></span></p>' : '');
@@ -2182,6 +2184,7 @@ function planFromOrder(o) {
     product: o.product ?? null,
     color: o.color ?? null,
     length: o.length ?? null,
+    pouchType: o.pouchType ?? null,      // 파우치가 두 종류인 업체는 수주가 나뉘어 들어온다
     planQty: o.qty ?? null,
     status: '계획',
     dueDate: o.dueDate ?? null,
@@ -2291,13 +2294,14 @@ function renderOrders() {
       <td>${esc(o.customer ?? '')}</td><td>${esc(o.poNo ?? '')}</td>
       <td class="muted">${esc(o.custCode ?? '-')}</td>
       <td><b>${esc(o.product ?? '')}</b> ${esc(o.color ?? '')}</td>
+      <td>${filledVal(o.pouchType) ? esc(o.pouchType) : '<span class="muted">기본</span>'}</td>
       <td class="num">${fmt(o.qty)}</td>
       <td>${esc(o.dueDate ?? '')}</td><td>${dlBadge}</td>
       <td>${planCell}</td><td>${o.orderException ? `<span class="badge warn" title="${esc(o.orderException)}">⚠ 조건</span> ` : ''}${esc(o.note ?? '')}</td>
     </tr>`;
   }).join('');
   box.innerHTML = `<table><thead><tr>
-    <th>수주일</th><th>우선순위</th><th>공정</th><th>업체</th><th>발주번호</th><th>고객사코드</th><th>제품</th>
+    <th>수주일</th><th>우선순위</th><th>공정</th><th>업체</th><th>발주번호</th><th>고객사코드</th><th>제품</th><th>포장</th>
     <th class="num">수주수량</th><th>희망출고일</th><th>생산마감(D−${PLAN_LEAD_DAYS})</th><th>생산계획</th><th>비고</th>
   </tr></thead><tbody>${rows}</tbody></table>`;
 }
@@ -2851,10 +2855,12 @@ function openOrderDoc(p, docNo) {
     return `<tr><th>${label}</th><td>${esc(v ?? '') || '-'}${tag}</td></tr>`;
   };
   /* 파우치가 두 가지 이상이면 수주 항목에 따라 고르는 옵션이다 */
-  const pouchCell = pouchOptions.length > 1
-    ? `<tr><th>파우치</th><td>${pouchOptions.map((o, i) => `<b>${i + 1}. ${esc(o)}</b>`).join(' &nbsp;/&nbsp; ')}
-        <span class="badge warn">수주 항목에 따라 선택</span></td></tr>`
-    : row('파우치', cs.pouchType, 'pouchType');
+  const pouchCell = filledVal(p.pouchType)
+    ? `<tr><th>파우치</th><td><b>${esc(p.pouchType)}</b> <span class="badge ok">이 수주 지정</span></td></tr>`
+    : pouchOptions.length > 1
+      ? `<tr><th>파우치</th><td>${pouchOptions.map((o, i) => `<b>${i + 1}. ${esc(o)}</b>`).join(' &nbsp;/&nbsp; ')}
+          <span class="badge warn">수주 항목에 따라 선택 — 계획에 지정해 주세요</span></td></tr>`
+      : row('파우치', cs.pouchType, 'pouchType');
   const badge = type === 'OEM'
     ? '<span class="order-badge oem">OEM 포장 — 전용 원부자재</span>'
     : `<span class="order-badge neal">NEAL 포장</span>${overrides.length ? ' <span class="badge warn">＋ 업체 요구사항</span>' : ''}`;
@@ -5525,6 +5531,10 @@ function renderLogs() {
     del.textContent = `🗑 표시된 실적 ${recs.length}건 삭제`;
   }
   // 호기명 일괄 변경 버튼 — 기준정보에 없는 표기("3" 등)를 선택했을 때만 표시
+  const nameN = can('update', 'records') ? nameFixPlans().length : 0;
+  const nfx = $('#btn-fix-names');
+  nfx.hidden = !nameN;
+  nfx.textContent = `🧹 제품명·업체명 정리 (${nameN})`;
   const fix = $('#btn-fix-machine');
   if (fix) {
     const mc = $('#f-machine').value;
@@ -5534,6 +5544,109 @@ function renderLogs() {
   }
 }
 /* 잘못 들어온 호기 표기("3" 등)를 올바른 이름("3호기")으로 일괄 변경 (admin/manager) */
+/* ── 제품명·업체명 표기 정리 ───────────────────────────────────────
+   실적 제품명에 "NAC-5F(크로실-백)"처럼 업체·포장 표기가 붙어 있는 경우가 있다.
+   같은 제품을 포장만 달리해 내보낸 것이므로 '제품이 다른 것'이 아니다.
+     제품명 → 괄호 떼고 하나로      업체명 → 대표 이름으로 통일
+     포장 구분 → 파우치 칸으로 (이미 적혀 있으면 그대로 두고, 어긋나면 표시)
+   실적의 수량·날짜·로스 값은 건드리지 않는다. */
+const PAREN_TAIL = /\s*[(（]([^)）]*)[)）]\s*$/;
+/* 괄호 안 표기를 업체의 파우치 옵션 중 하나로 맞춰본다 (백/무지 → 무지 파우치, 전용/OEM → 전용 파우치) */
+function pouchFromTag(tag, options) {
+  const t = impNorm(tag);
+  if (!t || !options.length) return '';
+  const wantMuji = /백|무지|white|plain/.test(t);
+  const wantOem = /전용|oem/.test(t);
+  const hit = options.find((o) => {
+    const n = impNorm(o);
+    return (wantMuji && /무지|백/.test(n)) || (wantOem && /전용|oem/.test(n));
+  });
+  return hit || '';
+}
+function nameFixPlans() {
+  const plans = [];
+  (RECORDS || []).forEach((r) => {
+    const prod = String(r.product || '').trim();
+    const m = PAREN_TAIL.exec(prod);
+    const co = findCompanyOf(r.customer) || findCompanyOf(m ? m[1].split(/[-–]/)[0] : '');
+    const changes = [];
+    let nextProduct = prod, nextCustomer = r.customer, nextPouch = r.pouchType, warn = '';
+    if (m && co) {
+      // 괄호 안이 '업체' 또는 '업체-포장' 인지 확인 (다른 뜻이면 건드리지 않는다)
+      const inner = m[1].trim();
+      const [coPart, ...rest] = inner.split(/[-–]/);
+      if (normCoName(coPart) && normCoName(co.name).includes(normCoName(coPart))) {
+        nextProduct = prod.replace(PAREN_TAIL, '').trim();
+        if (nextProduct !== prod) changes.push(`제품명 ${prod} → ${nextProduct}`);
+        const tag = rest.join('-').trim();
+        if (tag) {
+          const opts = pouchOptionsOf(co.packLabel);
+          const want = pouchFromTag(tag, opts);
+          // 파우치가 이미 적혀 있으면 그 값이 정확하다 — 건드리지 않는다
+          if (!filledVal(r.pouchType) && want) { nextPouch = want; changes.push(`파우치 (비어 있음) → ${want}`); }
+        }
+      }
+    }
+    if (co && String(r.customer || '').trim() !== String(co.name || '').trim()) {
+      nextCustomer = co.name;
+      changes.push(`업체명 ${r.customer || '(없음)'} → ${co.name}`);
+    }
+    if (changes.length) plans.push({ rec: r, nextProduct, nextCustomer, nextPouch, changes, warn });
+  });
+  return plans;
+}
+
+let NAME_FIX = [];
+function openNameFixModal() {
+  NAME_FIX = nameFixPlans();
+  // 같은 내용의 변경끼리 묶어 보여준다 (99건을 한 줄씩 볼 필요는 없다)
+  const groups = new Map();
+  NAME_FIX.forEach((p, i) => {
+    const key = p.changes.join(' | ') + (p.warn ? ' | ⚠' : '');
+    if (!groups.has(key)) groups.set(key, { key, changes: p.changes, warn: p.warn, idx: [] });
+    groups.get(key).idx.push(i);
+  });
+  const rows = [...groups.values()].map((g, gi) => `<tr class="no-click">
+    <td><input type="checkbox" data-namefix="${gi}" ${g.warn ? '' : 'checked'}></td>
+    <td class="num">${g.idx.length}건</td>
+    <td>${g.changes.map((c) => `<div>${esc(c)}</div>`).join('')}
+      ${g.warn ? `<div class="badge warn" style="margin-top:4px">${esc(g.warn)}</div>` : ''}</td>
+  </tr>`).join('');
+  $('#namefix-body').innerHTML = NAME_FIX.length
+    ? `<div class="table-wrap"><table><thead><tr><th style="width:34px"></th><th class="num">실적</th><th>바뀌는 내용</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>
+       <p class="muted" style="margin-top:10px;font-size:12.5px">⚠ 표시가 있는 묶음은 제품명 표기와 파우치 값이 어긋나는 것입니다. 확인 후 직접 체크하세요.</p>`
+    : '<div class="empty">정리할 표기가 없습니다.</div>';
+  NAME_FIX_GROUPS = [...groups.values()];
+  $('#namefix-run').hidden = !NAME_FIX.length;
+  $('#namefix-modal').hidden = false;
+}
+let NAME_FIX_GROUPS = [];
+
+async function runNameFix() {
+  const picked = $$('#namefix-body input[data-namefix]:checked')
+    .flatMap((el) => NAME_FIX_GROUPS[Number(el.dataset.namefix)].idx)
+    .map((i) => NAME_FIX[i]);
+  if (!picked.length) { alert('정리할 항목을 선택하세요.'); return; }
+  if (!confirm(`실적 ${picked.length}건의 제품명·업체명 표기를 정리합니다.\n수량·날짜·로스 등 실적 값은 그대로입니다.\n\n진행할까요?`)) return;
+  const btn = $('#namefix-run');
+  btn.disabled = true; btn.textContent = '정리 중…';
+  try {
+    const next = picked.map((p) => ({ ...p.rec, product: p.nextProduct, customer: p.nextCustomer, pouchType: p.nextPouch }));
+    await dataService.updateMany('records', next, (d, t) => { btn.textContent = `정리 중… ${d}/${t}`; });
+    await loadRecords();
+    $('#namefix-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`실적 ${picked.length}건을 정리했습니다.`);
+  } catch (err) {
+    alert('정리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
+  } finally { btn.disabled = false; btn.textContent = '선택한 항목 정리'; }
+}
+$('#btn-fix-names').addEventListener('click', openNameFixModal);
+$('#namefix-close').addEventListener('click', () => ($('#namefix-modal').hidden = true));
+$('#namefix-cancel').addEventListener('click', () => ($('#namefix-modal').hidden = true));
+$('#namefix-run').addEventListener('click', runNameFix);
+
 $('#btn-fix-machine').addEventListener('click', async () => {
   if (!can('update', 'records')) return;
   const mc = $('#f-machine').value;
