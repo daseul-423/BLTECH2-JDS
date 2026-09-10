@@ -1073,3 +1073,14 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 }
 .pmf-chip:hover { border-color: var(--brand); color: var(--brand-deep); background: var(--brand-soft); }
 @media (max-width: 620px) { .pmf-row { grid-template-columns: 1fr; gap: 6px; } }
+
+/* 품목 매핑 — 분류 고르기 */
+.pm-cats { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px; }
+.pm-cat {
+  border: 1px solid var(--line); background: #fff; border-radius: 999px;
+  padding: 6px 14px; font-size: 13px; color: var(--ink2, #3D4351); cursor: pointer;
+}
+.pm-cat span { color: var(--muted); font-size: 12px; margin-left: 5px; }
+.pm-cat:hover { border-color: var(--brand); color: var(--brand-deep); }
+.pm-cat.on { background: var(--brand-fill); border-color: var(--brand-fill); color: #fff; font-weight: 700; }
+.pm-cat.on span { color: rgba(255,255,255,.85); }

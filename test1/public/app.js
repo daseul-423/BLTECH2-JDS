@@ -2753,11 +2753,19 @@ async function runPmPart() {
     alert('처리 중 오류: ' + err.message);
   } finally { btn.disabled = false; btn.textContent = '분류 지정'; }
 }
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pmcatpick]');
+  if (!b) return;
+  const v = b.dataset.pmcatpick;
+  PM_CAT = v === '__none__' ? null : v;
+  renderProductMap();
+});
 $('#btn-pm-part').addEventListener('click', openPmPartModal);
 $('#pmpart-close').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
 $('#pmpart-cancel').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
 $('#pmpart-run').addEventListener('click', runPmPart);
 
+let PM_CAT = null;      // 지금 고른 분류 (null이면 아직 안 고름)
 function renderProductMap() {
   const box = $('#productmap-table');
   if (!box) return;
@@ -2798,25 +2806,41 @@ function renderProductMap() {
     <td><span class="badge plain">${esc(pmFamily(m.product))}</span></td>
     <td>${m.note === PM_AUTO_NOTE ? '<span class="badge plain" title="수주주문서 등록 시 자동으로 생성됨">🤖 자동</span>' : esc(m.note ?? '')}</td>
   </tr>`;
-  /* 공정으로 묶어 보여준다. 공정이 아직 안 정해진 것은 맨 아래로 모아 눈에 띄게 한다. */
-  // 실제로 쓰인 분류를 건수 많은 순으로 (미지정은 맨 아래)
-  const zones = [...new Set(list.map((m) => m.part || ''))]
-    .filter(Boolean)
-    .sort((a, b) => list.filter((m) => m.part === b).length - list.filter((m) => m.part === a).length
-      || a.localeCompare(b, 'ko'));
-  zones.push('');
-  const body = zones.map((z) => {
-    const sub = list.filter((m) => (m.part || '') === z);
-    if (!sub.length) return '';
-    const label = z || '공정 미지정';
-    const fams = [...new Set(sub.map((m) => pmFamily(m.product)))].slice(0, 8).join(' · ');
-    return `<tr class="co-zone"><td colspan="6">${z ? '📦 ' + esc(z) : '❓ 분류 미지정'}
-      <span class="muted">${sub.length}건${fams ? ' · ' + esc(fams) : ''}</span></td></tr>`
-      + sub.map(rowOf).join('');
-  }).join('');
-  box.innerHTML = `<table><thead><tr>
+  /* 건수가 많아 한 번에 다 뿌리면 못 본다 — 분류를 고르면 그 분류만 보여준다.
+     검색어를 넣었을 때는 분류와 상관없이 전체에서 찾는다. */
+  const catsOf = (arr) => {
+    const m = new Map();
+    arr.forEach((x) => {
+      const k = x.part || '';
+      m.set(k, (m.get(k) || 0) + 1);
+    });
+    return [...m.entries()].sort((a, b) => (a[0] === '' ? 1 : b[0] === '' ? -1 : b[1] - a[1] || a[0].localeCompare(b[0], 'ko')));
+  };
+  const cats = catsOf(PRODUCTMAP);
+  const chips = `<div class="pm-cats">
+    ${cats.map(([k, n]) => `<button type="button" class="pm-cat${PM_CAT === k ? ' on' : ''}" data-pmcatpick="${esc(k)}">
+      ${k ? esc(k) : '❓ 분류 미지정'} <span>${n}</span></button>`).join('')}
+    ${PM_CAT !== null ? '<button type="button" class="pm-cat" data-pmcatpick="__none__">✕ 선택 해제</button>' : ''}
+  </div>`;
+
+  let shown = list;
+  let head = '';
+  if (q) {
+    head = `<p class="muted" style="margin:0 0 8px">검색 결과 <b>${fmt(list.length)}건</b> — 분류와 상관없이 전체에서 찾았습니다.</p>`;
+  } else if (PM_CAT === null) {
+    box.innerHTML = chips
+      + `<div class="empty">위에서 <b>분류를 고르면</b> 그 분류의 매핑만 보여줍니다.
+          <div class="muted" style="margin-top:6px;font-size:12.5px">전체 ${fmt(PRODUCTMAP.length)}건 · 검색창에 입력하면 분류와 상관없이 찾습니다.</div></div>`;
+    return;
+  } else {
+    shown = list.filter((m) => (m.part || '') === PM_CAT);
+    head = `<p class="muted" style="margin:0 0 8px"><b>${PM_CAT || '분류 미지정'}</b> ${fmt(shown.length)}건</p>`;
+  }
+
+  if (!shown.length) { box.innerHTML = chips + '<div class="empty">해당하는 매핑이 없습니다.</div>'; return; }
+  box.innerHTML = chips + head + `<div class="table-wrap"><table><thead><tr>
     <th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>제품군</th><th>비고</th>
-  </tr></thead><tbody>${body}</tbody></table>`;
+  </tr></thead><tbody>${shown.map(rowOf).join('')}</tbody></table></div>`;
 }
 $('#pm-search')?.addEventListener('input', renderProductMap);
 
