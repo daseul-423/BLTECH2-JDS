@@ -3695,6 +3695,10 @@ function excCleanPlans() {
     const std = findStandard({ part: x.part, product: x.product, customer: x.customer }) || {};
     const coVal = {};
     Object.entries(CO_SPEC_MAP).forEach(([ck, sk]) => { coVal[sk] = co[ck]; });
+    /* 파우치가 여러 종류인 업체(크로실 등)는 '제품이 달라서'가 아니라
+       같은 제품을 포장만 달리해서 내보내는 것이다. 어느 파우치로 나갈지는 수주 항목에서 정해지므로
+       제품별 예외로 둘 값이 아니다. */
+    const pouchIsOption = pouchOptionsOf(coVal.pouchType).length > 1 || pouchOptionsOf(std.pouchType).length > 1;
     const adds = [];
     SPEC_KEYS.forEach((k) => {
       if (!filledVal(x[k])) return;
@@ -3703,9 +3707,14 @@ function excCleanPlans() {
       const fromStd = filledVal(std[k]) ? String(std[k]).trim() : '';
       if (v === fromCo || v === fromStd) return;              // 같은 값 = 더하는 것이 없음
       if (!fromCo && !fromStd && isDefaultMark(v)) return;     // 'NEAL' 같은 기본 표기
+      if (k === 'pouchType' && pouchIsOption) return;          // 포장 선택지는 수주에서 고른다
       adds.push({ key: k, value: x[k], co: coVal[k], std: std[k] });
     });
-    return { spec: x, co, std, adds, reason: adds.length ? '' : '업체 요구사항·제품표준서와 값이 같습니다' };
+    const reason = adds.length ? ''
+      : (pouchIsOption && filledVal(x.pouchType))
+        ? '파우치가 두 종류인 업체 — 어느 것으로 나갈지는 수주 항목에서 정합니다'
+        : '업체 요구사항·제품표준서와 값이 같습니다';
+    return { spec: x, co, std, adds, reason };
   });
 }
 
