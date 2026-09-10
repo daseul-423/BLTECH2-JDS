@@ -2701,19 +2701,35 @@ function openPmPartModal() {
     const cur = g.parts.size === 1 ? [...g.parts][0] : '';
     const suggest = cur || PM_CAT_HINT[g.fam] || pmPartFromStandards(g.fam) || '';
     const sample = g.items.slice(0, 3).map((m) => m.product).join(', ');
-    return `<tr class="no-click">
-      <td><b>${esc(g.fam)}</b></td>
-      <td class="num">${g.items.length}건</td>
-      <td class="muted" style="font-size:12.5px">${esc(sample)}${g.items.length > 3 ? ' …' : ''}</td>
-      <td><input type="text" data-pmfam="${i}" list="dl-pmcat" value="${esc(suggest)}" placeholder="예: 배관 / 닐커버" style="width:100%"></td>
-    </tr>`;
+    return `<div class="pmf-row">
+      <input type="text" class="pmf-cat" data-pmfam="${i}" list="dl-pmcat"
+             value="${esc(suggest)}" placeholder="분류 입력">
+      <div class="pmf-info">
+        <div class="pmf-name"><b>${esc(g.fam)}</b> <span class="muted">${g.items.length}건</span></div>
+        <div class="pmf-sample">${esc(sample)}${g.items.length > 3 ? ' …' : ''}</div>
+      </div>
+    </div>`;
   }).join('');
   const dl = `<datalist id="dl-pmcat">${known.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`;
-  $('#pmpart-body').innerHTML = dl + `<div class="table-wrap"><table>
-    <thead><tr><th>제품군</th><th class="num">건수</th><th>내부 품명 예시</th><th style="width:170px">분류</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>
-    <p class="muted" style="margin-top:10px;font-size:12.5px">제품군마다 분류를 한 번만 적으면 그 제품군의 매핑 전체에 적용됩니다. 비워두면 그대로 둡니다.
-    공정(CAST·SPLINT·PRE-CUT·HYBRID)이든 제품 종류(배관·닐커버·언더패드·하이드로겔)든 <b>부르시는 이름 그대로</b> 적으면 됩니다.</p>`;
+  const chips = known.length
+    ? `<div class="pmf-chips"><span class="muted">자주 쓰는 분류 —</span>${known
+        .map((v) => `<button type="button" class="pmf-chip" data-pmcat="${esc(v)}">${esc(v)}</button>`).join('')}</div>`
+    : '';
+  $('#pmpart-body').innerHTML = dl
+    + `<p class="muted" style="margin:0 0 8px;font-size:12.5px">왼쪽 칸에 분류를 적으세요. 아래 버튼을 누르면 <b>마지막으로 클릭한 칸</b>에 채워집니다. 비워두면 그대로 둡니다.</p>`
+    + chips
+    + `<div class="pmf-list">${rows}</div>`;
+  /* 칩을 누르면 방금 만지던 칸에 넣어준다 — 같은 분류를 여러 제품군에 반복해 적는 일이 많다 */
+  let lastCat = null;
+  $('#pmpart-body').addEventListener('focusin', (e) => {
+    if (e.target.classList && e.target.classList.contains('pmf-cat')) lastCat = e.target;
+  });
+  $('#pmpart-body').addEventListener('click', (e) => {
+    const chip = e.target.closest('.pmf-chip');
+    if (!chip) return;
+    const box = lastCat || $('#pmpart-body .pmf-cat');
+    if (box) { box.value = chip.dataset.pmcat; box.focus(); }
+  });
   $('#pmpart-modal').hidden = false;
 }
 
