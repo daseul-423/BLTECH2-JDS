@@ -2671,7 +2671,16 @@ const PM_CAT_HINT = {
   PXRT: '배관', PXRH: '배관',
   NCB: '닐커버', NUP: '언더패드', HYDROGEL: '하이드로겔',
   '프리컷': 'PRE-CUT', '스마일프리컷': 'PRE-CUT',
+  // 제품표준서에 같은 이름이 있어 공정을 확인한 것들
+  NHC: 'CAST', NPC: 'CAST', SMRC: 'CAST', NHRS: 'SPLINT', SMRS: 'SPLINT',
 };
+/* 위 표에 없으면 제품표준서에서 같은 계열을 찾아 공정을 제안한다 */
+function pmPartFromStandards(fam) {
+  const f = String(fam || '').toUpperCase();
+  const hit = (STANDARDS || []).filter((s) => pmFamily(s.product).toUpperCase() === f);
+  const parts = [...new Set(hit.map((s) => s.part).filter(Boolean))];
+  return parts.length === 1 ? parts[0] : '';
+}
 let PM_FAMS = [];
 function openPmPartModal() {
   const map = new Map();
@@ -2687,7 +2696,7 @@ function openPmPartModal() {
     ...(PRODUCTMAP || []).map((m) => m.part).filter(Boolean)])];
   const rows = PM_FAMS.map((g, i) => {
     const cur = g.parts.size === 1 ? [...g.parts][0] : '';
-    const suggest = cur || PM_CAT_HINT[g.fam] || '';
+    const suggest = cur || PM_CAT_HINT[g.fam] || pmPartFromStandards(g.fam) || '';
     const sample = g.items.slice(0, 3).map((m) => m.product).join(', ');
     return `<tr class="no-click">
       <td><b>${esc(g.fam)}</b></td>
