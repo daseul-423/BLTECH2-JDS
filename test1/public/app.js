@@ -2658,9 +2658,12 @@ if ($('#so-upload-modal')) {
 /* 내부 품명의 앞부분을 '제품군'으로 본다 — SMRC-2F-BL(SMILE) → SMRC, (프리컷)NHPS-3014F → 프리컷
    품목 매핑에는 공정 칸이 없어서, 이 제품군 단위로 공정을 한 번씩만 정해주면 전체가 분류된다. */
 function pmFamily(product) {
-  const t = String(product || '').trim();
-  const m = /^[(（]\s*([^)）]+)\s*[)）]/.exec(t);          // (프리컷)... 처럼 앞에 괄호가 붙은 형태
-  if (m) return m[1].trim();
+  /* 앞에 붙은 (프리컷)·(알파) 같은 표기는 떼고 제품코드로 묶는다.
+     (프리컷)NHPS-2012F → NHPS, (알파)NAC-2F-GR → NAC — 같은 제품을 부르는 말만 다른 경우가 있어서
+     제품코드를 기준으로 삼아야 흩어지지 않는다. */
+  let t = String(product || '').trim().replace(/^[(（][^)）]*[)）]\s*/, '');
+  const m = /^([A-Za-z]+)/.exec(t);
+  if (m) return m[1].toUpperCase();
   const m2 = /^([A-Za-z가-힣]+)/.exec(t);
   return m2 ? m2[1].toUpperCase() : '(기타)';
 }
@@ -2670,9 +2673,9 @@ function pmFamily(product) {
 const PM_CAT_HINT = {
   PXRT: '배관', PXRH: '배관',
   NCB: '닐커버', NUP: '언더패드', HYDROGEL: '하이드로겔',
-  '프리컷': 'PRE-CUT', '스마일프리컷': 'PRE-CUT',
-  // 제품표준서에 같은 이름이 있어 공정을 확인한 것들
-  NHC: 'CAST', NPC: 'CAST', SMRC: 'CAST', NHRS: 'SPLINT', SMRS: 'SPLINT',
+  NHPS: 'PRE-CUT', SMPS: 'PRE-CUT',
+  // 제품표준서에 같은 계열이 있어 공정을 확인한 것들
+  NHC: 'CAST', NPC: 'CAST', SMRC: 'CAST', NAC: 'CAST', NHRS: 'SPLINT', SMRS: 'SPLINT',
 };
 /* 위 표에 없으면 제품표준서에서 같은 계열을 찾아 공정을 제안한다 */
 function pmPartFromStandards(fam) {
