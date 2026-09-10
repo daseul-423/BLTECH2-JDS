@@ -3373,10 +3373,14 @@ function renderCompanies() {
   dupBtn.hidden = !dupeGroups;
   dupBtn.textContent = `🔗 중복 업체 합치기 (${dupeGroups})`;
   // 아직 기준정보 안에 들어 있으면 옮기기 버튼을 띄운다 (그 전까지 수정은 막힌다)
-  const excDead = can('delete', 'custspecs') ? excCleanPlans().filter((p) => !p.adds.length).length : 0;
+  const excPlans = can('delete', 'custspecs') ? excCleanPlans() : [];
+  const excDead = excPlans.filter((x) => !x.adds.length).length;
   const excBtn = $('#btn-exc-clean');
-  excBtn.hidden = !excDead;
-  excBtn.textContent = `🧹 제품별 예외 정리 (${excDead})`;
+  excBtn.hidden = !excPlans.length;
+  excBtn.textContent = excDead
+    ? `🧹 제품별 예외 정리 (${excDead})`
+    : `📋 제품별 예외 ${excPlans.length}건 보기`;
+  console.info(`[제품별 예외] 전체 ${excPlans.length}건 · 지워도 되는 것 ${excDead}건`);
   const splitBtn = $('#btn-co-split');
   splitBtn.hidden = !(CO_LEGACY && can('create', 'companies'));
   splitBtn.textContent = `🚚 업체 데이터 옮기기 (${all.length})`;
@@ -3751,7 +3755,7 @@ function openExcCleanModal() {
     ${alive.length ? `<h3 style="margin:18px 0 6px;font-size:14px">남겨야 하는 것 <span class="muted" style="font-weight:400">${alive.length}건 — 실제로 다른 값이 있습니다</span></h3>
       <div class="table-wrap"><table><thead><tr><th style="width:34px"></th><th>업체</th><th>제품</th><th>기본과 다른 값</th></tr></thead>
       <tbody>${aliveRows}</tbody></table></div>` : ''}`;
-  $('#excclean-run').hidden = !dead.length;
+  $('#excclean-run').hidden = !dead.length;   // 지울 것이 없으면 실행 버튼만 감춘다
   $('#excclean-modal').hidden = false;
 }
 
