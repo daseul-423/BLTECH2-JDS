@@ -1967,7 +1967,7 @@ function renderPlans() {
       <td>${priorityBadge(p.priority, canDrag ? p.id : null)}</td>
       <td>${esc(p.date)}</td><td>${esc(p.dueDate ?? '-')}</td><td>${esc(p.machine)}</td><td>${esc(p.customer ?? '')}</td>
       <td class="num">${p.orderNo ?? '-'}</td><td><b>${esc(p.product)}</b> ${esc(p.color ?? '')}</td>
-      <td>${filledVal(p.pouchType) ? esc(p.pouchType) : '<span class="muted">기본</span>'}</td>
+      <td>${filledVal(p.pouchType) ? esc(p.pouchType) : ''}</td>
       <td class="num">${p.length ?? '-'}</td><td class="num">${fmt(p.planQty)}</td>
       <td class="num">${actual ? fmt(actual) : '-'}</td><td>${aBadge}</td>
       <td>${statusBadge(p.status)}</td><td>${p.orderId ? '<span class="badge plain" title="수주 #' + p.orderId + ' 자동 생성">📦</span> ' : ''}${p.orderException ? `<span class="badge warn" title="${esc(p.orderException)}">⚠ 조건</span> ` : ''}${esc(p.note ?? '')}</td>
@@ -2277,7 +2277,7 @@ function renderOrders() {
       <td>${esc(o.customer ?? '')}</td><td>${esc(o.poNo ?? '')}</td>
       <td class="muted">${esc(o.custCode ?? '-')}</td>
       <td><b>${esc(o.product ?? '')}</b> ${esc(o.color ?? '')}</td>
-      <td>${filledVal(o.pouchType) ? esc(o.pouchType) : '<span class="muted">기본</span>'}</td>
+      <td>${filledVal(o.pouchType) ? esc(o.pouchType) : ''}</td>
       <td class="num">${fmt(o.qty)}</td>
       <td>${esc(o.dueDate ?? '')}</td><td>${dlBadge}</td>
       <td>${planCell}</td><td>${o.orderException ? `<span class="badge warn" title="${esc(o.orderException)}">⚠ 조건</span> ` : ''}${esc(o.note ?? '')}</td>
@@ -3381,7 +3381,7 @@ function renderCompanies() {
   /* 값은 항상 그대로 보여준다 — 'NEAL'처럼 기본과 같다는 표기는 흐리게, 전용 값만 진하게.
      긴 값(인박스 지시문 등)은 한 줄로 줄이고 전체 내용은 마우스를 올리면 보인다. */
   const cell = (v, cls = '') => {
-    if (!filledVal(v)) return `<div class="co-cell ${cls} muted">기본</div>`;
+    if (!filledVal(v)) return '';                      // 비어 있으면 그냥 빈 칸 (제품표준서 값을 씀)
     const t = esc(String(v));
     const opts = pouchOptionsOf(v);
     if (opts.length > 1) {
@@ -3396,7 +3396,7 @@ function renderCompanies() {
     if (filledVal(c.colors)) bits.push(`<span class="co-req"><i>컬러</i> ${esc(c.colors)}</span>`);
     if (filledVal(c.toner) && !isDefaultMark(c.toner)) bits.push(`<span class="co-req"><i>토너</i> ${esc(c.toner)}</span>`);
     const t = [c.colors, c.toner].filter(filledVal).join(' / ');
-    return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join('')}</div>` : '<div class="co-cell muted">기본</div>';
+    return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join('')}</div>` : '';
   };
   /* 특이사항과 제품별 예외도 '이 업체에서 따로 챙길 것' 하나로 묶는다 */
   const noteCell = (c) => {
@@ -3404,18 +3404,18 @@ function renderCompanies() {
     c._exc.forEach((x) => bits.push(`<span class="co-exc">${esc(x.product || '')}${x.variant ? '(' + esc(x.variant) + ')' : ''}</span>`));
     if (filledVal(c.notes)) bits.push(esc(c.notes));
     const t = [...c._exc.map((x) => x.product), c.notes].filter(Boolean).join(' · ');
-    return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join(' ')}</div>` : '<div class="co-cell muted">-</div>';
+    return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join(' ')}</div>` : '';
   };
   const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b></td>
-    <td>${esc(c.country || '-')}</td>
+    <td>${esc(c.country || '')}</td>
     <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}${c._oem && c._noPack ? ' <span class="badge bad" title="OEM인데 전용 파우치·박스가 비어 있습니다. 이대로면 작업지시서에 기본 포장이 나갑니다">전용 포장 미입력</span>' : ''}</td>
     <td>${cell(c.packLabel)}</td><td>${cell(c.packInBox)}</td><td>${cell(c.packOutBox)}</td>
     <td>${colorTonerCell(c)}</td>
     <td>${noteCell(c)}</td>
   </tr>`).join('');
   $('#companies-list').innerHTML = items.length
-    ? `<table class="co-table"><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>컬러 · 토너</th><th>특이사항 · 제품별 예외</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table class="co-table"><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>컬러 · 토너</th><th>제품별 예외</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 업체가 없습니다.</div>';
 }
 
