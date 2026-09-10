@@ -5591,11 +5591,17 @@ function nameFixPlans() {
         }
       }
     }
-    if (co && String(r.customer || '').trim() !== String(co.name || '').trim()) {
+    /* 업체명 칸에 '내수/글로브메드'처럼 두 곳이 함께 적힌 경우가 있다.
+       어느 쪽인지는 사람만 알 수 있으므로 자동으로 고르지 않는다. */
+    const multiCo = /[/,]/.test(String(r.customer || ''));
+    if (co && !multiCo && String(r.customer || '').trim() !== String(co.name || '').trim()) {
       nextCustomer = co.name;
       changes.push(`업체명 ${r.customer || '(없음)'} → ${co.name}`);
+    } else if (multiCo) {
+      warn = `업체명에 두 곳이 함께 적혀 있습니다 (${r.customer}) — 직접 확인해 주세요`;
     }
-    if (changes.length) plans.push({ rec: r, nextProduct, nextCustomer, nextPouch, changes, warn });
+    const kind = nextProduct !== prod ? 'name' : 'customer';
+    if (changes.length) plans.push({ rec: r, nextProduct, nextCustomer, nextPouch, changes, warn, kind });
   });
   return plans;
 }
@@ -5606,22 +5612,31 @@ function openNameFixModal() {
   // 같은 내용의 변경끼리 묶어 보여준다 (99건을 한 줄씩 볼 필요는 없다)
   const groups = new Map();
   NAME_FIX.forEach((p, i) => {
-    const key = p.changes.join(' | ') + (p.warn ? ' | ⚠' : '');
-    if (!groups.has(key)) groups.set(key, { key, changes: p.changes, warn: p.warn, idx: [] });
+    const key = p.kind + '::' + p.changes.join(' | ') + (p.warn ? ' | ⚠' : '');
+    if (!groups.has(key)) groups.set(key, { key, kind: p.kind, changes: p.changes, warn: p.warn, idx: [] });
     groups.get(key).idx.push(i);
   });
-  const rows = [...groups.values()].map((g, gi) => `<tr class="no-click">
-    <td><input type="checkbox" data-namefix="${gi}" ${g.warn ? '' : 'checked'}></td>
+  NAME_FIX_GROUPS = [...groups.values()];
+  const rowOf = (g, gi, checked) => `<tr class="no-click">
+    <td><input type="checkbox" data-namefix="${gi}"${checked && !g.warn ? ' checked' : ''}></td>
     <td class="num">${g.idx.length}건</td>
     <td>${g.changes.map((c) => `<div>${esc(c)}</div>`).join('')}
       ${g.warn ? `<div class="badge warn" style="margin-top:4px">${esc(g.warn)}</div>` : ''}</td>
-  </tr>`).join('');
+  </tr>`;
+  const section = (title, desc, kind, checked) => {
+    const list = NAME_FIX_GROUPS.map((g, gi) => ({ g, gi })).filter(({ g }) => g.kind === kind);
+    if (!list.length) return '';
+    const n = list.reduce((a, { g }) => a + g.idx.length, 0);
+    return `<h3 style="margin:16px 0 4px;font-size:14px">${title} <span class="muted" style="font-weight:400">${n}건</span></h3>
+      <p class="muted" style="margin-bottom:8px;font-size:12.5px">${desc}</p>
+      <div class="table-wrap"><table><thead><tr><th style="width:34px"></th><th class="num">실적</th><th>바뀌는 내용</th></tr></thead>
+        <tbody>${list.map(({ g, gi }) => rowOf(g, gi, checked)).join('')}</tbody></table></div>`;
+  };
   $('#namefix-body').innerHTML = NAME_FIX.length
-    ? `<div class="table-wrap"><table><thead><tr><th style="width:34px"></th><th class="num">실적</th><th>바뀌는 내용</th></tr></thead>
-        <tbody>${rows}</tbody></table></div>
-       <p class="muted" style="margin-top:10px;font-size:12.5px">⚠ 표시가 있는 묶음은 제품명 표기와 파우치 값이 어긋나는 것입니다. 확인 후 직접 체크하세요.</p>`
+    ? section('제품명 표기 정리', '제품명 뒤에 붙은 (업체-포장) 표기를 떼어냅니다. 포장은 파우치 칸에 이미 들어 있어 정보가 사라지지 않습니다.', 'name', true)
+      + section('업체명 통일 — 확인 후 선택하세요', '실적에 적힌 업체명을 <b>업체별 사양에 등록된 이름</b>으로 맞춥니다. 건수가 많고 표기를 바꾸는 일이라 <b>기본으로 체크하지 않았습니다.</b> 바꿀 것만 골라주세요.', 'customer', false)
+      + '<p class="muted" style="margin-top:10px;font-size:12.5px">⚠ 표시가 있는 묶음은 자동으로 판단할 수 없는 것입니다. 실적을 직접 열어 고쳐주세요.</p>'
     : '<div class="empty">정리할 표기가 없습니다.</div>';
-  NAME_FIX_GROUPS = [...groups.values()];
   $('#namefix-run').hidden = !NAME_FIX.length;
   $('#namefix-modal').hidden = false;
 }
@@ -5636,13 +5651,25 @@ async function runNameFix() {
   const btn = $('#namefix-run');
   btn.disabled = true; btn.textContent = '정리 중…';
   try {
-    const next = picked.map((p) => ({ ...p.rec, product: p.nextProduct, customer: p.nextCustomer, pouchType: p.nextPouch }));
+    /* Firestore는 undefined 값을 거부한다 — 원본에 없던 필드가 undefined로 섞이지 않게 걸러낸다 */
+    const clean = (o) => {
+      const c = {};
+      Object.entries(o).forEach(([k, v]) => { if (v !== undefined) c[k] = v; });
+      return c;
+    };
+    const next = picked.map((p) => {
+      const o = { ...p.rec, product: p.nextProduct };
+      if (filledVal(p.nextCustomer)) o.customer = p.nextCustomer;
+      if (filledVal(p.nextPouch)) o.pouchType = p.nextPouch;
+      return clean(o);
+    });
     await dataService.updateMany('records', next, (d, t) => { btn.textContent = `정리 중… ${d}/${t}`; });
     await loadRecords();
     $('#namefix-modal').hidden = true;
     refreshCurrentPage();
     alert(`실적 ${picked.length}건을 정리했습니다.`);
   } catch (err) {
+    console.error('[표기 정리] 실패', err, picked.slice(0, 3).map((p) => p.rec));
     alert('정리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
   } finally { btn.disabled = false; btn.textContent = '선택한 항목 정리'; }
 }
