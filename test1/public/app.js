@@ -87,8 +87,11 @@ const loadMasters = async () => { MASTERS = await api('/api/masters'); };
 const loadCompanies = async () => {
   try { COMPANIES = await api('/api/companies'); }
   catch (e) { console.warn('[companies] 불러오기 실패', e); COMPANIES = []; }
-  CO_LEGACY = !COMPANIES.length && !!COMPANIES.length;
-  if (CO_LEGACY) COMPANIES = COMPANIES.slice();
+  CO_COLL_N = COMPANIES.length;
+  const legacyList = MASTERS.companies || [];        // 아직 기준정보 문서 안에 있는 목록
+  CO_LEGACY = !CO_COLL_N && !!legacyList.length;
+  if (CO_LEGACY) COMPANIES = legacyList.slice();
+  console.info(`[업체] companies 컬렉션 ${CO_COLL_N}건 · 기준정보 안 목록 ${legacyList.length}곳 · 옮기기 필요=${CO_LEGACY}`);
 };
 const coWritable = () => {
   if (!CO_LEGACY) return true;
@@ -250,6 +253,7 @@ $$('.nav-btn, .hub-card[data-goto]').forEach((b) => b.addEventListener('click', 
 /* ===================== 역할 기반 권한 (RBAC) — PIN 관리자모드 대체 ===================== */
 let COMPANIES = [];   // 업체별 사양 (companies 컬렉션)
 let CO_LEGACY = false; // true면 아직 masters.companies에 들어 있는 상태
+let CO_COLL_N = 0;     // companies 컬렉션에서 실제로 읽어온 건수
 let ME = null; // 로그인 사용자 권한 { uid, email, name, role, active }
 
 const ROLE_PAGES = {
