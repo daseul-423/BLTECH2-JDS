@@ -179,6 +179,17 @@
         return d.exists ? Object.assign({ uid: d.id }, d.data()) : null;
       });
     },
+    // Google 로그인으로 처음 들어온 사람: users 문서가 없으면 '승인 대기'로 스스로 등록한다.
+    // 규칙이 role=worker·active=false 인 본인 문서 생성만 허용하므로 권한 상승은 못 한다.
+    registerSelf: function (user) {
+      var now = _now();
+      var doc = {
+        email: user.email || '', name: user.displayName || '',
+        role: 'worker', active: false, selfRegistered: true, provider: 'google',
+        createdBy: user.uid, createdAt: now, updatedBy: user.uid, updatedAt: now,
+      };
+      return _db.collection('users').doc(user.uid).set(doc).then(function () { return Object.assign({ uid: user.uid }, doc); });
+    },
     listUsers: function () {
       return _db.collection('users').get().then(function (qs) {
         return qs.docs.map(function (d) { return Object.assign({ uid: d.id }, d.data()); });

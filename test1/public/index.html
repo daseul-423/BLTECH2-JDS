@@ -17,9 +17,16 @@
     </div>
     <h1>생산관리 플랫폼</h1>
     <p class="muted">승인된 계정만 로그인할 수 있습니다.</p>
-    <label>이메일<input type="email" name="email" required autocomplete="username"></label>
-    <label>비밀번호<input type="password" name="password" required autocomplete="current-password"></label>
-    <button type="submit" class="btn primary" id="login-submit">로그인</button>
+    <button type="button" class="btn login-google" id="login-google">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.7 6c4.5-4.2 6.9-10.3 6.9-17.7z"/><path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.1C1 16.4 0 20.1 0 24s1 7.6 2.6 10.7l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.3 0 11.7-2.1 15.6-5.8l-7.7-6c-2.1 1.4-4.8 2.3-7.9 2.3-6.3 0-11.6-4.1-13.5-9.9l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+      Google 계정으로 로그인
+    </button>
+    <details class="login-alt">
+      <summary>이메일 · 비밀번호로 로그인</summary>
+      <label>이메일<input type="email" name="email" autocomplete="username"></label>
+      <label>비밀번호<input type="password" name="password" autocomplete="current-password"></label>
+      <button type="submit" class="btn" id="login-submit">이메일로 로그인</button>
+    </details>
     <div id="login-error" class="login-error"></div>
   </form>
 </div>
@@ -449,7 +456,7 @@
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">Firebase Authentication 계정은 콘솔에서 생성합니다. 여기서는 해당 UID의 <b>users 문서(역할·활성)</b>를 등록·수정합니다.</p>
+      <p class="muted" style="margin-bottom:10px"><b>Google 계정으로 처음 로그인한 직원은 "승인 대기"로 자동 등록</b>됩니다 — [수정]에서 역할을 정하고 활성으로 바꾸면 그때부터 들어올 수 있습니다. 이메일·비밀번호 계정이 필요하면 [＋ users 문서 등록]으로 직접 만듭니다.</p>
       <div class="table-wrap" id="users-list"></div>
     </div>
   </section>

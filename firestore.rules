@@ -63,10 +63,18 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // 사용자 권한 문서: 본인 문서 읽기 가능, 생성·수정·삭제는 admin만
+    // 사용자 권한 문서: 본인 문서 읽기 가능, 수정·삭제는 admin만.
+    // 생성은 admin, 또는 본인이 '승인 대기'(role=worker, active=false)로만 — Google 로그인 첫 진입용.
     match /users/{uid} {
+      function selfPending() {
+        return signedIn() && request.auth.uid == uid
+          && request.resource.data.role == 'worker'
+          && request.resource.data.active == false
+          && request.resource.data.selfRegistered == true;
+      }
       allow read:   if signedIn() && (request.auth.uid == uid || isAdmin());
-      allow create, update, delete: if isAdmin();
+      allow create: if isAdmin() || selfPending();
+      allow update, delete: if isAdmin();
     }
   }
 }

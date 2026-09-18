@@ -1608,15 +1608,18 @@ async function renderUsers() {
   let users = LAST_USERS.slice();
   const q = ($('#user-search').value || '').trim().toLowerCase();
   if (q) users = users.filter((u) => [u.email, u.name, u.role].some((v) => String(v || '').toLowerCase().includes(q)));
-  users.sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')));
+  const pendingOf = (u) => u.active === false && u.selfRegistered ? 0 : 1;
+  users.sort((a, b) => pendingOf(a) - pendingOf(b) || String(a.email || '').localeCompare(String(b.email || '')));
+  const pendingN = users.filter((u) => pendingOf(u) === 0).length;
   const rows = users.map((u) => `<tr class="user-row" data-uid="${esc(u.uid)}" style="cursor:pointer">
-    <td>${esc(u.email || '-')}</td><td>${esc(u.name || '-')}</td><td>${userRoleBadge(u.role)}</td>
-    <td>${u.active === false ? '<span class="badge bad">비활성</span>' : '<span class="badge ok">활성</span>'}</td>
+    <td>${esc(u.email || '-')}${u.provider === 'google' ? ' <span class="muted" style="font-size:11px">Google</span>' : ''}</td><td>${esc(u.name || '-')}</td><td>${userRoleBadge(u.role)}</td>
+    <td>${pendingOf(u) === 0 ? '<span class="badge warn">⏳ 승인 대기</span>' : u.active === false ? '<span class="badge bad">비활성</span>' : '<span class="badge ok">활성</span>'}</td>
     <td>${esc((u.updatedAt || '').slice(0, 16).replace('T', ' '))}</td>
     <td><button type="button" class="btn small user-edit" data-uid="${esc(u.uid)}">수정</button></td>
   </tr>`).join('');
   box.innerHTML = users.length
-    ? `<table><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>활성</th><th>마지막 수정</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    ? (pendingN ? `<p class="muted" style="margin:0 0 8px">⏳ 승인 대기 <b>${pendingN}명</b> — [수정]에서 역할을 정하고 활성을 켜주세요.</p>` : '')
+      + `<table><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>활성</th><th>마지막 수정</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 users 문서가 없습니다. [＋ users 문서 등록]으로 추가하세요.</div>';
 }
 function friendlyAuthError(err) {
@@ -7911,19 +7914,49 @@ async function bootApp() {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    errBox.textContent = '';
+    errBox.textContent = ''; errBox.classList.remove('pending');
+    const email = form.email.value.trim(), pw = form.password.value;
+    if (!email || !pw) { errBox.textContent = '이메일과 비밀번호를 입력하세요.'; return; }
     submitBtn.disabled = true;
     try {
-      await auth.signInWithEmailAndPassword(form.email.value.trim(), form.password.value);
+      await auth.signInWithEmailAndPassword(email, pw);
     } catch (err) {
       errBox.textContent = '로그인 실패: 이메일 또는 비밀번호를 확인하세요.';
     } finally { submitBtn.disabled = false; }
   });
+  /* Google 로그인 — 팝업이 막히면 리다이렉트로. 같은 이메일의 이메일/비밀번호 계정이 있으면
+     Firebase가 같은 계정(UID)으로 묶어주므로 users 문서는 그대로 쓴다. */
+  const gBtn = $('#login-google');
+  if (gBtn) gBtn.addEventListener('click', async () => {
+    errBox.textContent = ''; errBox.classList.remove('pending');
+    gBtn.disabled = true;
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      try { await auth.signInWithPopup(provider); }
+      catch (err) {
+        if (err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment')) {
+          await auth.signInWithRedirect(provider); return;
+        }
+        throw err;
+      }
+    } catch (err) {
+      const c = (err && err.code) || '';
+      if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') { /* 사용자가 닫음 */ }
+      else if (c === 'auth/operation-not-allowed') errBox.textContent = 'Google 로그인이 아직 켜져 있지 않습니다. 관리자가 Firebase 콘솔 → Authentication → 로그인 방법에서 Google을 사용 설정해야 합니다.';
+      else if (c === 'auth/unauthorized-domain') errBox.textContent = '이 주소는 로그인 허용 도메인에 없습니다. 관리자에게 문의하세요.';
+      else if (c === 'auth/account-exists-with-different-credential') errBox.textContent = '같은 이메일의 다른 방식 계정이 있습니다. 아래 이메일·비밀번호로 먼저 로그인해 주세요.';
+      else errBox.textContent = 'Google 로그인 실패: ' + ((err && err.message) || err);
+    } finally { gBtn.disabled = false; }
+  });
+  // 리다이렉트로 돌아온 경우의 오류 표시
+  auth.getRedirectResult().catch((err) => { if (err && err.code && err.code !== 'auth/no-auth-event') errBox.textContent = 'Google 로그인 실패: ' + err.message; });
   if (logoutBtn) logoutBtn.addEventListener('click', async () => { ME = null; try { await auth.signOut(); } catch (e) {} location.reload(); });
 
   // 로그인 후: users/{uid}의 role·active 확인 → 통과해야만 데이터 로드/부팅
-  async function block(msg) {
+  async function block(msg, pending) {
     errBox.textContent = msg;
+    errBox.classList.toggle('pending', !!pending);
     loginScreen.hidden = false;
     if (logoutBtn) logoutBtn.hidden = true;
     ME = null;
@@ -7934,8 +7967,20 @@ async function bootApp() {
     let udoc;
     try { udoc = await dataService.getUser(user.uid); }
     catch (e) { return block('권한 정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요.'); }
-    if (!udoc) return block('등록되지 않은 사용자입니다. 관리자에게 users 문서 등록을 요청하세요.');
-    if (udoc.active === false) return block('비활성화된 계정입니다. 관리자에게 문의하세요.');
+    if (!udoc) {
+      // 처음 온 Google 계정 → 승인 대기로 등록해 두고 관리자가 켜주길 기다린다
+      const isGoogle = (user.providerData || []).some((p) => p && p.providerId === 'google.com');
+      if (isGoogle) {
+        try { await dataService.registerSelf(user); }
+        catch (e) { return block(`등록되지 않은 사용자입니다.\n관리자에게 ${user.email} 계정 등록을 요청하세요.`); }
+        return block(`✅ ${user.email} 계정이 승인 대기로 등록됐습니다.\n관리자가 승인하면 로그인할 수 있습니다.`, true);
+      }
+      return block('등록되지 않은 사용자입니다. 관리자에게 users 문서 등록을 요청하세요.');
+    }
+    if (udoc.active === false) {
+      if (udoc.selfRegistered) return block(`⏳ ${user.email} 계정은 아직 승인 대기 중입니다.\n관리자에게 승인을 요청하세요.`, true);
+      return block('비활성화된 계정입니다. 관리자에게 문의하세요.');
+    }
     if (!['admin', 'manager', 'worker'].includes(udoc.role)) return block('권한(role)이 올바르지 않습니다. 관리자에게 문의하세요.');
     ME = { uid: user.uid, email: user.email, name: udoc.name || '', role: udoc.role, active: true };
     loginScreen.hidden = true;
