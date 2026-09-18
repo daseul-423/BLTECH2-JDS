@@ -1084,7 +1084,25 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .pm-cat:hover { border-color: var(--brand); color: var(--brand-deep); }
 .pm-cat.on { background: var(--brand-fill); border-color: var(--brand-fill); color: #fff; font-weight: 700; }
 .pm-cat.on span { color: rgba(255,255,255,.85); }
-/* 품목 마스터: 1단계 해외/국내는 크게, 2단계 거래처는 촘촘하게 */
-.pm-zones .pm-cat { font-size: 14px; padding: 8px 16px; }
-.pm-cos { padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--bg-soft, transparent); }
-.pm-cos .pm-cat { font-size: 12.5px; padding: 4px 10px; }
+/* 품목 마스터: 해외/국내 → 거래처 접이식 */
+.pm-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.pm-bar .spacer { flex: 1; }
+.pm-zone { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 12px; background: #fff; }
+.pm-zone > summary {
+  cursor: pointer; padding: 12px 16px; font-size: 15px; list-style: none; display: flex; align-items: center; gap: 8px;
+  border-radius: 12px; user-select: none;
+}
+.pm-zone > summary::before { content: '▸'; color: var(--muted); font-size: 12px; transition: transform .15s; }
+.pm-zone[open] > summary::before { transform: rotate(90deg); }
+.pm-zone[open] > summary { border-bottom: 1px solid var(--line); border-radius: 12px 12px 0 0; }
+.pm-zone-body { padding: 8px 12px 12px; }
+.pm-co { border: 1px solid var(--line); border-radius: 10px; margin: 6px 0; }
+.pm-co > summary {
+  cursor: pointer; padding: 8px 12px; font-size: 13.5px; list-style: none; display: flex; align-items: center; gap: 8px; user-select: none;
+}
+.pm-co > summary::before { content: '▸'; color: var(--muted); font-size: 11px; transition: transform .15s; }
+.pm-co[open] > summary::before { transform: rotate(90deg); }
+.pm-co[open] > summary { border-bottom: 1px solid var(--line); }
+.pm-co > summary:hover, .pm-zone > summary:hover { background: var(--bg-soft, #F7F8FA); }
+.pm-co .table-wrap { margin: 0; border: 0; border-radius: 0 0 10px 10px; }
+.pm-co summary::-webkit-details-marker, .pm-zone summary::-webkit-details-marker { display: none; }

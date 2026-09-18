@@ -2799,21 +2799,6 @@ async function runPmPart() {
     alert('처리 중 오류: ' + err.message);
   } finally { btn.disabled = false; btn.textContent = '분류 지정'; }
 }
-document.addEventListener('click', (e) => {
-  const z = e.target.closest('[data-pmzone]');
-  if (z) {
-    const v = z.dataset.pmzone;
-    if (PM_ZONE === v) { PM_ZONE = null; PM_CO = null; }   // 다시 누르면 접힘
-    else { PM_ZONE = v; PM_CO = null; }
-    renderProductMap(); return;
-  }
-  const c = e.target.closest('[data-pmco]');
-  if (c) {
-    const v = c.dataset.pmco;
-    PM_CO = PM_CO === v ? null : v;
-    renderProductMap();
-  }
-});
 /* 비고에 품번·품명과 똑같은 값이 들어간 행 — 엑셀 열이 잘못 붙어 생긴 것이라 비워준다 */
 function pmBadNotes() {
   return (PRODUCTMAP || []).filter((m) => {
@@ -2847,8 +2832,8 @@ $('#pmpart-close').addEventListener('click', () => ($('#pmpart-modal').hidden = 
 $('#pmpart-cancel').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
 $('#pmpart-run').addEventListener('click', runPmPart);
 
-let PM_ZONE = null;     // 지금 고른 구분 (해외/국내, null이면 아직 안 고름)
-let PM_CO = null;       // 지금 고른 거래처
+/* 펼쳐둔 묶음(구분·거래처) — 다시 그려도 펼친 상태가 유지되게 */
+const PM_OPEN = new Set(['z:해외', 'z:국내', 'z:']);
 function renderProductMap() {
   const box = $('#productmap-table');
   if (!box) return;
@@ -2895,9 +2880,24 @@ function renderProductMap() {
   /* 생산 스펙은 한 칸에 요약 — 기재 · 수지 · 코팅 중심 · 파우치 */
   const specOf = (m) => [m.baseType, m.resinType, m.coatingMid != null && m.coatingMid !== '' ? `코팅 ${m.coatingMid}` : '', m.pouchType ? `파우치 ${m.pouchType}` : '']
     .filter(Boolean).join(' · ');
-  const rowOf = (m) => `<tr data-pmid="${m.id}">
-    <td class="muted">${esc(m.zone ?? '')}</td>
-    <td>${esc(m.customer ?? '')}</td>
+  /* 한 화면에 전부 보이되 해외/국내 → 거래처로 묶어서, 묶음을 접었다 펼 수 있게 한다.
+     검색어를 넣으면 걸린 행만 남기고 그 묶음은 자동으로 펼친다. */
+  const zoneOrder = { '해외': 0, '국내': 1, '': 2 };
+  const zoneIcon = { '해외': '🌏', '국내': '🇰🇷', '': '❓' };
+  const byZone = new Map();
+  list.forEach((m) => {
+    const z = m.zone || '';
+    if (!byZone.has(z)) byZone.set(z, new Map());
+    const co = m.customer || '';
+    const zm = byZone.get(z);
+    if (!zm.has(co)) zm.set(co, []);
+    zm.get(co).push(m);
+  });
+  const zones = [...byZone.keys()].sort((a, b) => (zoneOrder[a] ?? 9) - (zoneOrder[b] ?? 9));
+  const thead = `<thead><tr>
+    <th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>브랜드</th><th>제품군</th><th>생산 스펙</th><th>비고</th>
+  </tr></thead>`;
+  const rowOf2 = (m) => `<tr data-pmid="${m.id}">
     <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : (m.zone === '국내' ? '' : '<span class="badge warn">미입력</span>')}</td>
     <td>${esc(m.product ?? '')}</td>
     <td class="muted">${esc(m.productCode ?? '-')}</td>
@@ -2906,54 +2906,44 @@ function renderProductMap() {
     <td class="muted" style="font-size:12.5px">${esc(specOf(m))}</td>
     <td>${m.note === PM_AUTO_NOTE ? '<span class="badge plain" title="수주주문서 등록 시 자동으로 생성됨">🤖 자동</span>' : esc(m.note ?? '')}</td>
   </tr>`;
-  /* 1,000건이 넘어 한 번에 다 뿌리면 못 본다 — 해외/국내를 먼저 고르고, 그 안에서 거래처를 골라 본다.
-     검색어를 넣었을 때는 구분·거래처와 상관없이 전체에서 찾는다. */
-  const countBy = (arr, keyOf) => {
-    const m = new Map();
-    arr.forEach((x) => { const k = keyOf(x); m.set(k, (m.get(k) || 0) + 1); });
-    return [...m.entries()];
-  };
-  const zoneOrder = { '해외': 0, '국내': 1, '': 2 };
-  const zones = countBy(PRODUCTMAP, (m) => m.zone || '')
-    .sort((a, b) => (zoneOrder[a[0]] ?? 9) - (zoneOrder[b[0]] ?? 9));
-  const zoneIcon = { '해외': '🌏', '국내': '🇰🇷', '': '❓' };
-  const zoneChips = `<div class="pm-cats pm-zones">
-    ${zones.map(([k, n]) => `<button type="button" class="pm-cat${PM_ZONE === k ? ' on' : ''}" data-pmzone="${esc(k)}">
-      ${zoneIcon[k] || ''} ${k ? esc(k) : '구분 미지정'} <span>${n}</span></button>`).join('')}
+  const isOpen = (key) => q ? true : PM_OPEN.has(key);
+  const html = zones.map((z) => {
+    const zm = byZone.get(z);
+    const cos = [...zm.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'ko'));
+    const zn = cos.reduce((t, [, arr]) => t + arr.length, 0);
+    const inner = cos.map(([co, arr]) => `
+      <details class="pm-co" data-pmkey="c:${esc(z)}|${esc(co)}"${isOpen(`c:${z}|${co}`) ? ' open' : ''}>
+        <summary><b>${co ? esc(co) : '거래처 미지정'}</b> <span class="muted">${fmt(arr.length)}건</span></summary>
+        <div class="table-wrap"><table>${thead}<tbody>${arr.map(rowOf2).join('')}</tbody></table></div>
+      </details>`).join('');
+    return `<details class="pm-zone" data-pmkey="z:${esc(z)}"${isOpen(`z:${z}`) ? ' open' : ''}>
+      <summary>${zoneIcon[z] || ''} <b>${z ? esc(z) : '구분 미지정'}</b> <span class="muted">거래처 ${cos.length}곳 · ${fmt(zn)}건</span></summary>
+      <div class="pm-zone-body">${inner}</div>
+    </details>`;
+  }).join('');
+  const bar = `<div class="pm-bar">
+    <span class="muted">${q ? `검색 결과 <b>${fmt(list.length)}건</b>` : `전체 ${fmt(list.length)}건`}</span>
+    <span class="spacer"></span>
+    <button type="button" class="btn small" data-pmfold="open">모두 펼치기</button>
+    <button type="button" class="btn small" data-pmfold="close">거래처 접기</button>
   </div>`;
-  let coChips = '';
-  if (PM_ZONE !== null) {
-    const cos = countBy(PRODUCTMAP.filter((m) => (m.zone || '') === PM_ZONE), (m) => m.customer || '')
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko'));
-    coChips = `<div class="pm-cats pm-cos">
-      ${cos.map(([k, n]) => `<button type="button" class="pm-cat${PM_CO === k ? ' on' : ''}" data-pmco="${esc(k)}">
-        ${k ? esc(k) : '거래처 미지정'} <span>${n}</span></button>`).join('')}
-    </div>`;
-  }
-  const chips = zoneChips + coChips;
-
-  let shown = list;
-  let head = '';
-  if (q) {
-    head = `<p class="muted" style="margin:0 0 8px">검색 결과 <b>${fmt(list.length)}건</b> — 구분·거래처와 상관없이 전체에서 찾았습니다.</p>`;
-  } else if (PM_ZONE === null) {
-    box.innerHTML = chips
-      + `<div class="empty">위에서 <b>해외 / 국내</b>를 고르면 거래처 목록이 나오고, 거래처를 고르면 그 품목만 보여줍니다.
-          <div class="muted" style="margin-top:6px;font-size:12.5px">전체 ${fmt(PRODUCTMAP.length)}건 · 검색창에 입력하면 전체에서 찾습니다.</div></div>`;
-    return;
-  } else if (PM_CO === null) {
-    box.innerHTML = chips + `<div class="empty"><b>${esc(PM_ZONE || '구분 미지정')}</b> 거래처를 고르면 그 품목만 보여줍니다.</div>`;
-    return;
-  } else {
-    shown = list.filter((m) => (m.zone || '') === PM_ZONE && (m.customer || '') === PM_CO);
-    head = `<p class="muted" style="margin:0 0 8px"><b>${esc(PM_ZONE || '구분 미지정')} › ${esc(PM_CO || '거래처 미지정')}</b> ${fmt(shown.length)}건</p>`;
-  }
-
-  if (!shown.length) { box.innerHTML = chips + '<div class="empty">해당하는 품목이 없습니다.</div>'; return; }
-  box.innerHTML = chips + head + `<div class="table-wrap"><table><thead><tr>
-    <th>구분</th><th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>브랜드</th><th>제품군</th><th>생산 스펙</th><th>비고</th>
-  </tr></thead><tbody>${shown.map(rowOf).join('')}</tbody></table></div>`;
+  box.innerHTML = bar + (zones.length ? html : '<div class="empty">해당하는 품목이 없습니다.</div>');
 }
+/* 접기/펼치기 상태 기억 */
+$('#productmap-table')?.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d.dataset || !d.dataset.pmkey) return;
+  if (d.open) PM_OPEN.add(d.dataset.pmkey); else PM_OPEN.delete(d.dataset.pmkey);
+}, true);
+$('#productmap-table')?.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pmfold]');
+  if (!b) return;
+  const open = b.dataset.pmfold === 'open';
+  $$('#productmap-table details[data-pmkey]').forEach((d) => {
+    if (open) { d.open = true; PM_OPEN.add(d.dataset.pmkey); }
+    else if (d.dataset.pmkey.startsWith('c:')) { d.open = false; PM_OPEN.delete(d.dataset.pmkey); }
+  });
+});
 $('#pm-search')?.addEventListener('input', renderProductMap);
 
 /* 품목 마스터 전체 삭제 (admin) — 마스터 파일로 통째로 갈아끼울 때 쓴다. 삭제 전에 백업(전체 데이터 내보내기)부터. */
@@ -2970,7 +2960,6 @@ $('#btn-pm-delall')?.addEventListener('click', async () => {
   try {
     await dataService.deleteMany('productmap', PRODUCTMAP.map((m) => m.id), (d, t) => { btn.textContent = `삭제 중… ${d}/${t}`; });
     await loadProductMap();
-    PM_ZONE = null; PM_CO = null;
     refreshCurrentPage();
     alert(`${n}건 삭제 완료. 이제 [📥 엑셀 업로드]로 품목 마스터를 올려주세요.`);
   } catch (e) { alert('삭제 실패: ' + e.message); }
