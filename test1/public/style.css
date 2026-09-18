@@ -1084,3 +1084,7 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .pm-cat:hover { border-color: var(--brand); color: var(--brand-deep); }
 .pm-cat.on { background: var(--brand-fill); border-color: var(--brand-fill); color: #fff; font-weight: 700; }
 .pm-cat.on span { color: rgba(255,255,255,.85); }
+/* 품목 마스터: 1단계 해외/국내는 크게, 2단계 거래처는 촘촘하게 */
+.pm-zones .pm-cat { font-size: 14px; padding: 8px 16px; }
+.pm-cos { padding: 10px 12px; border: 1px dashed var(--line); border-radius: 10px; background: var(--bg-soft, transparent); }
+.pm-cos .pm-cat { font-size: 12.5px; padding: 4px 10px; }
