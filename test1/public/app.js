@@ -7911,6 +7911,42 @@ async function bootApp() {
   const errBox = $('#login-error');
   const submitBtn = $('#login-submit');
   const logoutBtn = $('#logout-btn');
+  const acctBox = $('#acct-box');
+  const linkBtn = $('#link-google-btn');
+  const linkInfo = $('#link-google-info');
+  const showAcct = (on) => { if (acctBox) acctBox.hidden = !on; if (logoutBtn) logoutBtn.hidden = !on; };
+  /* 로그인된 계정에 Google이 묶여 있는지 보여주고, 안 묶였으면 연결 버튼을 낸다.
+     기존 직원은 회사 이메일(비밀번호 계정)로 들어와 있고 Google 계정은 따로라서, 여기서 한 번 묶어야
+     이후 Google 로그인이 같은 계정(같은 권한)으로 들어온다. */
+  function renderLink(user) {
+    if (!linkBtn || !linkInfo) return;
+    const g = (user.providerData || []).find((p) => p && p.providerId === 'google.com');
+    linkBtn.hidden = !!g;
+    linkInfo.hidden = !g;
+    if (g) linkInfo.textContent = `Google 연결됨 · ${g.email || ''}`;
+  }
+  if (linkBtn) linkBtn.addEventListener('click', async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    linkBtn.disabled = true;
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const res = await user.linkWithPopup(provider);
+      const g = (res.user.providerData || []).find((p) => p && p.providerId === 'google.com');
+      renderLink(res.user);
+      alert(`Google 계정을 연결했습니다.\n\n다음부터는 [Google 계정으로 로그인] → ${g ? g.email : ''} 을 고르면 지금 계정(${ME ? ME.role : ''})으로 들어옵니다.\n이메일·비밀번호 로그인도 그대로 됩니다.`);
+    } catch (err) {
+      const c = (err && err.code) || '';
+      if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') { /* 닫음 */ }
+      else if (c === 'auth/credential-already-in-use' || c === 'auth/email-already-in-use')
+        alert('그 Google 계정은 이미 다른 사용자 계정에 묶여 있습니다.\n(예: 그 Google 계정으로 먼저 로그인해서 승인 대기 계정이 생긴 경우) 관리자에게 문의하세요.');
+      else if (c === 'auth/operation-not-allowed')
+        alert('Google 로그인이 아직 켜져 있지 않습니다. Firebase 콘솔 → Authentication → 로그인 방법에서 Google을 사용 설정해야 합니다.');
+      else if (c === 'auth/provider-already-linked') renderLink(user);
+      else alert('연결 실패: ' + ((err && err.message) || err));
+    } finally { linkBtn.disabled = false; }
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -7958,12 +7994,12 @@ async function bootApp() {
     errBox.textContent = msg;
     errBox.classList.toggle('pending', !!pending);
     loginScreen.hidden = false;
-    if (logoutBtn) logoutBtn.hidden = true;
+    showAcct(false);
     ME = null;
     try { await auth.signOut(); } catch (e) {}
   }
   auth.onAuthStateChanged(async (user) => {
-    if (!user) { loginScreen.hidden = false; if (logoutBtn) logoutBtn.hidden = true; return; }
+    if (!user) { loginScreen.hidden = false; showAcct(false); return; }
     let udoc;
     try { udoc = await dataService.getUser(user.uid); }
     catch (e) { return block('권한 정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요.'); }
@@ -7984,7 +8020,9 @@ async function bootApp() {
     if (!['admin', 'manager', 'worker'].includes(udoc.role)) return block('권한(role)이 올바르지 않습니다. 관리자에게 문의하세요.');
     ME = { uid: user.uid, email: user.email, name: udoc.name || '', role: udoc.role, active: true };
     loginScreen.hidden = true;
-    if (logoutBtn) { logoutBtn.hidden = false; const u = $('#logout-user'); if (u) u.textContent = `${ME.name || user.email} · ${ME.role}`; }
+    showAcct(true);
+    const u = $('#logout-user'); if (u) u.textContent = `${ME.name || user.email} · ${ME.role}`;
+    renderLink(user);
     await bootApp();   // 권한 확인 후에만 업무 데이터 로드
   });
 })();

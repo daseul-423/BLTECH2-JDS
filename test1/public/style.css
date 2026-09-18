@@ -930,6 +930,9 @@ legend { font-size: 13px; font-weight: 700; color: var(--brand-fill); padding: 0
 .login-card .login-alt button { margin-top: 12px; padding: 9px; font-size: 14px; width: 100%; }
 .login-error { color: #e03131; font-size: 13px; min-height: 18px; margin-top: 8px; white-space: pre-line; }
 .login-error.pending { color: var(--brand-deep, #1f6f7a); }
+.acct-box { margin: 10px; display: flex; flex-direction: column; gap: 6px; }
+.acct-box[hidden] { display: none; }
+.acct-box .btn { width: 100%; justify-content: flex-start; }
 
 /* ===== 설비 대장: 설비 탭 + 상세 패널 ===== */
 .eq-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }

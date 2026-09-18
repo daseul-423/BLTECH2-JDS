@@ -70,7 +70,12 @@
       <button class="nav-btn" data-page="users">👤 사용자 관리</button>
     </div>
   </nav>
-  <button class="btn small" id="logout-btn" style="margin:10px" hidden>로그아웃 <span id="logout-user" class="muted"></span></button>
+  <div class="acct-box" id="acct-box" hidden>
+    <button class="btn small" id="logout-btn">로그아웃 <span id="logout-user" class="muted"></span></button>
+    <!-- 이메일 계정에 Google 계정을 묶는다 — 같은 UID라 권한이 그대로. 이미 묶였으면 어느 Google 계정인지 보여준다 -->
+    <button class="btn small" id="link-google-btn" hidden title="이 계정으로 Google 로그인도 되게 묶습니다">🔗 Google 계정 연결</button>
+    <div class="muted" id="link-google-info" style="font-size:11.5px;padding:0 2px" hidden></div>
+  </div>
   <div class="sidebar-foot">BL-TECH 생산1팀</div>
 </aside>
 
