@@ -56,10 +56,9 @@ async function api(path, opts = {}) {
   if (m && COLLECTIONS.includes(m[1])) {
     const col = m[1], id = m[2] ? Number(m[2]) : null;
     if (id == null && method === 'GET') {
-      let out = await dataService.list(col);
+      // 기간을 주면 Firestore에서 걸러 가져온다 (전부 읽으면 그만큼 읽기 요금이 나간다)
       const from = url.searchParams.get('from'), to = url.searchParams.get('to');
-      if (from) out = out.filter((r) => r.date >= from);
-      if (to) out = out.filter((r) => r.date <= to);
+      let out = await dataService.list(col, { from, to });
       out.sort((a, b) => (a.date === b.date ? String(a.machine ?? '').localeCompare(String(b.machine ?? '')) : a.date < b.date ? 1 : -1));
       return out;
     }
@@ -70,15 +69,62 @@ async function api(path, opts = {}) {
   throw new Error('unknown route: ' + p);
 }
 const post = (path, body, method = 'POST') => api(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-const loadRecords = async () => { RECORDS = await api('/api/records'); };
-const loadSheets = async () => { SHEETS = await api('/api/sheets'); };
-const loadPlans = async () => { PLANS = await api('/api/plans'); };
+/* ── 필요한 기간만 읽기 ────────────────────────────────────────────
+   Firestore는 '읽은 문서 수'로 요금이 매겨진다. 새로고침할 때마다 실적 전체를
+   읽으면 건수가 쌓일수록 그대로 비용·대기시간이 된다.
+   그래서 기본은 최근 몇 달치만 읽고, 그보다 예전 자료가 필요한 화면에서만
+   모자란 기간을 추가로 불러와 합친다. (화면 동작은 그대로) */
+const LOAD_MONTHS = { records: 6, sheets: 6, plans: 6, equipchecks: 12 };
+const LOADED_FROM = {};                    // 컬렉션별로 '지금 메모리에 있는 시작일'
+const monthsAgoStr = (n) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  d.setDate(1);
+  return d.toISOString().slice(0, 10);
+};
+const prevDayStr = (ymd) => {
+  const d = new Date(ymd + 'T00:00:00');
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
+const sortByDateDesc = (arr) => arr.sort((a, b) =>
+  (a.date === b.date ? String(a.machine ?? '').localeCompare(String(b.machine ?? '')) : (a.date < b.date ? 1 : -1)));
+
+async function loadWindowed(col, setter) {
+  const from = monthsAgoStr(LOAD_MONTHS[col] ?? 6);
+  LOADED_FROM[col] = from;
+  setter(await api(`/api/${col}?from=${from}`));
+}
+
+/* 지정한 날짜까지 거슬러 필요한 만큼만 더 읽어와 합친다. 새로 읽었으면 true */
+async function ensureLoadedFrom(col, from, getter, setter) {
+  if (!from) return false;
+  const cur = LOADED_FROM[col];
+  if (!cur || from >= cur) return false;                 // 이미 그 기간까지 갖고 있음
+  const older = await api(`/api/${col}?from=${from}&to=${prevDayStr(cur)}`);
+  const seen = new Set(getter().map((x) => x.id));
+  setter(sortByDateDesc(getter().concat(older.filter((x) => !seen.has(x.id)))));
+  LOADED_FROM[col] = from;
+  return true;
+}
+/* 화면 기간 필터가 메모리 범위보다 과거를 가리키면 그만큼 채워 넣고 다시 그린다 */
+async function ensureRangeForRender(col, from, getter, setter, rerender) {
+  try {
+    if (await ensureLoadedFrom(col, from, getter, setter)) rerender();
+  } catch (e) { console.warn('[' + col + '] 이전 기간 불러오기 실패', e); }
+}
+
+const loadRecords = async () => loadWindowed('records', (v) => { RECORDS = v; });
+const loadSheets = async () => loadWindowed('sheets', (v) => { SHEETS = v; });
+const loadPlans = async () => loadWindowed('plans', (v) => { PLANS = v; });
+const ensureRecordsFrom = (from, rerender) =>
+  ensureRangeForRender('records', from, () => RECORDS, (v) => { RECORDS = v; }, rerender);
 // 규칙 미배포 환경에서도 앱 부팅이 막히지 않도록 실패는 빈 목록으로 처리
 const loadOrders = async () => { try { ORDERS = await api('/api/orders'); } catch (e) { console.warn('[orders] 불러오기 실패', e); ORDERS = []; } };
 const loadProductMap = async () => { try { PRODUCTMAP = await api('/api/productmap'); } catch (e) { console.warn('[productmap] 불러오기 실패', e); PRODUCTMAP = []; } };
 const loadStandards = async () => { STANDARDS = await api('/api/standards'); };
 const loadCustSpecs = async () => { CUSTSPECS = await api('/api/custspecs'); };
-const loadEquipChecks = async () => { EQUIPCHECKS = await api('/api/equipchecks'); };
+const loadEquipChecks = async () => loadWindowed('equipchecks', (v) => { EQUIPCHECKS = v; });
 const loadEquipment = async () => { EQUIPMENT = await api('/api/equipment'); };
 const loadPolicies = async () => { POLICIES = await api('/api/policies'); };
 const loadMasters = async () => { MASTERS = await api('/api/masters'); };
@@ -793,18 +839,34 @@ const IMPORT_DEFS = {
     calcCols: [],
   },
   productmap: {
-    label: '품목 매핑(고객사↔내부품명)', coll: 'productmap', hasPart: false,
-    desc: '공정 구분 없이 통합 관리 — 고객사 외부품명/코드가 내부적으로 어떤 품명(+품번)인지 매핑. 수주주문서 업로드 시 이 표로 자동 연동됩니다',
+    label: '품목 마스터(고객사↔내부품명 + 생산 스펙)', coll: 'productmap', hasPart: false,
+    desc: '거래처가 부르는 외부품명/코드 ↔ 내부 품명·품번, 그리고 그 품목의 생산 스펙(기재·수지·코팅량·촉매·코어 등). 수주주문서 업로드 시 이 표로 자동 연동됩니다',
     // custCode가 비어있는 행이 많을 수 있어(추후 채워 넣는 워크플로) product도 키에 포함 —
     // 그래야 같은 업체의 서로 다른 제품이 코드 없이 여러 건 들어와도 서로 중복으로 안 잡힌다
     dupKey: (r) => [r.customer ?? '', r.custCode ?? '', r.product ?? ''].join('|'),
     dupLabel: '업체명+고객사 외부품명/코드+내부 품명',
     fields: [
+      // '구분'은 품목 마스터에서 해외/국내를 뜻하므로 공정 별칭에서 뺐다
+      F('part', '분류', ['분류', '공정', '파트']),
+      F('zone', '구분(해외/국내)', ['구분', '해외국내', '내수해외', '지역']),
       F('customer', '업체명', ['업체명', '고객사', '거래처', '취급업체명', '취급 업체명']),
       F('custCode', '고객사 외부품명/코드', ['고객사코드', '외부코드', '외부품명', '거래처코드', '고객코드', '발주코드', 'custcode',
         '외부 품명(CUSTOMER CODE)', '외부품명(CUSTOMER CODE)', 'CUSTOMER CODE']),
       F('product', '내부 품명', ['내부품명', '제품명', '품명', '내부 품명(BL CODE)', '내부품명(BL CODE)']),
       F('productCode', '내부 품번', ['내부품번', '제품코드', '품번', '내부 품번(BL CODE)', '내부품번(BL CODE)', 'BL CODE']),
+      F('brand', '브랜드', ['브랜드', 'brand']),
+      F('unit', '기준단위', ['기준단위', '단위', 'unit']),
+      F('color', '칼라', ['칼라', '컬러', '색상', 'color']),
+      F('baseType', '기재', ['기재', '기재종류', '원단']),
+      F('resinType', '수지', ['수지', '수지종류', 'resin']),
+      F('pouchType', '파우치', ['파우치', '포장']),
+      F('length', '길이(M)', ['길이', '길이m', 'length'], 'num'),
+      F('coatingMin', '코팅량 하한', ['코팅하한', '코팅량하한', '하한'], 'num'),
+      F('coatingMid', '코팅량 중심', ['코팅중심', '코팅량중심', '중심'], 'num'),
+      F('coatingMax', '코팅량 상한', ['코팅상한', '코팅량상한', '상한'], 'num'),
+      F('catalyst', '촉매', ['촉매', 'catalyst'], 'num'),
+      F('core', '코어종류', ['코어종류', '코어', 'core']),
+      F('rule', '적용규칙(제품군)', ['적용규칙', '제품군', '규칙']),
       F('note', '비고', ['비고', '특이사항']),
     ],
     calcCols: [],
@@ -845,6 +907,13 @@ function phKind(v) {
   if (/precut|프리컷|프리커트|프리캇/.test(s)) return 'PRE-CUT';
   return null;
 }
+/* PH 양식의 '구분' 열은 하이브리드 행에는 'HYBRID', 프리컷 행에는 호기('2호기', '1(3)호기')가 적힌다.
+   즉 프리컷은 호기 정보가 구분 칸에 들어 있으므로 여기서 호기로 옮겨준다. */
+function phMachine(v) {
+  const m = /(\d+)\s*(?:\([^)]*\))?\s*호기/.exec(String(v ?? ''));
+  return m ? `${m[1]}호기` : '';
+}
+
 /* 수주주문서 '공정(구분)' 열 값 → 파트 4종 (한 파일에 CAST/SPLINT/PRE-CUT/HYBRID 혼재) */
 function orderPartOf(v) {
   const s = impNorm(v);
@@ -1105,8 +1174,11 @@ function impGuessColumn(vals) {
     else out.push(['length', 0.5]);
   }
   if (ratio(impIsCodeVal) >= 0.7) out.push(['custCode', 0.55]);
+  /* 비고는 '문장'이다. FP-NPC-2P-BL-ALHILAL 같은 코드가 길다는 이유로 비고로 들어가면 안 되므로
+     띄어쓰기나 한글이 섞인 값이 대부분일 때만 비고로 본다. */
   const avgLen = v.reduce((a, x) => a + impStr(x).length, 0) / v.length;
-  if (avgLen > 18) out.push(['note', 0.4]);
+  const proseRatio = ratio((x) => /[\s가-힣]/.test(impStr(x)));
+  if (avgLen > 18 && proseRatio >= 0.6) out.push(['note', 0.4]);
   out.sort((a, b) => b[1] - a[1]);
   return out[0] ? { key: out[0][0], score: out[0][1] } : null;
 }
@@ -1192,9 +1264,20 @@ function impLoadSheet(name) {
   const def = IMPORT_DEFS[IMP.key];
 
   // 표가 어디서 시작하는지부터 찾는다 (서식 문서는 위쪽이 표가 아니다)
-  const dataStart = impFindTableStart(aoa);
+  // 단, 우리 항목 이름(별칭 포함)과 3개 이상 맞는 줄이 위에 있으면 그 줄이 헤더다 — 품목 마스터처럼
+  // 숫자 열이 거의 없는 표는 '숫자 섞인 줄' 기준으로는 시작점을 잘못 잡는다
+  const labelSet = new Set();
+  impFields(def).forEach((f) => { labelSet.add(impNorm(f.label)); f.alias.forEach((a) => labelSet.add(impNorm(a))); });
+  let byLabel = -1, byLabelN = 0;
+  for (let i = 0; i < Math.min(aoa.length, 15); i++) {
+    const n = (aoa[i] || []).filter((c) => labelSet.has(impNorm(c))).length;
+    if (n > byLabelN) { byLabelN = n; byLabel = i; }
+  }
+  const dataStart = byLabelN >= 3 ? byLabel + 1 : impFindTableStart(aoa);
   let hi;
-  if (dataStart > 0) {
+  if (byLabelN >= 3) {
+    hi = byLabel;
+  } else if (dataStart > 0) {
     const h = impPickHeaderRow(aoa, dataStart);
     hi = h >= 0 ? h : dataStart - 1;
   } else {
@@ -1274,6 +1357,8 @@ function impParse() {
         : IMP.key === 'orders' ? (orderPartOf(obj.kind) || IMP.part)
         : IMP.part;
     }
+    // 프리컷은 '구분' 칸에 호기가 적혀 온다 — 호기 칸이 비어 있으면 거기서 가져온다
+    if (phMode && !obj.machine) { const mc = phMachine(obj.kind); if (mc) obj.machine = mc; }
     if (IMP.key === 'orders') obj.priority = normPriority(obj.priority);
     // 문서 전체에 해당하는 값(업체명·날짜·발주번호)은 행에 없으면 문서 정보에서 채운다
     if (IMP.key === 'orders') {
@@ -1523,15 +1608,18 @@ async function renderUsers() {
   let users = LAST_USERS.slice();
   const q = ($('#user-search').value || '').trim().toLowerCase();
   if (q) users = users.filter((u) => [u.email, u.name, u.role].some((v) => String(v || '').toLowerCase().includes(q)));
-  users.sort((a, b) => String(a.email || '').localeCompare(String(b.email || '')));
+  const pendingOf = (u) => u.active === false && u.selfRegistered ? 0 : 1;
+  users.sort((a, b) => pendingOf(a) - pendingOf(b) || String(a.email || '').localeCompare(String(b.email || '')));
+  const pendingN = users.filter((u) => pendingOf(u) === 0).length;
   const rows = users.map((u) => `<tr class="user-row" data-uid="${esc(u.uid)}" style="cursor:pointer">
-    <td>${esc(u.email || '-')}</td><td>${esc(u.name || '-')}</td><td>${userRoleBadge(u.role)}</td>
-    <td>${u.active === false ? '<span class="badge bad">비활성</span>' : '<span class="badge ok">활성</span>'}</td>
+    <td>${esc(u.email || '-')}${u.provider === 'google' ? ' <span class="muted" style="font-size:11px">Google</span>' : ''}</td><td>${esc(u.name || '-')}</td><td>${userRoleBadge(u.role)}</td>
+    <td>${pendingOf(u) === 0 ? '<span class="badge warn">⏳ 승인 대기</span>' : u.active === false ? '<span class="badge bad">비활성</span>' : '<span class="badge ok">활성</span>'}</td>
     <td>${esc((u.updatedAt || '').slice(0, 16).replace('T', ' '))}</td>
     <td><button type="button" class="btn small user-edit" data-uid="${esc(u.uid)}">수정</button></td>
   </tr>`).join('');
   box.innerHTML = users.length
-    ? `<table><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>활성</th><th>마지막 수정</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+    ? (pendingN ? `<p class="muted" style="margin:0 0 8px">⏳ 승인 대기 <b>${pendingN}명</b> — [수정]에서 역할을 정하고 활성을 켜주세요.</p>` : '')
+      + `<table><thead><tr><th>이메일</th><th>이름</th><th>역할</th><th>활성</th><th>마지막 수정</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 users 문서가 없습니다. [＋ users 문서 등록]으로 추가하세요.</div>';
 }
 function friendlyAuthError(err) {
@@ -2599,17 +2687,189 @@ if ($('#so-upload-modal')) {
 }
 
 /* ===================== 품목 매핑 (고객사 외부품명/코드 ↔ 내부 품명·품번, 공정 구분 없음) ===================== */
+/* 내부 품명의 앞부분을 '제품군'으로 본다 — SMRC-2F-BL(SMILE) → SMRC, (프리컷)NHPS-3014F → 프리컷
+   품목 매핑에는 공정 칸이 없어서, 이 제품군 단위로 공정을 한 번씩만 정해주면 전체가 분류된다. */
+/* 품목 마스터 행의 제품군 — 마스터에 적용규칙(NAC-F, NHPS-F, PXRT-HN …)이 있으면 그 앞부분(NAC, NHPS, PXRT)을,
+   없으면 내부 품명에서 추정한다. */
+function pmFamilyOf(m) {
+  const r = String((m && m.rule) || '').trim().toUpperCase();
+  if (r) { const b = /^([A-Z]+)/.exec(r); return b ? b[1] : r; }
+  return pmFamily(m && m.product);
+}
+function pmFamily(product) {
+  /* 앞에 붙은 (프리컷)·(알파) 같은 표기는 떼고 제품코드로 묶는다.
+     (프리컷)NHPS-2012F → NHPS, (알파)NAC-2F-GR → NAC — 같은 제품을 부르는 말만 다른 경우가 있어서
+     제품코드를 기준으로 삼아야 흩어지지 않는다. */
+  let t = String(product || '').trim().replace(/^[(（][^)）]*[)）]\s*/, '');
+  const m = /^([A-Za-z]+)/.exec(t);
+  if (m) return m[1].toUpperCase();
+  const m2 = /^([A-Za-z가-힣]+)/.exec(t);
+  return m2 ? m2[1].toUpperCase() : '(기타)';
+}
+
+/* 제품군 → 분류 기본 제안. 공정 4종에 안 담기는 제품군이 있어(배관·닐커버·언더패드·하이드로겔)
+   분류는 고정 선택지가 아니라 직접 적는 값으로 둔다. 아래는 알려진 것만 미리 채워준다. */
+const PM_CAT_HINT = {
+  PXRT: '배관', PXRH: '배관',
+  NCB: '닐커버', NUP: '언더패드', HYDROGEL: '하이드로겔',
+  NHPS: 'PRE-CUT', SMPS: 'PRE-CUT',
+  // 제품표준서에 같은 계열이 있어 공정을 확인한 것들
+  NHC: 'CAST', NPC: 'CAST', SMRC: 'CAST', NAC: 'CAST', NHRS: 'SPLINT', SMRS: 'SPLINT',
+};
+/* 표에 없는 제품군도 이름 모양으로 짐작한다 — HYDROGELBODYPATCH·MEDIPLAST… → 하이드로겔, PXR… → 배관 */
+function pmCatHint(fam) {
+  const f = String(fam || '').toUpperCase();
+  if (PM_CAT_HINT[f]) return PM_CAT_HINT[f];
+  if (/^HYDROGEL|^MEDIPLAST/.test(f)) return '하이드로겔';
+  if (/^PXR/.test(f)) return '배관';
+  if (/^NUP/.test(f)) return '언더패드';
+  if (/^NCB/.test(f)) return '닐커버';
+  return '';
+}
+/* 위 표에 없으면 제품표준서에서 같은 계열을 찾아 공정을 제안한다 */
+function pmPartFromStandards(fam) {
+  const f = String(fam || '').toUpperCase();
+  const hit = (STANDARDS || []).filter((s) => pmFamily(s.product).toUpperCase() === f);
+  const parts = [...new Set(hit.map((s) => s.part).filter(Boolean))];
+  return parts.length === 1 ? parts[0] : '';
+}
+let PM_FAMS = [];
+function openPmPartModal() {
+  const map = new Map();
+  (PRODUCTMAP || []).forEach((m) => {
+    const f = pmFamilyOf(m);
+    if (!map.has(f)) map.set(f, { fam: f, items: [], parts: new Set() });
+    map.get(f).items.push(m);
+    map.get(f).parts.add(m.part || '');
+  });
+  PM_FAMS = [...map.values()].sort((a, b) => b.items.length - a.items.length || a.fam.localeCompare(b.fam, 'ko'));
+  // 이미 쓰인 분류 + 공정 4종 + 알려진 제안을 추천 목록으로
+  const known = [...new Set([...PARTS, ...Object.values(PM_CAT_HINT),
+    ...(PRODUCTMAP || []).map((m) => m.part).filter(Boolean)])];
+  const rows = PM_FAMS.map((g, i) => {
+    const cur = g.parts.size === 1 ? [...g.parts][0] : '';
+    const suggest = cur || pmCatHint(g.fam) || pmPartFromStandards(g.fam) || '';
+    const sample = g.items.slice(0, 3).map((m) => m.product).join(', ');
+    return `<div class="pmf-row">
+      <input type="text" class="pmf-cat" data-pmfam="${i}" list="dl-pmcat"
+             value="${esc(suggest)}" placeholder="분류 입력">
+      <div class="pmf-info">
+        <div class="pmf-name"><b>${esc(g.fam)}</b> <span class="muted">${g.items.length}건</span></div>
+        <div class="pmf-sample">${esc(sample)}${g.items.length > 3 ? ' …' : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+  const dl = `<datalist id="dl-pmcat">${known.map((v) => `<option value="${esc(v)}">`).join('')}</datalist>`;
+  const chips = known.length
+    ? `<div class="pmf-chips"><span class="muted">자주 쓰는 분류 —</span>${known
+        .map((v) => `<button type="button" class="pmf-chip" data-pmcat="${esc(v)}">${esc(v)}</button>`).join('')}</div>`
+    : '';
+  $('#pmpart-body').innerHTML = dl
+    + `<p class="muted" style="margin:0 0 8px;font-size:12.5px">왼쪽 칸에 분류를 적으세요. 아래 버튼을 누르면 <b>마지막으로 클릭한 칸</b>에 채워집니다. 비워두면 그대로 둡니다.</p>`
+    + chips
+    + `<div class="pmf-list">${rows}</div>`;
+  /* 칩을 누르면 방금 만지던 칸에 넣어준다 — 같은 분류를 여러 제품군에 반복해 적는 일이 많다 */
+  let lastCat = null;
+  $('#pmpart-body').addEventListener('focusin', (e) => {
+    if (e.target.classList && e.target.classList.contains('pmf-cat')) lastCat = e.target;
+  });
+  $('#pmpart-body').addEventListener('click', (e) => {
+    const chip = e.target.closest('.pmf-chip');
+    if (!chip) return;
+    const box = lastCat || $('#pmpart-body .pmf-cat');
+    if (box) { box.value = chip.dataset.pmcat; box.focus(); }
+  });
+  $('#pmpart-modal').hidden = false;
+}
+
+async function runPmPart() {
+  const picks = $$('#pmpart-body input[data-pmfam]')
+    .map((el) => ({ g: PM_FAMS[Number(el.dataset.pmfam)], part: el.value.trim() }))
+    .filter((x) => x.g && x.part);
+  const changed = [];
+  picks.forEach(({ g, part }) => g.items.forEach((m) => { if ((m.part || '') !== part) changed.push({ ...m, part }); }));
+  if (!changed.length) { alert('바뀌는 항목이 없습니다. 분류를 적어주세요.'); return; }
+  if (!confirm(`품목 매핑 ${changed.length}건에 분류를 지정합니다.\n\n다른 값은 그대로입니다. 진행할까요?`)) return;
+  const btn = $('#pmpart-run');
+  btn.disabled = true; btn.textContent = '적용 중…';
+  try {
+    await dataService.updateMany('productmap', changed, (d, t) => { btn.textContent = `적용 중… ${d}/${t}`; });
+    await loadProductMap();
+    $('#pmpart-modal').hidden = true;
+    refreshCurrentPage();
+    alert(`품목 매핑 ${changed.length}건에 분류를 지정했습니다.`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message);
+  } finally { btn.disabled = false; btn.textContent = '분류 지정'; }
+}
+/* 비고에 품번·품명과 똑같은 값이 들어간 행 — 엑셀 열이 잘못 붙어 생긴 것이라 비워준다 */
+function pmBadNotes() {
+  return (PRODUCTMAP || []).filter((m) => {
+    const n = String(m.note || '').trim();
+    if (!n || n === PM_AUTO_NOTE) return false;
+    return n === String(m.productCode || '').trim()
+        || n === String(m.product || '').trim()
+        || n === String(m.custCode || '').trim();
+  });
+}
+async function runPmNoteClean() {
+  const list = pmBadNotes();
+  if (!list.length) { alert('정리할 비고가 없습니다.'); return; }
+  const sample = list.slice(0, 3).map((m) => `· ${m.product} — 비고 "${m.note}"`).join('\n');
+  if (!confirm(`비고에 품번·품명과 똑같은 값이 들어간 ${list.length}건의 비고를 비웁니다.\n\n${sample}${list.length > 3 ? '\n· …' : ''}\n\n품번·품명 등 다른 값은 그대로입니다. 진행할까요?`)) return;
+  const btn = $('#btn-pm-note');
+  btn.disabled = true; btn.textContent = '정리 중…';
+  try {
+    await dataService.updateMany('productmap', list.map((m) => ({ ...m, note: '' })),
+      (d, t) => { btn.textContent = `정리 중… ${d}/${t}`; });
+    await loadProductMap();
+    refreshCurrentPage();
+    alert(`비고 ${list.length}건을 비웠습니다.`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message);
+  } finally { btn.disabled = false; }
+}
+$('#btn-pm-note').addEventListener('click', runPmNoteClean);
+$('#btn-pm-part').addEventListener('click', openPmPartModal);
+$('#pmpart-close').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
+$('#pmpart-cancel').addEventListener('click', () => ($('#pmpart-modal').hidden = true));
+$('#pmpart-run').addEventListener('click', runPmPart);
+
+/* 펼쳐둔 묶음(구분·거래처) — 다시 그려도 펼친 상태가 유지되게 */
+const PM_OPEN = new Set(['z:해외', 'z:국내', 'z:']);
 function renderProductMap() {
   const box = $('#productmap-table');
   if (!box) return;
   const q = ($('#pm-search').value || '').trim().toLowerCase();
   let list = PRODUCTMAP.slice();
-  if (q) list = list.filter((m) => [m.customer, m.custCode, m.product, m.productCode, m.note].some((v) => String(v || '').toLowerCase().includes(q)));
-  list.sort((a, b) => String(a.customer || '').localeCompare(String(b.customer || '')) || String(a.custCode || '').localeCompare(String(b.custCode || '')));
+  if (q) list = list.filter((m) => [m.customer, m.custCode, m.product, m.productCode, m.brand, m.rule, m.note].some((v) => String(v || '').toLowerCase().includes(q)));
+  list.sort((a, b) => String(a.customer || '').localeCompare(String(b.customer || ''))
+    || String(a.rule || '').localeCompare(String(b.rule || ''))
+    || String(a.product || '').localeCompare(String(b.product || '')));
 
   const impBtn = $('#btn-import-productmap');
   if (impBtn) impBtn.hidden = !canAccessPage('import');
-  const missingN = PRODUCTMAP.filter((m) => !m.custCode).length;
+  const dl2 = $('#dl-pmcat2');
+  if (dl2) {
+    const cats = [...new Set([...PARTS, ...Object.values(PM_CAT_HINT), ...PRODUCTMAP.map((m) => m.part).filter(Boolean)])];
+    dl2.innerHTML = cats.map((v) => `<option value="${esc(v)}">`).join('');
+  }
+  const badNote = can('update', 'productmap') ? pmBadNotes().length : 0;
+  const nbBtn = $('#btn-pm-note');
+  if (nbBtn) {
+    nbBtn.hidden = !badNote;
+    nbBtn.textContent = `🧹 비고 정리 (${badNote})`;
+  }
+  const noPart = PRODUCTMAP.filter((m) => !m.part).length;
+  const ppBtn = $('#btn-pm-part');
+  if (ppBtn) {
+    ppBtn.hidden = !can('update', 'productmap');
+    ppBtn.textContent = noPart ? `📦 분류 지정 (미지정 ${noPart})` : '📦 분류 지정';
+  }
+  // 국내 거래처는 외부코드 없이 내부 품명으로 거래하므로 미입력으로 세지 않는다
+  const missingN = PRODUCTMAP.filter((m) => !m.custCode && m.zone !== '국내').length;
+  const delBtn = $('#btn-pm-delall');
+  if (delBtn) delBtn.hidden = !(can('delete', 'productmap') && PRODUCTMAP.length);
   const autoN = PRODUCTMAP.filter((m) => m.note === PM_AUTO_NOTE).length;
   const sumEl = $('#pm-missing-sum');
   if (sumEl) {
@@ -2619,19 +2879,95 @@ function renderProductMap() {
     sumEl.textContent = parts.length ? parts.join(' · ') + ' — 행을 클릭하면 수정할 수 있습니다' : '';
   }
 
-  if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목 매핑이 없습니다. [＋ 매핑 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
-  const rows = list.map((m) => `<tr data-pmid="${m.id}">
-    <td>${esc(m.customer ?? '')}</td>
-    <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : '<span class="badge warn">미입력</span>'}</td>
+  if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목이 없습니다. [＋ 품목 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
+  /* 생산 스펙은 한 칸에 요약 — 기재 · 수지 · 코팅 중심 · 파우치 */
+  const specOf = (m) => [m.baseType, m.resinType, m.coatingMid != null && m.coatingMid !== '' ? `코팅 ${m.coatingMid}` : '', m.pouchType ? `파우치 ${m.pouchType}` : '']
+    .filter(Boolean).join(' · ');
+  /* 한 화면에 전부 보이되 해외/국내 → 거래처로 묶어서, 묶음을 접었다 펼 수 있게 한다.
+     검색어를 넣으면 걸린 행만 남기고 그 묶음은 자동으로 펼친다. */
+  const zoneOrder = { '해외': 0, '국내': 1, '': 2 };
+  const zoneIcon = { '해외': '🌏', '국내': '🇰🇷', '': '❓' };
+  const byZone = new Map();
+  list.forEach((m) => {
+    const z = m.zone || '';
+    if (!byZone.has(z)) byZone.set(z, new Map());
+    const co = m.customer || '';
+    const zm = byZone.get(z);
+    if (!zm.has(co)) zm.set(co, []);
+    zm.get(co).push(m);
+  });
+  const zones = [...byZone.keys()].sort((a, b) => (zoneOrder[a] ?? 9) - (zoneOrder[b] ?? 9));
+  const thead = `<thead><tr>
+    <th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>브랜드</th><th>제품군</th><th>생산 스펙</th><th>비고</th>
+  </tr></thead>`;
+  const rowOf2 = (m) => `<tr data-pmid="${m.id}">
+    <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : (m.zone === '국내' ? '' : '<span class="badge warn">미입력</span>')}</td>
     <td>${esc(m.product ?? '')}</td>
     <td class="muted">${esc(m.productCode ?? '-')}</td>
+    <td>${esc(m.brand ?? '')}</td>
+    <td><span class="badge plain" title="${esc(m.rule ?? '')}">${esc(m.rule || pmFamilyOf(m))}</span></td>
+    <td class="muted" style="font-size:12.5px">${esc(specOf(m))}</td>
     <td>${m.note === PM_AUTO_NOTE ? '<span class="badge plain" title="수주주문서 등록 시 자동으로 생성됨">🤖 자동</span>' : esc(m.note ?? '')}</td>
-  </tr>`).join('');
-  box.innerHTML = `<table><thead><tr>
-    <th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>비고</th>
-  </tr></thead><tbody>${rows}</tbody></table>`;
+  </tr>`;
+  const isOpen = (key) => q ? true : PM_OPEN.has(key);
+  const html = zones.map((z) => {
+    const zm = byZone.get(z);
+    const cos = [...zm.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0], 'ko'));
+    const zn = cos.reduce((t, [, arr]) => t + arr.length, 0);
+    const inner = cos.map(([co, arr]) => `
+      <details class="pm-co" data-pmkey="c:${esc(z)}|${esc(co)}"${isOpen(`c:${z}|${co}`) ? ' open' : ''}>
+        <summary><b>${co ? esc(co) : '거래처 미지정'}</b> <span class="muted">${fmt(arr.length)}건</span></summary>
+        <div class="table-wrap"><table>${thead}<tbody>${arr.map(rowOf2).join('')}</tbody></table></div>
+      </details>`).join('');
+    return `<details class="pm-zone" data-pmkey="z:${esc(z)}"${isOpen(`z:${z}`) ? ' open' : ''}>
+      <summary>${zoneIcon[z] || ''} <b>${z ? esc(z) : '구분 미지정'}</b> <span class="muted">거래처 ${cos.length}곳 · ${fmt(zn)}건</span></summary>
+      <div class="pm-zone-body">${inner}</div>
+    </details>`;
+  }).join('');
+  const bar = `<div class="pm-bar">
+    <span class="muted">${q ? `검색 결과 <b>${fmt(list.length)}건</b>` : `전체 ${fmt(list.length)}건`}</span>
+    <span class="spacer"></span>
+    <button type="button" class="btn small" data-pmfold="open">모두 펼치기</button>
+    <button type="button" class="btn small" data-pmfold="close">거래처 접기</button>
+  </div>`;
+  box.innerHTML = bar + (zones.length ? html : '<div class="empty">해당하는 품목이 없습니다.</div>');
 }
+/* 접기/펼치기 상태 기억 */
+$('#productmap-table')?.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!d.dataset || !d.dataset.pmkey) return;
+  if (d.open) PM_OPEN.add(d.dataset.pmkey); else PM_OPEN.delete(d.dataset.pmkey);
+}, true);
+$('#productmap-table')?.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-pmfold]');
+  if (!b) return;
+  const open = b.dataset.pmfold === 'open';
+  $$('#productmap-table details[data-pmkey]').forEach((d) => {
+    if (open) { d.open = true; PM_OPEN.add(d.dataset.pmkey); }
+    else if (d.dataset.pmkey.startsWith('c:')) { d.open = false; PM_OPEN.delete(d.dataset.pmkey); }
+  });
+});
 $('#pm-search')?.addEventListener('input', renderProductMap);
+
+/* 품목 마스터 전체 삭제 (admin) — 마스터 파일로 통째로 갈아끼울 때 쓴다. 삭제 전에 백업(전체 데이터 내보내기)부터. */
+$('#btn-pm-delall')?.addEventListener('click', async () => {
+  if (!can('delete', 'productmap')) return;
+  const n = PRODUCTMAP.length;
+  if (!n) return;
+  if (!confirm(`⚠️ 품목 마스터 ${n}건을 전부 삭제합니다.\n\n수주주문서 업로드 시 고객사코드 자동 연동이 이 표를 쓰므로, 삭제 후에는 새 마스터를 바로 올려주세요.\n삭제 후 되돌릴 수 없습니다 — 먼저 [📤 전체 데이터 내보내기]로 백업했는지 확인하세요.\n\n계속할까요?`)) return;
+  const typed = prompt(`정말 삭제하려면 삭제 건수 ${n} 을 입력하세요.`);
+  if (typed == null) return;
+  if (String(typed).trim() !== String(n)) return alert('건수가 일치하지 않아 취소했습니다.');
+  const btn = $('#btn-pm-delall');
+  btn.disabled = true;
+  try {
+    await dataService.deleteMany('productmap', PRODUCTMAP.map((m) => m.id), (d, t) => { btn.textContent = `삭제 중… ${d}/${t}`; });
+    await loadProductMap();
+    refreshCurrentPage();
+    alert(`${n}건 삭제 완료. 이제 [📥 엑셀 업로드]로 품목 마스터를 올려주세요.`);
+  } catch (e) { alert('삭제 실패: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '🗑 전체 삭제'; }
+});
 
 let editingProductMapId = null;
 const productMapForm = $('#productmap-form');
@@ -2639,7 +2975,7 @@ function openProductMapModal(id = null) {
   if (!productMapForm) return;
   editingProductMapId = id;
   productMapForm.reset();
-  $('#productmap-modal-title').textContent = id ? '품목 매핑 수정' : '품목 매핑 등록';
+  $('#productmap-modal-title').textContent = id ? '품목 수정' : '품목 등록';
   $('#productmap-delete').hidden = !id;
   if (id) {
     const m = PRODUCTMAP.find((x) => x.id === id);
@@ -2661,7 +2997,10 @@ if (productMapForm) {
   productMapForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const m = {};
-    [...productMapForm.elements].forEach((el) => { if (el.name) m[el.name] = el.value || null; });
+    [...productMapForm.elements].forEach((el) => {
+      if (!el.name) return;
+      m[el.name] = el.value === '' ? null : (el.type === 'number' ? Number(el.value) : el.value);
+    });
     try {
       const orig = editingProductMapId ? (PRODUCTMAP.find((x) => x.id === editingProductMapId) || {}) : {};
       if (editingProductMapId) await post('/api/productmap/' + editingProductMapId, { ...orig, ...m }, 'PUT');
@@ -2672,7 +3011,7 @@ if (productMapForm) {
     } catch (err) { alert('저장 실패: ' + err.message); }
   });
   $('#productmap-delete').addEventListener('click', async () => {
-    if (!editingProductMapId || !confirm('이 매핑을 삭제하시겠습니까?')) return;
+    if (!editingProductMapId || !confirm('이 품목을 삭제하시겠습니까?')) return;
     await api('/api/productmap/' + editingProductMapId, { method: 'DELETE' });
     await loadProductMap();
     $('#productmap-modal').hidden = true;
@@ -3000,7 +3339,7 @@ function renderStandards() {
   const bfBtn = $('#btn-std-basefill');
   if (bfBtn) { bfBtn.hidden = !legacyBase; bfBtn.textContent = `📥 기본 사양 가져오기 (${legacyBase})`; }
   if (!items.length) { $('#standards-list').innerHTML = '<div class="empty">등록된 표준서가 없습니다. [＋ 표준서 등록]으로 추가하세요.</div>'; return; }
-  $('#standards-list').innerHTML = items.map((s) => {
+  const stdCard = (s) => {
     // 자재 기준만 보여준다. 코팅량·포장·색상은 생산사양 소관이라 여기 싣지 않는다.
     const mat = (label, v) => v ? `<span><i>${label}</i> ${esc(v)}</span>` : '';
     const coat = coatingSpec(s);
@@ -3018,7 +3357,23 @@ function renderStandards() {
         </div>
       </div>
     </div>`;
-  }).join('');
+  };
+  /* 기재 종류로 묶어서 보여준다 — 한 줄로 쭉 나열하면 30건만 되어도 찾기 어렵다 */
+  const groups = new Map();
+  items.forEach((s) => {
+    const k = String(s.baseType || '').trim() || '(기재 미입력)';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  });
+  const ordered = [...groups.entries()].sort((a, b) =>
+    (a[0] === '(기재 미입력)' ? 1 : b[0] === '(기재 미입력)' ? -1 : 0)
+    || b[1].length - a[1].length || a[0].localeCompare(b[0], 'ko'));
+  $('#standards-list').innerHTML = ordered.map(([k, list]) => `<section class="std-group">
+    <h3 class="std-group-head">${esc(k)} <span class="muted">${list.length}건</span></h3>
+    <div class="standard-grid">${list
+      .sort((a, b) => String(a.product || '').localeCompare(String(b.product || ''), 'ko'))
+      .map(stdCard).join('')}</div>
+  </section>`).join('');
 }
 $('#st-search').addEventListener('input', renderStandards);
 document.addEventListener('click', (e) => {
@@ -3354,7 +3709,8 @@ function renderCompanies() {
   if (fNoPack) items = items.filter((c) => c._oem && c._noPack);
   if (fExc) items = items.filter((c) => c._exc.length);
   if (fReq) items = items.filter((c) => hasReq(c) || c._exc.length);
-  items.sort((a, b) => (a._oem === b._oem ? 0 : (a._oem ? -1 : 1)) || String(a.name || '').localeCompare(String(b.name || '')));
+  items.sort((a, b) => String(a.country || '').localeCompare(String(b.country || ''), 'ko')
+    || String(a.name || '').localeCompare(String(b.name || ''), 'ko'));
   const noPack = all.filter((c) => c._oem && c._noPack).length;   // 전체 기준 (필터와 무관한 할 일 수)
   const filtered = items.length !== all.length;
   $('#co-count').textContent = `${filtered ? `${items.length} / ` : '총 '}${all.length}개 · OEM ${items.filter((c) => c._oem).length}`
@@ -3406,14 +3762,28 @@ function renderCompanies() {
     const t = [...c._exc.map((x) => x.product), c.notes].filter(Boolean).join(' · ');
     return bits.length ? `<div class="co-cell" title="${esc(t)}">${bits.join(' ')}</div>` : '';
   };
-  const rows = items.map((c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
+  /* 내수 / 해외로 묶어서 보여준다 */
+  const zoneOf = (c) => {
+    const n = String(c.country || '').trim();
+    if (!n) return '미지정';
+    return /^(내수|한국|국내)$/.test(n) ? '내수' : '해외';
+  };
+  const ZONES = ['내수', '해외', '미지정'];
+  const rowOf = (c) => `<tr class="co-row" data-id="${c.id}" style="cursor:pointer">
     <td><b>${esc(c.name || '')}</b></td>
     <td>${esc(c.country || '')}</td>
     <td>${specBadge(c._oem ? 'OEM' : 'NEAL')}${c._oem && c._noPack ? ' <span class="badge bad" title="OEM인데 전용 파우치·박스가 비어 있습니다. 이대로면 작업지시서에 기본 포장이 나갑니다">전용 포장 미입력</span>' : ''}</td>
     <td>${cell(c.packLabel)}</td><td>${cell(c.packInBox)}</td><td>${cell(c.packOutBox)}</td>
     <td>${colorTonerCell(c)}</td>
     <td>${noteCell(c)}</td>
-  </tr>`).join('');
+  </tr>`;
+  const rows = ZONES.map((z) => {
+    const list = items.filter((c) => zoneOf(c) === z);
+    if (!list.length) return '';
+    const oemN = list.filter((c) => c._oem).length;
+    return `<tr class="co-zone"><td colspan="8">${z === '내수' ? '🇰🇷' : z === '해외' ? '🌐' : '❓'} ${z}
+      <span class="muted">${list.length}곳 · OEM ${oemN}</span></td></tr>` + list.map(rowOf).join('');
+  }).join('');
   $('#companies-list').innerHTML = items.length
     ? `<table class="co-table"><thead><tr><th>업체</th><th>나라</th><th>포장 구분</th><th>파우치</th><th>In Box</th><th>Out Box</th><th>컬러 · 토너</th><th>제품별 예외</th></tr></thead><tbody>${rows}</tbody></table>`
     : '<div class="empty">등록된 업체가 없습니다.</div>';
@@ -3474,7 +3844,7 @@ function setCompanyTab(tab) {
 const CO_REF_COLLS = [
   { coll: 'custspecs', label: '제품별 예외', get: () => CUSTSPECS },
   { coll: 'standards', label: '제품표준서', get: () => STANDARDS },
-  { coll: 'productmap', label: '품목매핑', get: () => PRODUCTMAP },
+  { coll: 'productmap', label: '품목마스터', get: () => PRODUCTMAP },
   { coll: 'orders', label: '수주', get: () => ORDERS },
   { coll: 'plans', label: '생산계획', get: () => PLANS },
   { coll: 'records', label: '생산실적', get: () => RECORDS },
@@ -3899,7 +4269,11 @@ $('#equipcheck-delete').addEventListener('click', async () => {
   await api('/api/equipchecks/' + editingEquipCheckId, { method: 'DELETE' });
   await loadEquipChecks(); $('#equipcheck-modal').hidden = true; refreshCurrentPage();
 });
-['ec-month', 'ec-machine', 'ec-part'].forEach((id) => $('#' + id).addEventListener('input', renderEquipChecks));
+['ec-month', 'ec-machine', 'ec-part'].forEach((id) => $('#' + id).addEventListener('input', () => {
+  renderEquipChecks();
+  const m = $('#ec-month').value;
+  if (id === 'ec-month' && m) ensureRangeForRender('equipchecks', m + '-01', () => EQUIPCHECKS, (v) => { EQUIPCHECKS = v; }, renderEquipChecks);
+}));
 
 /* ===================== 설비 대장 (설비별 탭 → 체크리스트 + 점검·수리 이력) ===================== */
 let editingEquipmentId = null;      // 설비 정보 등록/수정 모달 대상
@@ -5531,6 +5905,18 @@ function renderLogs() {
   const nfx = $('#btn-fix-names');
   nfx.hidden = !nameN;
   nfx.textContent = `🧹 제품명·업체명 정리 (${nameN})`;
+  /* 최근 몇 달치만 올려두고 쓰므로, 어디까지 읽어왔는지 보이게 한다 */
+  const lf = $('#f-loaded');
+  if (lf) {
+    const from = LOADED_FROM.records;
+    lf.textContent = from ? `${from}부터 ${fmt(RECORDS.length)}건 불러옴` : `${fmt(RECORDS.length)}건`;
+    const all = $('#btn-load-all');
+    if (all) all.hidden = !from;
+  }
+  const phN = can('update', 'records') ? phFixPlans().length : 0;
+  const phb = $('#btn-fix-ph');
+  phb.hidden = !phN;
+  phb.textContent = `🧹 프리컷 호기 채우기 (${phN})`;
   const fix = $('#btn-fix-machine');
   if (fix) {
     const mc = $('#f-machine').value;
@@ -5677,6 +6063,34 @@ async function runNameFix() {
     alert('정리 중 오류: ' + err.message + '\n\n일부만 처리됐을 수 있습니다. 새로고침 후 다시 실행하세요.');
   } finally { btn.disabled = false; btn.textContent = '선택한 항목 정리'; }
 }
+/* 예전에 올린 프리컷 실적은 호기 칸이 비어 있다 — 구분 칸에서 뽑아 채운다 */
+function phFixPlans() {
+  return (RECORDS || []).filter((r) => {
+    if (!['PRE-CUT', 'HYBRID'].includes(r.part)) return false;
+    if (filledVal(r.machine)) return false;
+    return !!phMachine(r.kind);
+  }).map((r) => ({ rec: r, machine: phMachine(r.kind) }));
+}
+async function runPhFix() {
+  const list = phFixPlans();
+  if (!list.length) { alert('채울 호기가 없습니다.'); return; }
+  const by = {};
+  list.forEach((x) => { by[`${x.rec.kind} → ${x.machine}`] = (by[`${x.rec.kind} → ${x.machine}`] || 0) + 1; });
+  const detail = Object.entries(by).map(([k, v]) => `· ${k}  ${v}건`).join('\n');
+  if (!confirm(`프리컷·하이브리드 실적 ${list.length}건의 호기를 '구분' 칸에서 채웁니다.\n\n${detail}\n\n다른 값은 그대로입니다. 진행할까요?`)) return;
+  const btn = $('#btn-fix-ph');
+  btn.disabled = true; btn.textContent = '채우는 중…';
+  try {
+    await dataService.updateMany('records', list.map((x) => ({ ...x.rec, machine: x.machine })),
+      (d, t) => { btn.textContent = `채우는 중… ${d}/${t}`; });
+    await loadRecords();
+    refreshCurrentPage();
+    alert(`실적 ${list.length}건의 호기를 채웠습니다.`);
+  } catch (err) {
+    alert('처리 중 오류: ' + err.message);
+  } finally { btn.disabled = false; }
+}
+$('#btn-fix-ph').addEventListener('click', runPhFix);
 $('#btn-fix-names').addEventListener('click', openNameFixModal);
 $('#namefix-close').addEventListener('click', () => ($('#namefix-modal').hidden = true));
 $('#namefix-cancel').addEventListener('click', () => ($('#namefix-modal').hidden = true));
@@ -5747,6 +6161,7 @@ function recordTable(recs, full = false) {
       <tr class="rec-row" data-rec-id="${r.id}">
         <td>${esc(r.date)}</td>
         <td>${kindOf(r)}</td>
+        <td>${esc(r.machine || phMachine(r.kind) || '')}</td>
         <td><b>${esc(r.productCode ?? r.product ?? '')}</b>${r.size != null ? ' ' + esc(r.size) + '\"' : ''}</td>
         <td class="num"><b>${fmt(qtyOf(r))}</b></td>
         <td class="num">${fabCell(r, r.fabricInput)}</td>
@@ -5757,13 +6172,13 @@ function recordTable(recs, full = false) {
         ${full ? `<td>${esc(r.lotNo ?? '')}</td><td>${esc(r.brand ?? '')}</td><td>${esc(r.workers ?? '')}</td><td>${esc(r.note ?? r.remarks ?? '')}</td>` : ''}
       </tr>`).join('');
     return `<table><thead><tr>
-      <th>날짜</th><th>구분</th><th>제품코드</th><th class="num">생산수량</th>
+      <th>날짜</th><th>구분</th><th>호기</th><th>제품코드</th><th class="num">생산수량</th>
       <th class="num">투입원단(kg)</th><th class="num">총페기량(kg)</th><th class="num">LOSS율</th>
       <th class="num">완제품(m)</th><th class="num">완제품(roll)</th>
       ${full ? '<th>LOT</th><th>브랜드</th><th>작업자</th><th>특이사항</th>' : ''}
     </tr></thead><tbody>${rows}</tbody>
     <tfoot><tr class="prod-total">
-      <td colspan="3"><b>합계</b> <span class="muted">(LOSS율 = 총페기 ÷ 총투입)</span></td>
+      <td colspan="4"><b>합계</b> <span class="muted">(LOSS율 = 총페기 ÷ 총투입)</span></td>
       <td class="num"><b>${fmt(tQty)}</b></td>
       <td class="num"><b>${fmt(tFab, 2)}</b></td>
       <td class="num"><b>${fmt(tWaste, 2)}</b></td>
@@ -6880,6 +7295,102 @@ function renderDataStat() {
     `<tr class="no-click"><td style="width:140px">${k}</td><td style="width:90px"><b>${v}</b></td><td>${tag}</td></tr>`).join('')}${unknownRow}</tbody></table></div>`;
 }
 
+/* ── 엑셀로 내보내기 ──────────────────────────────────────────────
+   Firestore는 업무 중에 바로 열어보기 어렵다. 실적·계획·수주 같은 업무 데이터를
+   시트별로 나눈 엑셀 한 파일로 뽑아 두면 언제든 열어 보고 정렬·필터할 수 있다.
+   백업 겸 업무용 사본이며, 이 파일을 고쳐도 시스템 데이터는 바뀌지 않는다. */
+const XL_SHEETS = [
+  { name: '생산실적', col: 'records', get: () => RECORDS, dated: true, cols: [
+    ['date', '생산일'], ['part', '공정'], ['machine', '호기'], ['orderNo', '차수'],
+    ['customer', '업체명'], ['product', '제품명'], ['color', '칼라'], ['size', '인치'], ['length', '길이(m)'],
+    ['planQty', '계획수량'], ['prodQty', '생산수량'], ['totalProd', '총생산'], ['totalRoll', '총수량(roll)'],
+    ['processDefect', '공정불량'], ['totalLoss', '총로스'], ['totalLossRate', '총로스율(%)'],
+    ['pouchType', '파우치'], ['inBox', '인박스'], ['outBox', '아웃박스'],
+    ['baseType', '기재'], ['baseLength', '투입원단'], ['weight', '중량'], ['workers', '작업자'], ['remarks', '비고'],
+    ['createdByEmail', '작성자'], ['updatedAt', '수정일시'],
+  ] },
+  { name: '생산계획', col: 'plans', get: () => PLANS, dated: true, cols: [
+    ['date', '생산일'], ['part', '공정'], ['machine', '호기'], ['seq', '순서'], ['priority', '우선순위'],
+    ['customer', '업체명'], ['orderNo', '차수'], ['product', '제품명'], ['color', '칼라'],
+    ['pouchType', '포장'], ['length', '길이(m)'], ['planQty', '계획수량'],
+    ['status', '상태'], ['dueDate', '희망출고일'], ['orderException', '조건·특이사항'], ['note', '비고'],
+  ] },
+  { name: '수주', col: 'orders', get: () => ORDERS, dated: true, cols: [
+    ['date', '수주일'], ['part', '공정'], ['priority', '우선순위'], ['customer', '업체명'], ['poNo', '발주번호'],
+    ['custCode', '고객사코드'], ['product', '제품명'], ['productCode', '제품코드'], ['color', '칼라'],
+    ['pouchType', '포장'], ['length', '길이(m)'], ['qty', '수주수량'], ['dueDate', '희망출고일'], ['note', '비고'],
+  ] },
+  { name: '업체별 사양', get: () => COMPANIES, cols: [
+    ['name', '업체명'], ['aliases', '다른 표기'], ['country', '나라'], ['specType', '포장 구분'],
+    ['packLabel', '파우치'], ['packInBox', 'In Box'], ['packOutBox', 'Out Box'],
+    ['colors', '컬러'], ['toner', '토너'], ['notes', '특이사항'], ['updatedByEmail', '수정자'], ['updatedAt', '수정일시'],
+  ] },
+  { name: '제품표준서', get: () => STANDARDS, cols: [
+    ['part', '공정'], ['product', '제품명'], ['productCode', '제품코드'], ['category', '품목'],
+    ['baseType', '기재'], ['resinType', '수지'], ['catalyst', '촉매'], ['core', '코어'], ['sizeSpec', '규격'],
+    ['coatingMin', '코팅 하한'], ['coatingMid', '코팅 중심'], ['coatingMax', '코팅 상한'],
+    ['toner', '기본 토너'], ['pouchType', '파우치'], ['inBoxSpec', 'In Box'], ['outBoxSpec', 'Out Box'],
+    ['labelSpec', '라벨'], ['note', '비고'],
+  ] },
+  { name: '제품별 예외', get: () => CUSTSPECS, cols: [
+    ['customer', '업체명'], ['part', '공정'], ['product', '제품명'], ['color', '칼라'],
+    ['coatingMin', '코팅 하한'], ['coatingMid', '코팅 중심'], ['coatingMax', '코팅 상한'],
+    ['toner', '토너'], ['pouchType', '파우치'], ['inBoxSpec', 'In Box'], ['outBoxSpec', 'Out Box'], ['note', '비고'],
+  ] },
+  { name: '품목 마스터', get: () => PRODUCTMAP, cols: [
+    ['zone', '구분'], ['customer', '거래처'], ['custCode', '외부품명'], ['product', '내부품명'], ['productCode', '내부품번'],
+    ['brand', '브랜드'], ['unit', '기준단위'], ['color', '칼라'], ['baseType', '기재'], ['resinType', '수지'], ['pouchType', '파우치'],
+    ['length', '길이(M)'], ['coatingMin', '코팅량 하한'], ['coatingMid', '코팅량 중심'], ['coatingMax', '코팅량 상한'],
+    ['catalyst', '촉매'], ['core', '코어종류'], ['rule', '적용규칙'], ['part', '분류'], ['note', '비고'],
+  ] },
+  { name: '설비 일상점검', col: 'equipchecks', get: () => EQUIPCHECKS, dated: true, cols: [
+    ['date', '점검일'], ['part', '공정'], ['machine', '호기'], ['checker', '점검자'],
+    ['temp', '온도'], ['humid', '습도'], ['note', '비고'], ['createdByEmail', '작성자'],
+  ] },
+];
+
+async function exportExcel() {
+  const btn = $('#btn-xlsx'), st = $('#xlsx-state');
+  const from = ($('#xlsx-from') || {}).value || '';
+  const to = ($('#xlsx-to') || {}).value || '';
+  btn.disabled = true; st.textContent = '엑셀 만드는 중…';
+  try {
+    await loadXLSX();
+    const wb = XLSX.utils.book_new();
+    const made = [];
+    for (const sh of XL_SHEETS) {
+      let list;
+      if (sh.dated) {
+        /* 화면에는 최근 몇 달치만 올려두므로, 내보내기는 지정한 기간을 직접 읽어온다
+           (기간을 비우면 전체 — 그래야 '전체 내보내기'가 실제로 전체가 된다) */
+        st.textContent = `${sh.name} 가져오는 중…`;
+        const qs = [from && `from=${from}`, to && `to=${to}`].filter(Boolean).join('&');
+        list = await api(`/api/${sh.col}${qs ? '?' + qs : ''}`);
+        list.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+      } else {
+        list = (sh.get() || []).slice();
+      }
+      const aoa = [sh.cols.map(([, label]) => label)];
+      list.forEach((r) => aoa.push(sh.cols.map(([k]) => {
+        const v = r[k];
+        return (v == null || typeof v === 'object') ? '' : v;
+      })));
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = sh.cols.map(([, label]) => ({ wch: Math.max(10, Math.min(28, label.length * 2 + 4)) }));
+      XLSX.utils.book_append_sheet(wb, ws, sh.name);
+      made.push(sh.name + ' ' + list.length);
+    }
+    const period = (from || to) ? '_' + (from || '처음') + '~' + (to || '끝') : '';
+    XLSX.writeFile(wb, 'BL-TECH_데이터_' + todayStr() + period + '.xlsx');
+    st.textContent = '완료 ✓';
+    alert('엑셀 파일을 내려받았습니다.\n\n' + made.join(' · ')
+      + '\n\n시트별로 나뉘어 있고 첫 줄이 제목입니다.\n이 파일을 고쳐도 시스템 데이터는 바뀌지 않습니다.');
+  } catch (err) {
+    st.textContent = '';
+    alert('엑셀 내보내기 실패: ' + err.message);
+  } finally { btn.disabled = false; }
+}
+
 /* ── 전체 데이터 백업 ─────────────────────────────────────────────
    구조 변경·일괄 정리 전에 눌러두는 안전장치. 모든 컬렉션 + 기준정보를 JSON 한 파일로.
    사진(base64)은 용량이 커서 기본은 빼고, 필요하면 체크해서 포함한다. */
@@ -6976,6 +7487,12 @@ function renderMasters() {
     + '<h3 style="margin:26px 0 6px">데이터 상태</h3>'
     + '<p class="muted" style="margin-bottom:10px">지금 저장돼 있는 건수입니다. 정리 도구가 안 보일 때 여기서 대상이 몇 건인지 확인하세요.</p>'
     + '<div id="datastat-box"></div>'
+    + '<h3 style="margin:26px 0 6px">엑셀로 내보내기</h3>'
+    + '<p class="muted" style="margin-bottom:10px">실적·계획·수주 등을 <b>시트별로 나눈 엑셀 한 파일</b>로 받습니다. 업무 중 바로 열어 보고 정렬·필터할 수 있고, 사본 보관용으로도 쓰입니다. 이 파일을 고쳐도 시스템 데이터는 바뀌지 않습니다.</p>'
+    + '<div class="imp-range" style="margin-bottom:10px"><span class="ai-gen-label" style="width:auto">기간</span>'
+    + '<input type="date" id="xlsx-from"> ~ <input type="date" id="xlsx-to">'
+    + '<span class="muted">비우면 전체 — 실적·계획·수주·점검에만 적용됩니다</span></div>'
+    + '<div style="display:flex;gap:10px;align-items:center"><button class="btn primary" id="btn-xlsx">⬇ 엑셀로 내보내기</button><span class="muted" id="xlsx-state"></span></div>'
     + (ME && ME.role === 'admin' ? '<h3 style="margin:26px 0 6px">데이터 백업</h3>'
       + '<p class="muted" style="margin-bottom:10px">모든 데이터를 <b>JSON 한 파일</b>로 내려받습니다. 구조를 바꾸거나 일괄 정리를 실행하기 <b>전에 한 번 눌러두면</b> 되돌릴 수 있습니다. 파일은 이 PC에만 저장되며 서버로 가지 않습니다.</p>'
       + '<div class="chk-row" style="margin-bottom:10px"><label><input type="checkbox" id="bk-photos"> 사진(설비 점검 기록)도 포함 — 파일이 커집니다</label></div>'
@@ -6983,6 +7500,8 @@ function renderMasters() {
   renderWorkerTable();
   renderCapacityBox();
   renderDataStat();
+  const xlBtn = $('#btn-xlsx');
+  if (xlBtn) xlBtn.addEventListener('click', exportExcel);
   const bkBtn = $('#btn-backup');
   if (bkBtn) bkBtn.addEventListener('click', exportAllData);
   $('#btn-save-masters').addEventListener('click', async () => {
@@ -7316,21 +7835,53 @@ $('#btn-csv').addEventListener('click', () => {
   URL.revokeObjectURL(a.href);
 });
 /* ===================== 필터 이벤트 ===================== */
+/* 기간을 예전으로 잡으면 그만큼만 더 읽어와 채운 뒤 다시 그린다 */
 ['f-from', 'f-to', 'f-machine', 'f-customer', 'f-search'].forEach((id) =>
-  $('#' + id).addEventListener('input', renderLogs));
+  $('#' + id).addEventListener('input', () => {
+    renderLogs();
+    if (id === 'f-from') ensureRecordsFrom($('#f-from').value, renderLogs);
+  }));
+$('#btn-load-all').addEventListener('click', async () => {
+  const btn = $('#btn-load-all');
+  btn.disabled = true; btn.textContent = '불러오는 중…';
+  try {
+    RECORDS = await api('/api/records');       // 기간 없이 = 전체
+    LOADED_FROM.records = '';
+    renderLogs();
+    alert(`실적 전체 ${fmt(RECORDS.length)}건을 불러왔습니다.`);
+  } catch (e) { alert('불러오기 실패: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '⬇ 이전 자료 모두 불러오기'; }
+});
 $('#btn-filter-reset').addEventListener('click', () => {
   ['f-from', 'f-to', 'f-search', 'f-machine', 'f-customer'].forEach((id) => ($('#' + id).value = ''));
   renderLogs();
 });
-$('#dash-month').addEventListener('input', renderDashboard);
+$('#dash-month').addEventListener('input', () => {
+  renderDashboard();
+  const m = $('#dash-month').value;
+  if (m) ensureRecordsFrom(m + '-01', renderDashboard);
+});
 ['a-from', 'a-to', 'a-machine', 'a-customer', 'a-product', 'a-metric', 'a-group', 'a-pivot-row', 'a-pivot-col']
-  .forEach((id) => $('#' + id).addEventListener('input', renderAnalysis));
+  .forEach((id) => $('#' + id).addEventListener('input', () => {
+    renderAnalysis();
+    if (id === 'a-from') ensureRecordsFrom($('#a-from').value, renderAnalysis);
+  }));
 $('#a-reset').addEventListener('click', () => {
   ['a-from', 'a-to', 'a-machine', 'a-customer', 'a-product'].forEach((id) => ($('#' + id).value = ''));
   renderAnalysis();
 });
-['p-from', 'p-to', 'p-machine', 'p-status', 'p-priority'].forEach((id) => $('#' + id).addEventListener('input', renderPlans));
-['s-month', 's-machine'].forEach((id) => $('#' + id).addEventListener('input', renderSheets));
+['p-from', 'p-to', 'p-machine', 'p-status', 'p-priority'].forEach((id) => $('#' + id).addEventListener('input', () => {
+  renderPlans();
+  if (id === 'p-from') {
+    ensureRangeForRender('plans', $('#p-from').value, () => PLANS, (v) => { PLANS = v; }, renderPlans);
+    ensureRecordsFrom($('#p-from').value, renderPlans);   // 계획 대비 실적도 같이 필요
+  }
+}));
+['s-month', 's-machine'].forEach((id) => $('#' + id).addEventListener('input', () => {
+  renderSheets();
+  const m = $('#s-month').value;
+  if (id === 's-month' && m) ensureRangeForRender('sheets', m + '-01', () => SHEETS, (v) => { SHEETS = v; }, renderSheets);
+}));
 
 /* ===================== 초기화 (Firebase 로그인 후 부팅) ===================== */
 let __booted = false;
@@ -7360,38 +7911,118 @@ async function bootApp() {
   const errBox = $('#login-error');
   const submitBtn = $('#login-submit');
   const logoutBtn = $('#logout-btn');
+  const acctBox = $('#acct-box');
+  const linkBtn = $('#link-google-btn');
+  const linkInfo = $('#link-google-info');
+  const showAcct = (on) => { if (acctBox) acctBox.hidden = !on; if (logoutBtn) logoutBtn.hidden = !on; };
+  /* 로그인된 계정에 Google이 묶여 있는지 보여주고, 안 묶였으면 연결 버튼을 낸다.
+     기존 직원은 회사 이메일(비밀번호 계정)로 들어와 있고 Google 계정은 따로라서, 여기서 한 번 묶어야
+     이후 Google 로그인이 같은 계정(같은 권한)으로 들어온다. */
+  function renderLink(user) {
+    if (!linkBtn || !linkInfo) return;
+    const g = (user.providerData || []).find((p) => p && p.providerId === 'google.com');
+    linkBtn.hidden = !!g;
+    linkInfo.hidden = !g;
+    if (g) linkInfo.textContent = `Google 연결됨 · ${g.email || ''}`;
+  }
+  if (linkBtn) linkBtn.addEventListener('click', async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    linkBtn.disabled = true;
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const res = await user.linkWithPopup(provider);
+      const g = (res.user.providerData || []).find((p) => p && p.providerId === 'google.com');
+      renderLink(res.user);
+      alert(`Google 계정을 연결했습니다.\n\n다음부터는 [Google 계정으로 로그인] → ${g ? g.email : ''} 을 고르면 지금 계정(${ME ? ME.role : ''})으로 들어옵니다.\n이메일·비밀번호 로그인도 그대로 됩니다.`);
+    } catch (err) {
+      const c = (err && err.code) || '';
+      if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') { /* 닫음 */ }
+      else if (c === 'auth/credential-already-in-use' || c === 'auth/email-already-in-use')
+        alert('그 Google 계정은 이미 다른 사용자 계정에 묶여 있습니다.\n(예: 그 Google 계정으로 먼저 로그인해서 승인 대기 계정이 생긴 경우) 관리자에게 문의하세요.');
+      else if (c === 'auth/operation-not-allowed')
+        alert('Google 로그인이 아직 켜져 있지 않습니다. Firebase 콘솔 → Authentication → 로그인 방법에서 Google을 사용 설정해야 합니다.');
+      else if (c === 'auth/provider-already-linked') renderLink(user);
+      else alert('연결 실패: ' + ((err && err.message) || err));
+    } finally { linkBtn.disabled = false; }
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    errBox.textContent = '';
+    errBox.textContent = ''; errBox.classList.remove('pending');
+    const email = form.email.value.trim(), pw = form.password.value;
+    if (!email || !pw) { errBox.textContent = '이메일과 비밀번호를 입력하세요.'; return; }
     submitBtn.disabled = true;
     try {
-      await auth.signInWithEmailAndPassword(form.email.value.trim(), form.password.value);
+      await auth.signInWithEmailAndPassword(email, pw);
     } catch (err) {
       errBox.textContent = '로그인 실패: 이메일 또는 비밀번호를 확인하세요.';
     } finally { submitBtn.disabled = false; }
   });
+  /* Google 로그인 — 팝업이 막히면 리다이렉트로. 같은 이메일의 이메일/비밀번호 계정이 있으면
+     Firebase가 같은 계정(UID)으로 묶어주므로 users 문서는 그대로 쓴다. */
+  const gBtn = $('#login-google');
+  if (gBtn) gBtn.addEventListener('click', async () => {
+    errBox.textContent = ''; errBox.classList.remove('pending');
+    gBtn.disabled = true;
+    try {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      try { await auth.signInWithPopup(provider); }
+      catch (err) {
+        if (err && (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment')) {
+          await auth.signInWithRedirect(provider); return;
+        }
+        throw err;
+      }
+    } catch (err) {
+      const c = (err && err.code) || '';
+      if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') { /* 사용자가 닫음 */ }
+      else if (c === 'auth/operation-not-allowed') errBox.textContent = 'Google 로그인이 아직 켜져 있지 않습니다. 관리자가 Firebase 콘솔 → Authentication → 로그인 방법에서 Google을 사용 설정해야 합니다.';
+      else if (c === 'auth/unauthorized-domain') errBox.textContent = '이 주소는 로그인 허용 도메인에 없습니다. 관리자에게 문의하세요.';
+      else if (c === 'auth/account-exists-with-different-credential') errBox.textContent = '같은 이메일의 다른 방식 계정이 있습니다. 아래 이메일·비밀번호로 먼저 로그인해 주세요.';
+      else errBox.textContent = 'Google 로그인 실패: ' + ((err && err.message) || err);
+    } finally { gBtn.disabled = false; }
+  });
+  // 리다이렉트로 돌아온 경우의 오류 표시
+  auth.getRedirectResult().catch((err) => { if (err && err.code && err.code !== 'auth/no-auth-event') errBox.textContent = 'Google 로그인 실패: ' + err.message; });
   if (logoutBtn) logoutBtn.addEventListener('click', async () => { ME = null; try { await auth.signOut(); } catch (e) {} location.reload(); });
 
   // 로그인 후: users/{uid}의 role·active 확인 → 통과해야만 데이터 로드/부팅
-  async function block(msg) {
+  async function block(msg, pending) {
     errBox.textContent = msg;
+    errBox.classList.toggle('pending', !!pending);
     loginScreen.hidden = false;
-    if (logoutBtn) logoutBtn.hidden = true;
+    showAcct(false);
     ME = null;
     try { await auth.signOut(); } catch (e) {}
   }
   auth.onAuthStateChanged(async (user) => {
-    if (!user) { loginScreen.hidden = false; if (logoutBtn) logoutBtn.hidden = true; return; }
+    if (!user) { loginScreen.hidden = false; showAcct(false); return; }
     let udoc;
     try { udoc = await dataService.getUser(user.uid); }
     catch (e) { return block('권한 정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요.'); }
-    if (!udoc) return block('등록되지 않은 사용자입니다. 관리자에게 users 문서 등록을 요청하세요.');
-    if (udoc.active === false) return block('비활성화된 계정입니다. 관리자에게 문의하세요.');
+    if (!udoc) {
+      // 처음 온 Google 계정 → 승인 대기로 등록해 두고 관리자가 켜주길 기다린다
+      const isGoogle = (user.providerData || []).some((p) => p && p.providerId === 'google.com');
+      if (isGoogle) {
+        try { await dataService.registerSelf(user); }
+        catch (e) { return block(`등록되지 않은 사용자입니다.\n관리자에게 ${user.email} 계정 등록을 요청하세요.`); }
+        return block(`✅ ${user.email} 계정이 승인 대기로 등록됐습니다.\n관리자가 승인하면 로그인할 수 있습니다.`, true);
+      }
+      return block('등록되지 않은 사용자입니다. 관리자에게 users 문서 등록을 요청하세요.');
+    }
+    if (udoc.active === false) {
+      if (udoc.selfRegistered) return block(`⏳ ${user.email} 계정은 아직 승인 대기 중입니다.\n관리자에게 승인을 요청하세요.`, true);
+      return block('비활성화된 계정입니다. 관리자에게 문의하세요.');
+    }
     if (!['admin', 'manager', 'worker'].includes(udoc.role)) return block('권한(role)이 올바르지 않습니다. 관리자에게 문의하세요.');
     ME = { uid: user.uid, email: user.email, name: udoc.name || '', role: udoc.role, active: true };
     loginScreen.hidden = true;
-    if (logoutBtn) { logoutBtn.hidden = false; const u = $('#logout-user'); if (u) u.textContent = `${ME.name || user.email} · ${ME.role}`; }
+    showAcct(true);
+    const u = $('#logout-user'); if (u) u.textContent = `${ME.name || user.email} · ${ME.role}`;
+    renderLink(user);
     await bootApp();   // 권한 확인 후에만 업무 데이터 로드
   });
 })();

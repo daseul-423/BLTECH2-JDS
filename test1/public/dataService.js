@@ -54,8 +54,15 @@
   window.dataService = {
     auth: _auth,
 
-    list: function (col) {
-      return _db.collection(col).get().then(function (qs) {
+    /* opts.from/opts.to 를 주면 Firestore에서 걸러서 가져온다.
+       (전부 읽어와 화면에서 거르면 읽은 횟수만큼 요금이 나가므로, 필요한 기간만 읽는다) */
+    list: function (col, opts) {
+      var q = _db.collection(col);
+      var o = opts || {};
+      var f = o.dateField || 'date';
+      if (o.from) q = q.where(f, '>=', String(o.from));
+      if (o.to) q = q.where(f, '<=', String(o.to));
+      return q.get().then(function (qs) {
         return qs.docs.map(function (d) { return d.data(); });
       });
     },
@@ -171,6 +178,17 @@
       return _db.collection('users').doc(uid).get().then(function (d) {
         return d.exists ? Object.assign({ uid: d.id }, d.data()) : null;
       });
+    },
+    // Google 로그인으로 처음 들어온 사람: users 문서가 없으면 '승인 대기'로 스스로 등록한다.
+    // 규칙이 role=worker·active=false 인 본인 문서 생성만 허용하므로 권한 상승은 못 한다.
+    registerSelf: function (user) {
+      var now = _now();
+      var doc = {
+        email: user.email || '', name: user.displayName || '',
+        role: 'worker', active: false, selfRegistered: true, provider: 'google',
+        createdBy: user.uid, createdAt: now, updatedBy: user.uid, updatedAt: now,
+      };
+      return _db.collection('users').doc(user.uid).set(doc).then(function () { return Object.assign({ uid: user.uid }, doc); });
     },
     listUsers: function () {
       return _db.collection('users').get().then(function (qs) {
