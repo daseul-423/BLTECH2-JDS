@@ -839,19 +839,34 @@ const IMPORT_DEFS = {
     calcCols: [],
   },
   productmap: {
-    label: '품목 매핑(고객사↔내부품명)', coll: 'productmap', hasPart: false,
-    desc: '공정 구분 없이 통합 관리 — 고객사 외부품명/코드가 내부적으로 어떤 품명(+품번)인지 매핑. 수주주문서 업로드 시 이 표로 자동 연동됩니다',
+    label: '품목 마스터(고객사↔내부품명 + 생산 스펙)', coll: 'productmap', hasPart: false,
+    desc: '거래처가 부르는 외부품명/코드 ↔ 내부 품명·품번, 그리고 그 품목의 생산 스펙(기재·수지·코팅량·촉매·코어 등). 수주주문서 업로드 시 이 표로 자동 연동됩니다',
     // custCode가 비어있는 행이 많을 수 있어(추후 채워 넣는 워크플로) product도 키에 포함 —
     // 그래야 같은 업체의 서로 다른 제품이 코드 없이 여러 건 들어와도 서로 중복으로 안 잡힌다
     dupKey: (r) => [r.customer ?? '', r.custCode ?? '', r.product ?? ''].join('|'),
     dupLabel: '업체명+고객사 외부품명/코드+내부 품명',
     fields: [
-      F('part', '공정', ['공정', '구분', '파트']),
+      // '구분'은 품목 마스터에서 해외/국내를 뜻하므로 공정 별칭에서 뺐다
+      F('part', '분류', ['분류', '공정', '파트']),
+      F('zone', '구분(해외/국내)', ['구분', '해외국내', '내수해외', '지역']),
       F('customer', '업체명', ['업체명', '고객사', '거래처', '취급업체명', '취급 업체명']),
       F('custCode', '고객사 외부품명/코드', ['고객사코드', '외부코드', '외부품명', '거래처코드', '고객코드', '발주코드', 'custcode',
         '외부 품명(CUSTOMER CODE)', '외부품명(CUSTOMER CODE)', 'CUSTOMER CODE']),
       F('product', '내부 품명', ['내부품명', '제품명', '품명', '내부 품명(BL CODE)', '내부품명(BL CODE)']),
       F('productCode', '내부 품번', ['내부품번', '제품코드', '품번', '내부 품번(BL CODE)', '내부품번(BL CODE)', 'BL CODE']),
+      F('brand', '브랜드', ['브랜드', 'brand']),
+      F('unit', '기준단위', ['기준단위', '단위', 'unit']),
+      F('color', '칼라', ['칼라', '컬러', '색상', 'color']),
+      F('baseType', '기재', ['기재', '기재종류', '원단']),
+      F('resinType', '수지', ['수지', '수지종류', 'resin']),
+      F('pouchType', '파우치', ['파우치', '포장']),
+      F('length', '길이(M)', ['길이', '길이m', 'length'], 'num'),
+      F('coatingMin', '코팅량 하한', ['코팅하한', '코팅량하한', '하한'], 'num'),
+      F('coatingMid', '코팅량 중심', ['코팅중심', '코팅량중심', '중심'], 'num'),
+      F('coatingMax', '코팅량 상한', ['코팅상한', '코팅량상한', '상한'], 'num'),
+      F('catalyst', '촉매', ['촉매', 'catalyst'], 'num'),
+      F('core', '코어종류', ['코어종류', '코어', 'core']),
+      F('rule', '적용규칙(제품군)', ['적용규칙', '제품군', '규칙']),
       F('note', '비고', ['비고', '특이사항']),
     ],
     calcCols: [],
@@ -1249,9 +1264,20 @@ function impLoadSheet(name) {
   const def = IMPORT_DEFS[IMP.key];
 
   // 표가 어디서 시작하는지부터 찾는다 (서식 문서는 위쪽이 표가 아니다)
-  const dataStart = impFindTableStart(aoa);
+  // 단, 우리 항목 이름(별칭 포함)과 3개 이상 맞는 줄이 위에 있으면 그 줄이 헤더다 — 품목 마스터처럼
+  // 숫자 열이 거의 없는 표는 '숫자 섞인 줄' 기준으로는 시작점을 잘못 잡는다
+  const labelSet = new Set();
+  impFields(def).forEach((f) => { labelSet.add(impNorm(f.label)); f.alias.forEach((a) => labelSet.add(impNorm(a))); });
+  let byLabel = -1, byLabelN = 0;
+  for (let i = 0; i < Math.min(aoa.length, 15); i++) {
+    const n = (aoa[i] || []).filter((c) => labelSet.has(impNorm(c))).length;
+    if (n > byLabelN) { byLabelN = n; byLabel = i; }
+  }
+  const dataStart = byLabelN >= 3 ? byLabel + 1 : impFindTableStart(aoa);
   let hi;
-  if (dataStart > 0) {
+  if (byLabelN >= 3) {
+    hi = byLabel;
+  } else if (dataStart > 0) {
     const h = impPickHeaderRow(aoa, dataStart);
     hi = h >= 0 ? h : dataStart - 1;
   } else {
@@ -2660,6 +2686,13 @@ if ($('#so-upload-modal')) {
 /* ===================== 품목 매핑 (고객사 외부품명/코드 ↔ 내부 품명·품번, 공정 구분 없음) ===================== */
 /* 내부 품명의 앞부분을 '제품군'으로 본다 — SMRC-2F-BL(SMILE) → SMRC, (프리컷)NHPS-3014F → 프리컷
    품목 매핑에는 공정 칸이 없어서, 이 제품군 단위로 공정을 한 번씩만 정해주면 전체가 분류된다. */
+/* 품목 마스터 행의 제품군 — 마스터에 적용규칙(NAC-F, NHPS-F, PXRT-HN …)이 있으면 그 앞부분(NAC, NHPS, PXRT)을,
+   없으면 내부 품명에서 추정한다. */
+function pmFamilyOf(m) {
+  const r = String((m && m.rule) || '').trim().toUpperCase();
+  if (r) { const b = /^([A-Z]+)/.exec(r); return b ? b[1] : r; }
+  return pmFamily(m && m.product);
+}
 function pmFamily(product) {
   /* 앞에 붙은 (프리컷)·(알파) 같은 표기는 떼고 제품코드로 묶는다.
      (프리컷)NHPS-2012F → NHPS, (알파)NAC-2F-GR → NAC — 같은 제품을 부르는 말만 다른 경우가 있어서
@@ -2680,6 +2713,16 @@ const PM_CAT_HINT = {
   // 제품표준서에 같은 계열이 있어 공정을 확인한 것들
   NHC: 'CAST', NPC: 'CAST', SMRC: 'CAST', NAC: 'CAST', NHRS: 'SPLINT', SMRS: 'SPLINT',
 };
+/* 표에 없는 제품군도 이름 모양으로 짐작한다 — HYDROGELBODYPATCH·MEDIPLAST… → 하이드로겔, PXR… → 배관 */
+function pmCatHint(fam) {
+  const f = String(fam || '').toUpperCase();
+  if (PM_CAT_HINT[f]) return PM_CAT_HINT[f];
+  if (/^HYDROGEL|^MEDIPLAST/.test(f)) return '하이드로겔';
+  if (/^PXR/.test(f)) return '배관';
+  if (/^NUP/.test(f)) return '언더패드';
+  if (/^NCB/.test(f)) return '닐커버';
+  return '';
+}
 /* 위 표에 없으면 제품표준서에서 같은 계열을 찾아 공정을 제안한다 */
 function pmPartFromStandards(fam) {
   const f = String(fam || '').toUpperCase();
@@ -2691,7 +2734,7 @@ let PM_FAMS = [];
 function openPmPartModal() {
   const map = new Map();
   (PRODUCTMAP || []).forEach((m) => {
-    const f = pmFamily(m.product);
+    const f = pmFamilyOf(m);
     if (!map.has(f)) map.set(f, { fam: f, items: [], parts: new Set() });
     map.get(f).items.push(m);
     map.get(f).parts.add(m.part || '');
@@ -2702,7 +2745,7 @@ function openPmPartModal() {
     ...(PRODUCTMAP || []).map((m) => m.part).filter(Boolean)])];
   const rows = PM_FAMS.map((g, i) => {
     const cur = g.parts.size === 1 ? [...g.parts][0] : '';
-    const suggest = cur || PM_CAT_HINT[g.fam] || pmPartFromStandards(g.fam) || '';
+    const suggest = cur || pmCatHint(g.fam) || pmPartFromStandards(g.fam) || '';
     const sample = g.items.slice(0, 3).map((m) => m.product).join(', ');
     return `<div class="pmf-row">
       <input type="text" class="pmf-cat" data-pmfam="${i}" list="dl-pmcat"
@@ -2801,8 +2844,10 @@ function renderProductMap() {
   const box = $('#productmap-table');
   if (!box) return;
   const q = ($('#pm-search').value || '').trim().toLowerCase();
+  const zone = ($('#pm-zone') || {}).value || '';
   let list = PRODUCTMAP.slice();
-  if (q) list = list.filter((m) => [m.customer, m.custCode, m.product, m.productCode, m.note].some((v) => String(v || '').toLowerCase().includes(q)));
+  if (zone) list = list.filter((m) => (m.zone || '') === zone);
+  if (q) list = list.filter((m) => [m.customer, m.custCode, m.product, m.productCode, m.brand, m.rule, m.note].some((v) => String(v || '').toLowerCase().includes(q)));
   list.sort((a, b) => String(a.customer || '').localeCompare(String(b.customer || '')) || String(a.custCode || '').localeCompare(String(b.custCode || '')));
 
   const impBtn = $('#btn-import-productmap');
@@ -2824,7 +2869,10 @@ function renderProductMap() {
     ppBtn.hidden = !can('update', 'productmap');
     ppBtn.textContent = noPart ? `📦 분류 지정 (미지정 ${noPart})` : '📦 분류 지정';
   }
-  const missingN = PRODUCTMAP.filter((m) => !m.custCode).length;
+  // 국내 거래처는 외부코드 없이 내부 품명으로 거래하므로 미입력으로 세지 않는다
+  const missingN = PRODUCTMAP.filter((m) => !m.custCode && m.zone !== '국내').length;
+  const delBtn = $('#btn-pm-delall');
+  if (delBtn) delBtn.hidden = !(can('delete', 'productmap') && PRODUCTMAP.length);
   const autoN = PRODUCTMAP.filter((m) => m.note === PM_AUTO_NOTE).length;
   const sumEl = $('#pm-missing-sum');
   if (sumEl) {
@@ -2834,13 +2882,19 @@ function renderProductMap() {
     sumEl.textContent = parts.length ? parts.join(' · ') + ' — 행을 클릭하면 수정할 수 있습니다' : '';
   }
 
-  if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목 매핑이 없습니다. [＋ 매핑 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
+  if (!list.length) { box.innerHTML = '<div class="empty">등록된 품목이 없습니다. [＋ 품목 등록] 또는 [📥 엑셀 업로드]로 추가하세요.</div>'; return; }
+  /* 생산 스펙은 한 칸에 요약 — 기재 · 수지 · 코팅 중심 · 파우치 */
+  const specOf = (m) => [m.baseType, m.resinType, m.coatingMid != null && m.coatingMid !== '' ? `코팅 ${m.coatingMid}` : '', m.pouchType ? `파우치 ${m.pouchType}` : '']
+    .filter(Boolean).join(' · ');
   const rowOf = (m) => `<tr data-pmid="${m.id}">
+    <td class="muted">${esc(m.zone ?? '')}</td>
     <td>${esc(m.customer ?? '')}</td>
-    <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : '<span class="badge warn">미입력</span>'}</td>
+    <td>${m.custCode ? `<b>${esc(m.custCode)}</b>` : (m.zone === '국내' ? '' : '<span class="badge warn">미입력</span>')}</td>
     <td>${esc(m.product ?? '')}</td>
     <td class="muted">${esc(m.productCode ?? '-')}</td>
-    <td><span class="badge plain">${esc(pmFamily(m.product))}</span></td>
+    <td>${esc(m.brand ?? '')}</td>
+    <td><span class="badge plain" title="${esc(m.rule ?? '')}">${esc(m.rule || pmFamilyOf(m))}</span></td>
+    <td class="muted" style="font-size:12.5px">${esc(specOf(m))}</td>
     <td>${m.note === PM_AUTO_NOTE ? '<span class="badge plain" title="수주주문서 등록 시 자동으로 생성됨">🤖 자동</span>' : esc(m.note ?? '')}</td>
   </tr>`;
   /* 건수가 많아 한 번에 다 뿌리면 못 본다 — 분류를 고르면 그 분류만 보여준다.
@@ -2866,7 +2920,7 @@ function renderProductMap() {
     head = `<p class="muted" style="margin:0 0 8px">검색 결과 <b>${fmt(list.length)}건</b> — 분류와 상관없이 전체에서 찾았습니다.</p>`;
   } else if (PM_CAT === null) {
     box.innerHTML = chips
-      + `<div class="empty">위에서 <b>분류를 고르면</b> 그 분류의 매핑만 보여줍니다.
+      + `<div class="empty">위에서 <b>분류를 고르면</b> 그 분류의 품목만 보여줍니다.
           <div class="muted" style="margin-top:6px;font-size:12.5px">전체 ${fmt(PRODUCTMAP.length)}건 · 검색창에 입력하면 분류와 상관없이 찾습니다.</div></div>`;
     return;
   } else {
@@ -2874,12 +2928,34 @@ function renderProductMap() {
     head = `<p class="muted" style="margin:0 0 8px"><b>${PM_CAT || '분류 미지정'}</b> ${fmt(shown.length)}건</p>`;
   }
 
-  if (!shown.length) { box.innerHTML = chips + '<div class="empty">해당하는 매핑이 없습니다.</div>'; return; }
+  if (!shown.length) { box.innerHTML = chips + '<div class="empty">해당하는 품목이 없습니다.</div>'; return; }
   box.innerHTML = chips + head + `<div class="table-wrap"><table><thead><tr>
-    <th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>제품군</th><th>비고</th>
+    <th>구분</th><th>업체명</th><th>고객사 외부품명/코드</th><th>내부 품명</th><th>내부 품번</th><th>브랜드</th><th>제품군</th><th>생산 스펙</th><th>비고</th>
   </tr></thead><tbody>${shown.map(rowOf).join('')}</tbody></table></div>`;
 }
 $('#pm-search')?.addEventListener('input', renderProductMap);
+$('#pm-zone')?.addEventListener('change', renderProductMap);
+
+/* 품목 마스터 전체 삭제 (admin) — 마스터 파일로 통째로 갈아끼울 때 쓴다. 삭제 전에 백업(전체 데이터 내보내기)부터. */
+$('#btn-pm-delall')?.addEventListener('click', async () => {
+  if (!can('delete', 'productmap')) return;
+  const n = PRODUCTMAP.length;
+  if (!n) return;
+  if (!confirm(`⚠️ 품목 마스터 ${n}건을 전부 삭제합니다.\n\n수주주문서 업로드 시 고객사코드 자동 연동이 이 표를 쓰므로, 삭제 후에는 새 마스터를 바로 올려주세요.\n삭제 후 되돌릴 수 없습니다 — 먼저 [📤 전체 데이터 내보내기]로 백업했는지 확인하세요.\n\n계속할까요?`)) return;
+  const typed = prompt(`정말 삭제하려면 삭제 건수 ${n} 을 입력하세요.`);
+  if (typed == null) return;
+  if (String(typed).trim() !== String(n)) return alert('건수가 일치하지 않아 취소했습니다.');
+  const btn = $('#btn-pm-delall');
+  btn.disabled = true;
+  try {
+    await dataService.deleteMany('productmap', PRODUCTMAP.map((m) => m.id), (d, t) => { btn.textContent = `삭제 중… ${d}/${t}`; });
+    await loadProductMap();
+    PM_CAT = null;
+    refreshCurrentPage();
+    alert(`${n}건 삭제 완료. 이제 [📥 엑셀 업로드]로 품목 마스터를 올려주세요.`);
+  } catch (e) { alert('삭제 실패: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '🗑 전체 삭제'; }
+});
 
 let editingProductMapId = null;
 const productMapForm = $('#productmap-form');
@@ -2887,7 +2963,7 @@ function openProductMapModal(id = null) {
   if (!productMapForm) return;
   editingProductMapId = id;
   productMapForm.reset();
-  $('#productmap-modal-title').textContent = id ? '품목 매핑 수정' : '품목 매핑 등록';
+  $('#productmap-modal-title').textContent = id ? '품목 수정' : '품목 등록';
   $('#productmap-delete').hidden = !id;
   if (id) {
     const m = PRODUCTMAP.find((x) => x.id === id);
@@ -2909,7 +2985,10 @@ if (productMapForm) {
   productMapForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const m = {};
-    [...productMapForm.elements].forEach((el) => { if (el.name) m[el.name] = el.value || null; });
+    [...productMapForm.elements].forEach((el) => {
+      if (!el.name) return;
+      m[el.name] = el.value === '' ? null : (el.type === 'number' ? Number(el.value) : el.value);
+    });
     try {
       const orig = editingProductMapId ? (PRODUCTMAP.find((x) => x.id === editingProductMapId) || {}) : {};
       if (editingProductMapId) await post('/api/productmap/' + editingProductMapId, { ...orig, ...m }, 'PUT');
@@ -2920,7 +2999,7 @@ if (productMapForm) {
     } catch (err) { alert('저장 실패: ' + err.message); }
   });
   $('#productmap-delete').addEventListener('click', async () => {
-    if (!editingProductMapId || !confirm('이 매핑을 삭제하시겠습니까?')) return;
+    if (!editingProductMapId || !confirm('이 품목을 삭제하시겠습니까?')) return;
     await api('/api/productmap/' + editingProductMapId, { method: 'DELETE' });
     await loadProductMap();
     $('#productmap-modal').hidden = true;
@@ -3753,7 +3832,7 @@ function setCompanyTab(tab) {
 const CO_REF_COLLS = [
   { coll: 'custspecs', label: '제품별 예외', get: () => CUSTSPECS },
   { coll: 'standards', label: '제품표준서', get: () => STANDARDS },
-  { coll: 'productmap', label: '품목매핑', get: () => PRODUCTMAP },
+  { coll: 'productmap', label: '품목마스터', get: () => PRODUCTMAP },
   { coll: 'orders', label: '수주', get: () => ORDERS },
   { coll: 'plans', label: '생산계획', get: () => PLANS },
   { coll: 'records', label: '생산실적', get: () => RECORDS },
@@ -7246,8 +7325,11 @@ const XL_SHEETS = [
     ['coatingMin', '코팅 하한'], ['coatingMid', '코팅 중심'], ['coatingMax', '코팅 상한'],
     ['toner', '토너'], ['pouchType', '파우치'], ['inBoxSpec', 'In Box'], ['outBoxSpec', 'Out Box'], ['note', '비고'],
   ] },
-  { name: '품목 매핑', get: () => PRODUCTMAP, cols: [
-    ['customer', '업체명'], ['custCode', '고객사 외부품명/코드'], ['product', '내부 품명'], ['productCode', '내부 품번'], ['note', '비고'],
+  { name: '품목 마스터', get: () => PRODUCTMAP, cols: [
+    ['zone', '구분'], ['customer', '거래처'], ['custCode', '외부품명'], ['product', '내부품명'], ['productCode', '내부품번'],
+    ['brand', '브랜드'], ['unit', '기준단위'], ['color', '칼라'], ['baseType', '기재'], ['resinType', '수지'], ['pouchType', '파우치'],
+    ['length', '길이(M)'], ['coatingMin', '코팅량 하한'], ['coatingMid', '코팅량 중심'], ['coatingMax', '코팅량 상한'],
+    ['catalyst', '촉매'], ['core', '코어종류'], ['rule', '적용규칙'], ['part', '분류'], ['note', '비고'],
   ] },
   { name: '설비 일상점검', col: 'equipchecks', get: () => EQUIPCHECKS, dated: true, cols: [
     ['date', '점검일'], ['part', '공정'], ['machine', '호기'], ['checker', '점검자'],

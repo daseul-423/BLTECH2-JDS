@@ -54,7 +54,7 @@
       <div class="nav-sublabel">제품 · 설비 자료</div>
       <button class="nav-btn" data-page="companies">🏭 업체별 사양</button>
       <button class="nav-btn" data-page="standards">📦 제품표준서</button>
-      <button class="nav-btn" data-page="productmap">🔗 품목 매핑</button>
+      <button class="nav-btn" data-page="productmap">🔗 품목 마스터</button>
       <button class="nav-btn" data-page="equipment">📒 설비 대장</button>
       <div class="nav-sublabel">시스템 관리</div>
       <button class="nav-btn" data-page="masters">⚙️ 기준정보</button>
@@ -87,7 +87,7 @@
         <div class="hub-card admin" data-goto="logs"><div class="hub-ico">📋</div><h3>실적관리</h3><p>생산실적 조회·CSV, 실적·불량 분석, 대시보드.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="companies"><div class="hub-ico">🏭</div><h3>업체 정보</h3><p>업체별 컬러·수지·토너·특이사항.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="standards"><div class="hub-ico">📦</div><h3>제품표준서</h3><p>제품별 기재·수지·촉매·코어·규격.</p><span class="hub-open">열기 →</span></div>
-        <div class="hub-card admin" data-goto="productmap"><div class="hub-ico">🔗</div><h3>품목 매핑</h3><p>고객사 외부품명/코드 ↔ 내부 품명·품번.</p><span class="hub-open">열기 →</span></div>
+        <div class="hub-card admin" data-goto="productmap"><div class="hub-ico">🔗</div><h3>품목 마스터</h3><p>고객사 외부품명/코드 ↔ 내부 품명·품번 + 생산 스펙.</p><span class="hub-open">열기 →</span></div>
         <div class="hub-card admin" data-goto="equipment"><div class="hub-ico">📒</div><h3>설비 대장</h3><p>설비 목록 관리 + 점검·수리 이력.</p><span class="hub-open">열기 →</span></div>
       </div>
     </div>
@@ -315,20 +315,22 @@
     </div>
   </section>
 
-  <!-- 품목 매핑 (고객사 외부품명/코드 ↔ 내부 품명·품번, 공정 구분 없음) -->
+  <!-- 품목 마스터 (고객사 외부품명/코드 ↔ 내부 품명·품번 + 생산 스펙) -->
   <section id="page-productmap" class="page" hidden>
     <div class="page-head">
-      <h1>품목 매핑 <span class="muted" style="font-size:13px;font-weight:400">고객사 외부품명/코드 ↔ 내부 품명·품번 — 공정 구분 없이 통합 관리</span></h1>
+      <h1>품목 마스터 <span class="muted" style="font-size:13px;font-weight:400">거래처 외부품명/코드 ↔ 내부 품명·품번 + 생산 스펙</span></h1>
       <div class="head-actions">
-        <input type="text" id="pm-search" placeholder="업체명, 외부코드, 내부품명 검색">
-        <button class="btn" id="btn-pm-part" hidden>🏭 공정 지정</button>
+        <select id="pm-zone"><option value="">해외+국내</option><option value="해외">해외</option><option value="국내">국내</option></select>
+        <input type="text" id="pm-search" placeholder="업체명, 외부코드, 내부품명, 제품군 검색">
+        <button class="btn" id="btn-pm-part" hidden>📦 분류 지정</button>
         <button class="btn" id="btn-pm-note" hidden>🧹 비고 정리</button>
+        <button class="btn danger" id="btn-pm-delall" hidden>🗑 전체 삭제</button>
         <button class="btn" id="btn-import-productmap">📥 엑셀 업로드</button>
-        <button class="btn primary" id="btn-new-productmap">＋ 매핑 등록</button>
+        <button class="btn primary" id="btn-new-productmap">＋ 품목 등록</button>
       </div>
     </div>
     <div class="card">
-      <p class="muted" style="margin-bottom:10px">거래처마다 부르는 제품코드/이름이 다를 때, 여기에 등록해두면 <b>수주주문서 업로드 시 내부 품명으로 자동 연동</b>됩니다. 제품표준서(자재 기준)와는 별개의 자료입니다. 외부품명/코드는 비워둔 채 우선 등록하고 나중에 채울 수 있습니다 — 행을 클릭하면 수정 모달이 열립니다.</p>
+      <p class="muted" style="margin-bottom:10px">거래처마다 부르는 제품코드/이름이 다를 때, 여기에 등록해두면 <b>수주주문서 업로드 시 내부 품명으로 자동 연동</b>됩니다. 품목별 생산 스펙(기재·수지·코팅량·촉매·코어)도 함께 보관합니다. 행을 클릭하면 수정할 수 있습니다.</p>
       <p class="muted" id="pm-missing-sum" style="margin-bottom:10px"></p>
       <div class="table-wrap" id="productmap-table"></div>
     </div>
@@ -776,22 +778,40 @@
   </div>
 </div>
 
-<!-- 품목 매핑 등록/수정 -->
+<!-- 품목 마스터 등록/수정 -->
 <div class="modal-back" id="productmap-modal" hidden>
-  <div class="modal" style="max-width:560px">
+  <div class="modal" style="max-width:720px">
     <div class="modal-head">
-      <h2 id="productmap-modal-title">품목 매핑 등록</h2>
+      <h2 id="productmap-modal-title">품목 등록</h2>
       <button class="btn icon" id="productmap-modal-close">✕</button>
     </div>
     <form id="productmap-form">
+      <fieldset><legend>코드 매핑</legend>
       <div class="form-grid">
+        <label>구분<select name="zone"><option value="">—</option><option value="해외">해외</option><option value="국내">국내</option></select></label>
         <label>분류<input type="text" name="part" list="dl-pmcat2" placeholder="예: CAST / 배관 / 닐커버"></label>
         <label>업체명 *<input type="text" name="customer" list="dl-customers" required></label>
-        <label>고객사 외부품명/코드<input type="text" name="custCode" placeholder="거래처가 부르는 이름/코드 — 나중에 채워도 됨"></label>
+        <label>고객사 외부품명/코드<input type="text" name="custCode" placeholder="거래처가 부르는 이름/코드 — 국내는 비워도 됨"></label>
         <label>내부 품명 *<input type="text" name="product" list="dl-products" required></label>
         <label>내부 품번<input type="text" name="productCode"></label>
+        <label>브랜드<input type="text" name="brand" placeholder="NEAL / OEM / SMILE / 무지 …"></label>
+        <label>기준단위<input type="text" name="unit" placeholder="EA / SET / KG"></label>
+        <label>적용규칙(제품군)<input type="text" name="rule" placeholder="NAC-F / NHPS-F / PXRT-HN …"></label>
+      </div></fieldset>
+      <fieldset><legend>생산 스펙</legend>
+      <div class="form-grid">
+        <label>칼라<input type="text" name="color"></label>
+        <label>기재<input type="text" name="baseType" placeholder="68TEX / 50TEX / DTY …"></label>
+        <label>수지<input type="text" name="resinType" placeholder="NHR-4000 / ALPHA …"></label>
+        <label>파우치<input type="text" name="pouchType" placeholder="NEAL / 전용"></label>
+        <label>길이(M)<input type="number" step="0.01" name="length"></label>
+        <label>촉매<input type="number" step="0.001" name="catalyst"></label>
+        <label>코팅량 하한<input type="number" step="0.01" name="coatingMin"></label>
+        <label>코팅량 중심<input type="number" step="0.01" name="coatingMid"></label>
+        <label>코팅량 상한<input type="number" step="0.01" name="coatingMax"></label>
+        <label>코어종류<input type="text" name="core" placeholder="비즈앤몰드 / 건영 …"></label>
         <label class="wide">비고<input type="text" name="note"></label>
-      </div>
+      </div></fieldset>
       <div class="modal-foot">
         <button type="button" class="btn danger" id="productmap-delete" hidden>삭제</button>
         <span class="spacer"></span>
@@ -1180,11 +1200,11 @@
   </div>
 </div>
 
-<!-- 품목 매핑 공정 일괄 지정 -->
+<!-- 품목 마스터 분류 일괄 지정 -->
 <div class="modal-back" id="pmpart-modal" hidden>
   <div class="modal" style="max-width:900px">
     <div class="modal-head">
-      <h2>품목 매핑 — 분류 지정</h2>
+      <h2>품목 마스터 — 분류 지정</h2>
       <button class="btn icon" id="pmpart-close">✕</button>
     </div>
     <p class="muted" style="margin-bottom:12px">품목 매핑에는 공정 칸이 없어 한 덩어리로 나열됩니다.
